@@ -15,9 +15,11 @@
     "gen:protocol": "pnpm --filter @aegis/protocol generate",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "lint": "pnpm -r lint && pnpm --filter @aegis/extension check:no-network"
+    "lint": "eslint . && pnpm -r lint && pnpm --filter @aegis/extension check:no-network"
   },
   "devDependencies": {
-    "typescript": "^5.7.2"
+    "eslint": "^10.10.0",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.70.0"
   }
 }

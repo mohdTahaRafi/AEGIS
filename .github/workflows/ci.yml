@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# One pipeline covering both halves of the monorepo (architecture.md §13.4). The schema-drift
+# step is what makes "one contract" (CLAUDE.md §6) a fact rather than a hope: it regenerates
+# from packages/protocol/schema/ and fails if the committed generated output doesn't match.
+jobs:
+  js:
+    name: JS/TS — lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint (boundaries + no-network + package purity)
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      - name: Test
+        run: pnpm -r test
+
+      - name: Build — Chrome
+        run: pnpm --filter @aegis/extension build
+
+      - name: Build — Firefox
+        run: pnpm --filter @aegis/extension build:firefox
+
+  py:
+    name: Python — gateway contract tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          python-version: '3.12'
+
+      - name: Install gateway (with dev extras, incl. datamodel-code-generator)
+        working-directory: server/gateway
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Test
+        working-directory: server/gateway
+        run: python -m pytest -q
+
+  contract-drift:
+    name: Protocol schema drift check
+    runs-on: ubuntu-latest
+    needs: [js, py]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          python-version: '3.12'
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install gateway (for datamodel-codegen, used by the generator)
+        working-directory: server/gateway
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Regenerate protocol from schema
+        run: pnpm gen:protocol
+
+      - name: Fail if generated output is out of date with the committed schema
+        run: git diff --exit-code -- packages/protocol/src/generated server/gateway/src/aegis_gateway/protocol
+
+  canary:
+    name: Privacy regression — canary leak check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder — becomes a hard gate in Phase 5 (T-5.8)
+        run: |
+          echo "No fixture corpus and no egress guard exist yet (Phase 3/Phase 5)."
+          echo "This step is wired now so the workflow shape doesn't change later;"
+          echo "from Phase 5 onward, any canary string escaping into a captured"
+          echo "payload — JSON bytes or OCR of a sanitized image — fails this job."

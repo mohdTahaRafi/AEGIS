@@ -119,14 +119,22 @@ function generateValidators() {
     '// Standalone Ajv validators (no Ajv compiler shipped in the bundle).\n';
   writeFileSync(path.join(generatedDir, 'validators.js'), banner + moduleCode);
 
+  const errorType =
+    'export interface AjvErrorObject {\n' +
+    '  keyword: string;\n' +
+    '  instancePath: string;\n' +
+    '  message?: string;\n' +
+    '  params: Record<string, unknown>;\n' +
+    '}\n' +
+    'export type AjvValidateFunction = ((data: unknown) => boolean) & {\n' +
+    '  errors?: AjvErrorObject[] | null;\n' +
+    '};\n';
   const dtsLines = Object.keys(validatorIds).map(
-    (name) =>
-      `export declare const ${name}: ((data: unknown) => boolean) & ` +
-      `{ errors?: Array<{ instancePath: string; message?: string }> | null };`,
+    (name) => `export declare const ${name}: AjvValidateFunction;`,
   );
   writeFileSync(
     path.join(generatedDir, 'validators.d.ts'),
-    banner + dtsLines.join('\n') + '\n',
+    banner + errorType + dtsLines.join('\n') + '\n',
   );
 }
 
@@ -145,15 +153,19 @@ function esmifyRuntimeRequires(code: string): string {
   let n = 0;
   const withoutRequires = code.replace(pattern, (_match, varName, modPath) => {
     // These runtime helpers are TS-compiled CJS (`exports.default = fn`, __esModule flag set).
-    // Node's CJS→ESM interop for such modules has a documented quirk: when a named export
-    // literally called "default" is statically detected (as it is here), `ns.default` resolves
-    // to the *whole* module.exports object — not to `exports.default` — so the real function
-    // sits one level deeper, at `ns.default.default`. A plain `import fn from "...js"` or
-    // `import { default as fn }` both land on that wrapper object, not the function; verified
-    // empirically against this exact module rather than assumed.
+    // CJS→ESM interop for such a module is not consistent across runtimes: under native Node,
+    // a statically-detected named export literally called "default" makes `ns.default` resolve
+    // to the *whole* module.exports object, so the function sits one level deeper at
+    // `ns.default.default`; under Vite/esbuild's interop (which is what Vitest and the WXT
+    // extension build both use), `ns.default` is already the function itself and `.default.default`
+    // is undefined. Both were verified empirically against this exact module — this file has to
+    // load correctly under both, so it picks whichever shape is actually callable at runtime
+    // rather than assuming one.
     const ns = `__runtime_ns_${n++}`;
     imports.push(`import * as ${ns} from "${modPath}.js";`);
-    consts.push(`const ${varName} = ${ns}.default.default;`);
+    consts.push(
+      `const ${varName} = typeof ${ns}.default === 'function' ? ${ns}.default : ${ns}.default.default;`,
+    );
     return '';
   });
   if (imports.length === 0) return code;
@@ -177,12 +189,23 @@ function findDatamodelCodegen(): [string, ...string[]] {
   return ['datamodel-codegen'];
 }
 
+// datamodel-codegen names the root class from the schema's `title` when there is exactly one
+// root type in the file; for sanitized-context and action-plan that produces an awkward
+// title-derived name (SanitizedcontextSteprequest, ActionplanStepresponse) rather than matching
+// the TS side. `--class-name` overrides it. session.schema.json and error.schema.json need no
+// override — their $defs/title already produce SessionCreate/SessionCreated/ErrorResponse.
+const PYDANTIC_CLASS_NAME_OVERRIDE: Record<string, string> = {
+  'sanitized-context.schema.json': 'SanitizedContext',
+  'action-plan.schema.json': 'ActionPlan',
+};
+
 function generatePydanticModels() {
   mkdirSync(gatewayProtocolDir, { recursive: true });
   const runner = findDatamodelCodegen();
   const files = readdirSync(schemaDir).filter((f) => f.endsWith('.schema.json'));
   for (const file of files) {
     const outName = file.replace('.schema.json', '.py').replace(/-/g, '_');
+    const classNameOverride = PYDANTIC_CLASS_NAME_OVERRIDE[file];
     const args = [
       ...runner.slice(1),
       '--input', path.join(schemaDir, file),
@@ -194,6 +217,7 @@ function generatePydanticModels() {
       '--collapse-root-models',
       '--strict-nullable',
       '--target-python-version', '3.12',
+      ...(classNameOverride ? ['--class-name', classNameOverride] : []),
     ];
     try {
       execFileSync(runner[0], args, { stdio: 'inherit' });

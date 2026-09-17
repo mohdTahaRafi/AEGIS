@@ -11,7 +11,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.7"]
+# datamodel-code-generator is a codegen tool, not a gateway runtime dependency — it lives here
+# (rather than a repo-wide tool location) because packages/protocol/scripts/generate.ts's
+# findDatamodelCodegen() looks for it in this package's own .venv first (docs/CURRENT_BUILD.md).
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.7", "datamodel-code-generator>=0.82"]
 
 [build-system]
 requires = ["hatchling"]

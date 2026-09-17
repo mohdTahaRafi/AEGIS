@@ -305,7 +305,7 @@ class HistoryItem(BaseModel):
     outcome: constr(max_length=200)
 
 
-class SanitizedcontextSteprequest(BaseModel):
+class SanitizedContext(BaseModel):
     """
     design.md §4.3. Everything the client sends to the gateway for one step. No field in this schema may hold a URL, a CSS selector, an XPath, or a page origin — that is enforced structurally, not by convention.
     """

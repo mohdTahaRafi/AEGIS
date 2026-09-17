@@ -127,24 +127,30 @@ class Action1(BaseModel):
 
 
 class Action2(BaseModel):
+    """
+    type with a vault ref (OQ-1). Disjoint from the literal-text branch below — 'text' is deliberately not a declared property here, so a payload carrying both is rejected by additionalProperties:false rather than relying on an inner oneOf, which a JSON-Schema-to-Pydantic generator can silently flatten into two independently-optional fields (see Phase 1 Implementation Notes).
+    """
+
     model_config = ConfigDict(
         extra='forbid',
     )
     op: Literal['type']
     node: constr(pattern=r'^n-[0-9a-z]+$')
     ref: constr(pattern=r'^⟪[A-Z_]+#[0-9]+⟫$')
-    text: constr(max_length=500) | None = None
     clear_first: bool | None = None
     expect: Expect | None = None
 
 
 class Action3(BaseModel):
+    """
+    type with literal text (OQ-14). If OQ-14 is decided 'no', delete this branch entirely — a one-hunk change, as design.md §4.6 intends.
+    """
+
     model_config = ConfigDict(
         extra='forbid',
     )
     op: Literal['type']
     node: constr(pattern=r'^n-[0-9a-z]+$')
-    ref: constr(pattern=r'^⟪[A-Z_]+#[0-9]+⟫$') | None = None
     text: constr(max_length=500)
     clear_first: bool | None = None
     expect: Expect | None = None
@@ -259,7 +265,7 @@ class Action12(BaseModel):
     reason: Reason
 
 
-class ActionplanStepresponse(BaseModel):
+class ActionPlan(BaseModel):
     """
     design.md §4.5/§4.6. Also used as the vLLM structured-decoding grammar (Phase 2, T-2.36) — a hallucinated action is a parse error, not a click.
     """

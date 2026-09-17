@@ -10,44 +10,51 @@
     {
       "file": "violation/url-field.json",
       "schema": "sanitizedContext",
-      "field": "url",
-      "note": "additionalProperties:false rejects a url field at the payload root — no field may hold a URL (FR-32)."
+      "note": "additionalProperties:false rejects a url field at the payload root — no field may hold a URL (FR-32).",
+      "ajv": { "keyword": "additionalProperties", "instancePath": "", "additionalProperty": "url" },
+      "pydantic": { "type": "extra_forbidden", "locContains": "url" }
     },
     {
       "file": "violation/selector-node-id.json",
       "schema": "sanitizedContext",
-      "field": "id",
-      "note": "node id must match ^n-[0-9a-z]+$, never a CSS selector."
+      "note": "node id must match ^n-[0-9a-z]+$, never a CSS selector.",
+      "ajv": { "keyword": "pattern", "instancePath": "/nodes/0/id" },
+      "pydantic": { "type": "string_pattern_mismatch", "locContains": "id" }
     },
     {
       "file": "violation/presence-with-ref.json",
       "schema": "sanitizedContext",
-      "field": "ref",
-      "note": "a presence-only value (design.md value.kind='presence') must never carry a ref — nothing to resolve for PASSWORD/OTP/CARD_NUMBER/CARD_CVV/SECRET."
+      "note": "a presence-only value (value.kind='presence') must never carry a ref — nothing to resolve for PASSWORD/OTP/CARD_NUMBER/CARD_CVV/SECRET.",
+      "ajv": { "keyword": "additionalProperties", "instancePath": "/nodes/0/value", "additionalProperty": "ref" },
+      "pydantic": { "type": "extra_forbidden", "locContains": "ref" }
     },
     {
       "file": "violation/unknown-entity.json",
       "schema": "sanitizedContext",
-      "field": "entity",
-      "note": "entity must be in the closed enum (design.md §3.3); SSN is not an AEGIS entity type."
+      "note": "entity must be in the closed enum (design.md §3.3); SSN is not an AEGIS entity type.",
+      "ajv": { "keyword": "enum", "instancePath": "/redactions/0/entity" },
+      "pydantic": { "type": "enum", "locContains": "entity" }
     },
     {
       "file": "violation/invalid-op.json",
       "schema": "actionPlan",
-      "field": "op",
-      "note": "a hallucinated action is a parse error, not a click (FR-44)."
+      "note": "a hallucinated action is a parse error, not a click (FR-44).",
+      "ajv": { "keyword": "const", "instancePath": "/actions/0/op" },
+      "pydantic": { "type": "literal_error", "locContains": "op" }
     },
     {
       "file": "violation/too-many-actions.json",
       "schema": "actionPlan",
-      "field": "actions",
-      "note": "maxItems:5 on the actions array (design.md §4.6)."
+      "note": "maxItems:5 on the actions array (design.md §4.6).",
+      "ajv": { "keyword": "maxItems", "instancePath": "/actions" },
+      "pydantic": { "type": "too_long", "locContains": "actions" }
     },
     {
       "file": "violation/type-both-ref-and-text.json",
       "schema": "actionPlan",
-      "field": "op",
-      "note": "type must carry exactly one of ref/text (oneOf); carrying both matches neither branch exclusively."
+      "note": "type must carry exactly one of ref/text. Originally a single branch with an inner oneOf([required:ref],[required:text]) — found during Phase 1 implementation that datamodel-codegen flattens an inner oneOf into independently-optional fields, silently losing the mutual-exclusivity constraint Ajv enforces correctly (see Implementation Notes). Fixed by splitting into two disjoint top-level branches, each additionalProperties:false with only its own field declared.",
+      "ajv": { "keyword": "additionalProperties", "instancePath": "/actions/0", "additionalProperty": "text" },
+      "pydantic": { "type": "extra_forbidden", "locContains": "text" }
     }
   ]
 }

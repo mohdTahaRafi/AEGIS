@@ -7,21 +7,20 @@ export type Action =
       node: string;
       expect?: Expect;
     }
-  | ((
-      | {
-          [k: string]: unknown;
-        }
-      | {
-          [k: string]: unknown;
-        }
-    ) & {
+  | {
       op: 'type';
       node: string;
-      ref?: string;
-      text?: string;
+      ref: string;
       clear_first?: boolean;
       expect?: Expect;
-    })
+    }
+  | {
+      op: 'type';
+      node: string;
+      text: string;
+      clear_first?: boolean;
+      expect?: Expect;
+    }
   | {
       op: 'select';
       node: string;

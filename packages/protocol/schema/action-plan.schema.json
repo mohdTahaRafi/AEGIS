@@ -46,16 +46,25 @@
         },
         {
           "type": "object",
-          "required": ["op", "node"],
+          "required": ["op", "node", "ref"],
           "additionalProperties": false,
-          "oneOf": [
-            { "required": ["ref"] },
-            { "required": ["text"] }
-          ],
+          "description": "type with a vault ref (OQ-1). Disjoint from the literal-text branch below — 'text' is deliberately not a declared property here, so a payload carrying both is rejected by additionalProperties:false rather than relying on an inner oneOf, which a JSON-Schema-to-Pydantic generator can silently flatten into two independently-optional fields (see Phase 1 Implementation Notes).",
           "properties": {
             "op": { "const": "type" },
             "node": { "$ref": "common.schema.json#/$defs/nodeId" },
             "ref": { "$ref": "common.schema.json#/$defs/placeholderRef" },
+            "clear_first": { "type": "boolean" },
+            "expect": { "$ref": "#/$defs/expect" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "node", "text"],
+          "additionalProperties": false,
+          "description": "type with literal text (OQ-14). If OQ-14 is decided 'no', delete this branch entirely — a one-hunk change, as design.md §4.6 intends.",
+          "properties": {
+            "op": { "const": "type" },
+            "node": { "$ref": "common.schema.json#/$defs/nodeId" },
             "text": { "type": "string", "maxLength": 500 },
             "clear_first": { "type": "boolean" },
             "expect": { "$ref": "#/$defs/expect" }
