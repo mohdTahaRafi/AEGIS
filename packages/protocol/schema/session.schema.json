@@ -1,0 +1,58 @@
+{
+  "$id": "https://aegis.local/schema/session.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionCreate / SessionCreated",
+  "description": "design.md §4.2. SessionCreate carries client capabilities only — no field here is capable of holding page content.",
+  "$defs": {
+    "sessionCreate": {
+      "type": "object",
+      "required": ["schema", "client"],
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "const": "AEGIS/1" },
+        "client": {
+          "type": "object",
+          "required": ["browser", "extension_version", "backend", "detectors", "policy", "capabilities"],
+          "additionalProperties": false,
+          "properties": {
+            "browser": { "enum": ["chrome", "firefox"] },
+            "extension_version": { "type": "string", "maxLength": 20 },
+            "backend": { "enum": ["webgpu", "wasm"] },
+            "detectors": {
+              "type": "object",
+              "additionalProperties": { "type": "string", "maxLength": 60 }
+            },
+            "policy": { "type": "string", "maxLength": 60 },
+            "capabilities": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "l1_image": { "type": "boolean" },
+                "l2_crop": { "type": "boolean" },
+                "click_point": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "sessionCreated": {
+      "type": "object",
+      "required": ["session_id", "model", "limits"],
+      "additionalProperties": false,
+      "properties": {
+        "session_id": { "$ref": "common.schema.json#/$defs/sessionId" },
+        "model": { "type": "string", "maxLength": 80 },
+        "limits": {
+          "type": "object",
+          "required": ["max_steps", "max_image_px"],
+          "additionalProperties": false,
+          "properties": {
+            "max_steps": { "type": "integer", "minimum": 1 },
+            "max_image_px": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    }
+  }
+}

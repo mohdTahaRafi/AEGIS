@@ -1,0 +1,27 @@
+{
+  "$id": "https://aegis.local/schema/error.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ErrorResponse",
+  "description": "design.md §4.7.",
+  "type": "object",
+  "required": ["error"],
+  "additionalProperties": false,
+  "properties": {
+    "error": {
+      "type": "object",
+      "required": ["code", "message", "request_id", "retryable"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "SCHEMA_INVALID", "UNAUTHORIZED", "SESSION_NOT_FOUND", "STEP_OUT_OF_ORDER",
+            "PAYLOAD_TOO_LARGE", "PLAN_INVALID", "RATE_LIMITED", "MODEL_UNAVAILABLE", "MODEL_TIMEOUT"
+          ]
+        },
+        "message": { "type": "string", "maxLength": 500 },
+        "request_id": { "type": "string", "maxLength": 64 },
+        "retryable": { "type": "boolean" }
+      }
+    }
+  }
+}

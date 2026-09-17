@@ -9,8 +9,10 @@ import type {
   ToWorker,
 } from '../shared/spike';
 
-// Nothing is ever fetched from a CDN or the Hugging Face Hub at runtime (FR-13).
-ort.env.wasm.wasmPaths = new URL('/ort/', import.meta.url).href;
+// Left unset deliberately: Vite bundles onnxruntime-web's own WASM binaries as build assets
+// resolved from this module's URL, so they are already extension-local. Nothing is fetched from
+// a CDN or the Hugging Face Hub at runtime (FR-13) — verified in the Phase-0 build output.
+ort.env.allowLocalModels = true;
 
 const ADAPTER_TIMEOUT_MS = 1500;
 
@@ -84,10 +86,16 @@ function probeWasm(): BackendProbe {
   };
 }
 
-function percentile(sorted: number[], p: number): number {
+function at(sorted: readonly number[], idx: number): number {
+  const v = sorted[idx];
+  if (v === undefined) throw new Error('percentile index out of range on an empty sample');
+  return v;
+}
+
+function percentile(sorted: readonly number[], p: number): number {
   if (sorted.length === 0) return NaN;
   const idx = Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1);
-  return sorted[Math.max(0, idx)];
+  return at(sorted, Math.max(0, idx));
 }
 
 async function bench(backend: Backend, modelUrl: string, model: string, runs: number): Promise<BenchResult> {
@@ -99,6 +107,7 @@ async function bench(backend: Backend, modelUrl: string, model: string, runs: nu
   const loadMs = performance.now() - loadStart;
 
   const inputName = session.inputNames[0];
+  if (!inputName) throw new Error('model exposes no input names');
   const meta = session.inputMetadata?.[0] as { dimensions?: readonly (number | string)[] } | undefined;
   // Unknown or symbolic dimensions fall back to the model's documented input size.
   const shape = (meta?.dimensions ?? [1, 3, 320, 320]).map((d) =>
@@ -132,8 +141,8 @@ async function bench(backend: Backend, modelUrl: string, model: string, runs: nu
     loadMs,
     p50Ms: percentile(sorted, 50),
     p95Ms: percentile(sorted, 95),
-    minMs: sorted[0],
-    maxMs: sorted[sorted.length - 1],
+    minMs: at(sorted, 0),
+    maxMs: at(sorted, sorted.length - 1),
     inputShape: resolved,
   };
 }

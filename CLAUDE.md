@@ -31,7 +31,8 @@ or `[OQ-n]` (open question) the way those docs do, and record it in [docs/HISTOR
 | Document | Purpose |
 |---|---|
 | [docs/FEATURES.md](docs/FEATURES.md) | Every feature that must be built, with ID, phase, tier and traceability to FR/NFR |
-| [docs/PLAN.md](docs/PLAN.md) | Phased implementation plan, phase gates, cut order |
+| [docs/PLAN.md](docs/PLAN.md) | Phased implementation plan, phase gates, cut order — the one-page view |
+| [docs/planning/](docs/planning/) | **One detailed execution document per phase.** Implement from these: exact schemas, algorithms, task tables with acceptance criteria, milestone definitions |
 | [docs/TASKS.md](docs/TASKS.md) | Actionable task board per phase, with checkboxes and status |
 | [docs/CURRENT_BUILD.md](docs/CURRENT_BUILD.md) | What exists right now: phase, components, how to run, known gaps |
 | [docs/HISTORY.md](docs/HISTORY.md) | Append-only log of every change, decision and measurement |
@@ -43,6 +44,13 @@ or `[OQ-n]` (open question) the way those docs do, and record it in [docs/HISTOR
 Work only on the **current phase** named in [docs/CURRENT_BUILD.md](docs/CURRENT_BUILD.md).
 Do not start Phase N+1 work until the Phase N exit gate in [docs/PLAN.md](docs/PLAN.md) passes.
 If a task seems to need a later-phase feature, stub it and note the dependency in TASKS.md.
+
+**Before implementing anything, read that phase's document in
+[docs/planning/](docs/planning/).** It carries the detail PLAN.md does not: what already exists
+(verified in source), the exact schemas and algorithms, the task table with acceptance criteria,
+and the "Forward Dependencies Declared Here" section that tells you what is deliberately left
+unfinished and which phase finishes it. When implementation reveals the document was wrong, record
+the deviation in its *Implementation Notes* section rather than letting doc and code drift apart.
 
 ### 2. Maintain the docs every time
 After any unit of work, in the same turn:

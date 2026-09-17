@@ -1,0 +1,31 @@
+# NOTICE — Third-party models and libraries
+
+AEGIS bundles or depends on the following third-party components. Each ships with its own licence;
+nothing here is redistributed under the MIT licence in LICENSE.
+
+## Models
+
+| Model | Licence | Source | Used for |
+|---|---|---|---|
+| YuNet face detector (`face_detection_yunet_2023mar.onnx`) | MIT (Shiqi Yu) | [opencv/opencv_zoo](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) | Face detection (design.md §6.4, F-C04). Fetched and sha256-verified by `apps/extension/scripts/fetch-models.ts`; see `apps/extension/public/models/models.manifest.json`. |
+
+Models to be added as later phases land (architecture.md §6.3), each recorded here on arrival:
+- CLIP-family zero-shot ViT image encoder (Phase 4, F-C05)
+- PP-OCRv5 mobile detector + recognizer (Phase 6, F-C07)
+- PII token classifier, profile S (Phase 3, F-C09)
+- OpenAI Privacy Filter, profile L, optional (Phase 6, F-C09)
+- Qwen3-VL-8B-Instruct or equivalent, server-side only, not bundled (Phase 2, F-I05)
+
+## Key libraries
+
+| Library | Licence | Used for |
+|---|---|---|
+| ONNX Runtime Web | MIT | On-device inference (WebGPU / WASM) |
+| Preact | MIT | Panel UI |
+| WXT | MIT | Cross-browser extension build |
+| FastAPI | MIT | Agent Gateway |
+| Pydantic | MIT | Protocol validation (server side) |
+| vLLM | Apache-2.0 | Model serving (server side) |
+
+Full dependency licences are also available via each package's own `package.json` /
+`pyproject.toml` and the resolved lockfiles (`pnpm-lock.yaml`, `uv.lock`).

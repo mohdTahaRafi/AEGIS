@@ -7,9 +7,12 @@ Claude Code users: [CLAUDE.md](CLAUDE.md) is the same contract with tool-specifi
 
 1. **[docs/CURRENT_BUILD.md](docs/CURRENT_BUILD.md)** — what exists, what phase we are in, what runs.
 2. **[docs/PLAN.md](docs/PLAN.md)** — the phase you are allowed to work in and its exit gate.
-3. **[docs/TASKS.md](docs/TASKS.md)** — the specific task to pick up.
-4. **[docs/FEATURES.md](docs/FEATURES.md)** — what the feature must do and what it traces to.
-5. **Requirement docs** — the authority when anything is ambiguous:
+3. **[docs/planning/](docs/planning/)** — that phase's execution document. Read it before writing
+   code: it carries the schemas, the algorithms, the acceptance criteria and the list of what is
+   deliberately left for a later phase.
+4. **[docs/TASKS.md](docs/TASKS.md)** — the specific task to pick up.
+5. **[docs/FEATURES.md](docs/FEATURES.md)** — what the feature must do and what it traces to.
+6. **Requirement docs** — the authority when anything is ambiguous:
    - [product-requirements.md](docs/product-requirements.md)
    - [architecture.md](docs/architecture.md)
    - [design.md](docs/design.md)

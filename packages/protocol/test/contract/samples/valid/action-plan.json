@@ -1,0 +1,20 @@
+{
+  "step_id": "s-14",
+  "plan_id": "p-9",
+  "actions": [
+    {
+      "op": "type",
+      "node": "n-7f",
+      "ref": "⟪AADHAAR#2⟫",
+      "expect": { "role": "textbox", "name": "Aadhaar number", "box_tolerance_px": 8 }
+    },
+    {
+      "op": "click",
+      "node": "n-81",
+      "expect": { "role": "button", "name": "Sign in", "box_tolerance_px": 8 }
+    }
+  ],
+  "risk_hint": "high",
+  "stop_if": ["navigation_to_other_origin", "captcha_detected"],
+  "note": "Fill Aadhaar from the on-screen value and sign in"
+}

@@ -1,10 +1,8 @@
 {
-  "extends": "../../tsconfig.base.json",
+  "extends": "./.wxt/tsconfig.json",
   "compilerOptions": {
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
-    "types": ["vite/client"],
-    "noEmit": true
-  },
-  "include": ["entrypoints", "src", "scripts", "test", ".wxt/wxt.d.ts"]
+    "types": ["@webgpu/types"]
+  }
 }

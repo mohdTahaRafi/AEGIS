@@ -1,0 +1,6 @@
+{
+  "step_id": "s-14",
+  "actions": [
+    { "op": "delete_everything", "node": "n-7f" }
+  ]
+}

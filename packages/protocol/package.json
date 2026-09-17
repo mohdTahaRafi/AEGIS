@@ -12,6 +12,9 @@
     "lint": "echo 'no lint rules yet — Phase 1'"
   },
   "devDependencies": {
+    "@types/node": "^22.10.0",
+    "ajv": "^8.20.0",
+    "json-schema-to-typescript": "^16.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^5.0.1"

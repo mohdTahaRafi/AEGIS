@@ -1,0 +1,244 @@
+{
+  "$id": "https://aegis.local/schema/sanitized-context.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SanitizedContext (StepRequest)",
+  "description": "design.md §4.3. Everything the client sends to the gateway for one step. No field in this schema may hold a URL, a CSS selector, an XPath, or a page origin — that is enforced structurally, not by convention.",
+  "type": "object",
+  "required": ["schema", "step_id", "task", "reason", "viewport", "page", "nodes", "text", "redactions", "unexplained", "coverage", "history", "client_timing"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "AEGIS/1" },
+    "step_id": { "$ref": "common.schema.json#/$defs/stepId" },
+    "task": { "type": "string", "maxLength": 2000, "description": "Sanitized task text (Channel T + placeholder substitution already applied)." },
+    "reason": { "enum": ["initial", "after_action", "requested", "reconcile"] },
+    "delta_of": {
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/stepId" },
+        { "type": "null" }
+      ]
+    },
+    "viewport": {
+      "type": "object",
+      "required": ["w", "h", "dpr", "scroll_y", "doc_h"],
+      "additionalProperties": false,
+      "properties": {
+        "w": { "type": "number", "minimum": 0 },
+        "h": { "type": "number", "minimum": 0 },
+        "dpr": { "type": "number", "minimum": 0 },
+        "scroll_y": { "type": "number" },
+        "doc_h": { "type": "number", "minimum": 0 }
+      }
+    },
+    "page": {
+      "type": "object",
+      "required": ["category", "title"],
+      "additionalProperties": false,
+      "description": "OQ-11 default: category only, never an origin or URL.",
+      "properties": {
+        "category": { "enum": ["gov", "banking", "email", "social", "health", "docs", "canvas_app", "unknown"] },
+        "title": { "type": "string", "maxLength": 200, "description": "Sanitized page title." }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/sanitizedNode" }
+    },
+    "removed": {
+      "type": "array",
+      "items": { "$ref": "common.schema.json#/$defs/nodeId" },
+      "description": "Delta only: node ids no longer present."
+    },
+    "text": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/sanitizedTextRun" }
+    },
+    "redactions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/redactionLegendEntry" }
+    },
+    "unexplained": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["box", "reason", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "box": { "$ref": "common.schema.json#/$defs/box" },
+          "reason": { "enum": ["canvas", "img", "video", "iframe-blocked", "svg-text", "embed", "other"] },
+          "status": { "enum": ["grey", "analysed"] }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["cleared", "redacted", "unanalysed"],
+      "additionalProperties": false,
+      "properties": {
+        "cleared": { "type": "number", "minimum": 0, "maximum": 1 },
+        "redacted": { "type": "number", "minimum": 0, "maximum": 1 },
+        "unanalysed": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "image": {
+      "oneOf": [
+        { "$ref": "#/$defs/imagePart" },
+        { "type": "null" }
+      ]
+    },
+    "history": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["step_id", "actions", "outcome"],
+        "additionalProperties": false,
+        "properties": {
+          "step_id": { "$ref": "common.schema.json#/$defs/stepId" },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["op"],
+              "additionalProperties": true,
+              "properties": { "op": { "type": "string" } }
+            }
+          },
+          "outcome": { "type": "string", "maxLength": 200 }
+        }
+      }
+    },
+    "client_timing": {
+      "type": "object",
+      "additionalProperties": { "type": "number", "minimum": 0 }
+    }
+  },
+  "$defs": {
+    "nodeValue": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": { "kind": { "const": "empty" } }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "entity", "len"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "presence" },
+            "entity": { "$ref": "common.schema.json#/$defs/entityType" },
+            "len": { "type": "integer", "minimum": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "ref", "entity", "len"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "placeholder" },
+            "ref": { "$ref": "common.schema.json#/$defs/placeholderRef" },
+            "entity": { "$ref": "common.schema.json#/$defs/entityType" },
+            "len": { "type": "integer", "minimum": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "text"],
+          "additionalProperties": false,
+          "description": "Only for LOW-class or non-sensitive values that passed analysis.",
+          "properties": {
+            "kind": { "const": "text" },
+            "text": { "type": "string", "maxLength": 500 }
+          }
+        }
+      ]
+    },
+    "sanitizedNode": {
+      "type": "object",
+      "required": ["id", "role", "name", "box", "frame", "z", "state", "affordances"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/nodeId" },
+        "role": { "type": "string", "maxLength": 40 },
+        "name": { "type": "string", "maxLength": 200 },
+        "box": { "$ref": "common.schema.json#/$defs/box" },
+        "frame": { "$ref": "common.schema.json#/$defs/frameId" },
+        "z": { "type": "integer" },
+        "state": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "focused": { "type": "boolean" },
+            "disabled": { "type": "boolean" },
+            "readonly": { "type": "boolean" },
+            "required": { "type": "boolean" },
+            "checked": { "type": "boolean" },
+            "expanded": { "type": "boolean" },
+            "selected": { "type": "boolean" },
+            "has_value": { "type": "boolean" },
+            "value_len": { "type": "integer", "minimum": 0 },
+            "occluded": { "type": "boolean" },
+            "volatile": { "type": "boolean" }
+          }
+        },
+        "affordances": {
+          "type": "array",
+          "items": { "enum": ["click", "type", "select", "toggle", "scroll"] }
+        },
+        "value": { "$ref": "#/$defs/nodeValue" }
+      }
+    },
+    "sanitizedTextRun": {
+      "type": "object",
+      "required": ["id", "box", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/textRunId" },
+        "box": { "$ref": "common.schema.json#/$defs/box" },
+        "text": { "type": "string", "maxLength": 4000, "description": "Sanitized — placeholders already substituted." }
+      }
+    },
+    "redactionLegendEntry": {
+      "type": "object",
+      "required": ["entity", "class", "boxes", "method", "confidence", "sources", "unverified"],
+      "additionalProperties": false,
+      "properties": {
+        "ref": {
+          "oneOf": [
+            { "$ref": "common.schema.json#/$defs/placeholderRef" },
+            { "type": "null" }
+          ]
+        },
+        "entity": { "$ref": "common.schema.json#/$defs/entityType" },
+        "class": { "$ref": "common.schema.json#/$defs/sensitivity" },
+        "len": { "type": "integer", "minimum": 0 },
+        "boxes": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/box" }
+        },
+        "method": { "enum": ["placeholder", "fill"] },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "sources": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 60 }
+        },
+        "unverified": { "type": "boolean" }
+      }
+    },
+    "imagePart": {
+      "type": "object",
+      "required": ["level", "region", "scale", "format", "sha256", "data", "legend"],
+      "additionalProperties": false,
+      "properties": {
+        "level": { "enum": ["L1", "L2"] },
+        "region": { "$ref": "common.schema.json#/$defs/box" },
+        "scale": { "type": "number", "minimum": 0 },
+        "format": { "const": "image/webp" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "data": { "type": "string", "contentEncoding": "base64" },
+        "legend": { "type": "string", "maxLength": 300 }
+      }
+    }
+  }
+}

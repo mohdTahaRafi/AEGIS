@@ -10,10 +10,13 @@ const crossOriginIsolation = {
 export default defineConfig({
   srcDir: '.',
   outDir: '.output',
-  manifest: ({ browser, manifestVersion }) => ({
+  // Manifest V3 on both browsers (architecture.md §10.3). WXT's `sidepanel` entrypoint maps
+  // itself to Chrome `side_panel` / Firefox `sidebar_action`; no manual wiring needed.
+  manifestVersion: 3,
+  manifest: ({ browser }) => ({
     name: 'AEGIS',
     description: 'Privacy-preserving browser agent with on-device visual perception',
-    permissions: ['scripting', 'tabs', 'storage', ...(browser === 'chrome' ? ['sidePanel'] : [])],
+    permissions: ['scripting', 'tabs', 'storage'],
     optional_host_permissions: ['<all_urls>'],
     content_security_policy: {
       extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'",
@@ -22,11 +25,11 @@ export default defineConfig({
     ...(browser === 'firefox'
       ? { browser_specific_settings: { gecko: { id: 'aegis@sih26171.local' } } }
       : {}),
-    ...(manifestVersion === 3 ? {} : {}),
   }),
+  // Pre-submission / unpacked-only builds during SIH; store data-collection disclosure is
+  // out of scope unless the team decides to publish (README.md "Store publication").
+  suppressWarnings: { firefoxDataCollection: true },
   vite: () => ({
-    // ONNX Runtime Web ships its own WASM binaries; they are copied into public/ort by
-    // scripts/fetch-models.ts and referenced by extension URL, never fetched from a CDN.
     optimizeDeps: { exclude: ['onnxruntime-web'] },
   }),
 });

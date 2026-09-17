@@ -1,0 +1,29 @@
+{
+  "schema": "AEGIS/1",
+  "step_id": "s-14",
+  "task": "log in and submit the form",
+  "reason": "initial",
+  "delta_of": null,
+  "viewport": { "w": 1280, "h": 720, "dpr": 1.5, "scroll_y": 1180, "doc_h": 6400 },
+  "page": { "category": "banking", "title": "Profile" },
+  "nodes": [],
+  "text": [],
+  "redactions": [
+    {
+      "ref": "⟪SSN#1⟫",
+      "entity": "SSN",
+      "class": "CRITICAL",
+      "len": 9,
+      "boxes": [[10, 10, 100, 20]],
+      "method": "placeholder",
+      "confidence": 0.9,
+      "sources": ["pattern:ssn"],
+      "unverified": false
+    }
+  ],
+  "unexplained": [],
+  "coverage": { "cleared": 1, "redacted": 0, "unanalysed": 0 },
+  "image": null,
+  "history": [],
+  "client_timing": {}
+}

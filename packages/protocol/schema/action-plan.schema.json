@@ -1,0 +1,157 @@
+{
+  "$id": "https://aegis.local/schema/action-plan.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ActionPlan (StepResponse)",
+  "description": "design.md §4.5/§4.6. Also used as the vLLM structured-decoding grammar (Phase 2, T-2.36) — a hallucinated action is a parse error, not a click.",
+  "type": "object",
+  "required": ["step_id", "actions"],
+  "additionalProperties": false,
+  "properties": {
+    "step_id": { "$ref": "common.schema.json#/$defs/stepId" },
+    "plan_id": { "type": "string", "maxLength": 40 },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": { "$ref": "#/$defs/action" }
+    },
+    "risk_hint": { "enum": ["low", "medium", "high"] },
+    "stop_if": {
+      "type": "array",
+      "items": { "enum": ["navigation_to_other_origin", "captcha_detected", "form_error_shown"] }
+    },
+    "note": { "type": "string", "maxLength": 200 }
+  },
+  "$defs": {
+    "expect": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "role": { "type": "string", "maxLength": 40 },
+        "name": { "type": "string", "maxLength": 120 },
+        "box_tolerance_px": { "type": "integer", "minimum": 0, "maximum": 64 }
+      }
+    },
+    "action": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["op", "node"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "click" },
+            "node": { "$ref": "common.schema.json#/$defs/nodeId" },
+            "expect": { "$ref": "#/$defs/expect" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "node"],
+          "additionalProperties": false,
+          "oneOf": [
+            { "required": ["ref"] },
+            { "required": ["text"] }
+          ],
+          "properties": {
+            "op": { "const": "type" },
+            "node": { "$ref": "common.schema.json#/$defs/nodeId" },
+            "ref": { "$ref": "common.schema.json#/$defs/placeholderRef" },
+            "text": { "type": "string", "maxLength": 500 },
+            "clear_first": { "type": "boolean" },
+            "expect": { "$ref": "#/$defs/expect" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "node", "option"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "select" },
+            "node": { "$ref": "common.schema.json#/$defs/nodeId" },
+            "option": { "type": "string", "maxLength": 200 },
+            "expect": { "$ref": "#/$defs/expect" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "direction"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "scroll" },
+            "direction": { "enum": ["up", "down", "left", "right"] },
+            "amount": { "enum": ["small", "page", "end"] },
+            "node": { "$ref": "common.schema.json#/$defs/nodeId" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "ms"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "wait" },
+            "ms": { "type": "integer", "minimum": 50, "maximum": 5000 }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "x", "y", "label"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "click_point" },
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "label": { "type": "string", "maxLength": 80 }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "level"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "request_observation" },
+            "level": { "enum": ["L1", "L2"] },
+            "region": { "$ref": "common.schema.json#/$defs/box" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "content"],
+          "additionalProperties": false,
+          "description": "content may carry placeholders; the panel resolves them locally for display only, never re-sends them resolved.",
+          "properties": {
+            "op": { "const": "report" },
+            "title": { "type": "string", "maxLength": 80 },
+            "content": { "type": "string", "maxLength": 4000 }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "question"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "ask_user" },
+            "question": { "type": "string", "maxLength": 300 }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "done" },
+            "summary": { "type": "string", "maxLength": 300 }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "reason"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "stop" },
+            "reason": { "enum": ["captcha", "blocked", "cannot_proceed", "unsafe"] }
+          }
+        }
+      ]
+    }
+  }
+}

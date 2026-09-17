@@ -6,8 +6,13 @@ export default defineBackground(() => {
       ?.setPanelBehavior({ openPanelOnActionClick: true })
       .catch((err: unknown) => console.error('[aegis] sidePanel behavior', err));
   } else {
-    browser.action?.onClicked.addListener(() => {
-      browser.sidebarAction?.toggle();
+    // sidebarAction is Firefox-only and not part of WXT's cross-browser type surface.
+    const firefoxBrowser = browser as unknown as {
+      action?: { onClicked: { addListener(cb: () => void): void } };
+      sidebarAction?: { toggle(): void };
+    };
+    firefoxBrowser.action?.onClicked.addListener(() => {
+      firefoxBrowser.sidebarAction?.toggle();
     });
   }
 });

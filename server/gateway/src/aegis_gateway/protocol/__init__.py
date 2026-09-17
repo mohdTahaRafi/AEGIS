@@ -1,1 +1,1 @@
-"""Phase 2 scaffold — see docs/TASKS.md."""
+"""GENERATED — do not hand-edit. Run `pnpm gen:protocol` to regenerate."""

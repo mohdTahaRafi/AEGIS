@@ -1,0 +1,17 @@
+{
+  "schema": "AEGIS/1",
+  "client": {
+    "browser": "chrome",
+    "extension_version": "0.1.0",
+    "backend": "webgpu",
+    "detectors": {
+      "face": "yunet-2023mar",
+      "vit": "clip-vit-b32",
+      "ocr_det": "ppocrv5-mobile-det",
+      "ocr_rec": "ppocrv5-mobile-rec",
+      "ner": "profile-s-v1"
+    },
+    "policy": "default@2026.09.1",
+    "capabilities": { "l1_image": true, "l2_crop": true, "click_point": true }
+  }
+}

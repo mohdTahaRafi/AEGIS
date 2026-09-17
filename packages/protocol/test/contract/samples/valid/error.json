@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "PLAN_INVALID",
+    "message": "nodes[3].value.kind must be one of empty, presence, placeholder, text",
+    "request_id": "8e2f1a90-1111-4a2b-9c3d-abcdef012345",
+    "retryable": false
+  }
+}

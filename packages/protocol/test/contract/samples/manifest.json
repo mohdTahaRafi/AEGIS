@@ -1,0 +1,53 @@
+{
+  "valid": [
+    { "file": "valid/sanitized-context.json", "schema": "sanitizedContext" },
+    { "file": "valid/action-plan.json", "schema": "actionPlan" },
+    { "file": "valid/session-create.json", "schema": "sessionCreate" },
+    { "file": "valid/session-created.json", "schema": "sessionCreated" },
+    { "file": "valid/error.json", "schema": "errorResponse" }
+  ],
+  "violation": [
+    {
+      "file": "violation/url-field.json",
+      "schema": "sanitizedContext",
+      "field": "url",
+      "note": "additionalProperties:false rejects a url field at the payload root — no field may hold a URL (FR-32)."
+    },
+    {
+      "file": "violation/selector-node-id.json",
+      "schema": "sanitizedContext",
+      "field": "id",
+      "note": "node id must match ^n-[0-9a-z]+$, never a CSS selector."
+    },
+    {
+      "file": "violation/presence-with-ref.json",
+      "schema": "sanitizedContext",
+      "field": "ref",
+      "note": "a presence-only value (design.md value.kind='presence') must never carry a ref — nothing to resolve for PASSWORD/OTP/CARD_NUMBER/CARD_CVV/SECRET."
+    },
+    {
+      "file": "violation/unknown-entity.json",
+      "schema": "sanitizedContext",
+      "field": "entity",
+      "note": "entity must be in the closed enum (design.md §3.3); SSN is not an AEGIS entity type."
+    },
+    {
+      "file": "violation/invalid-op.json",
+      "schema": "actionPlan",
+      "field": "op",
+      "note": "a hallucinated action is a parse error, not a click (FR-44)."
+    },
+    {
+      "file": "violation/too-many-actions.json",
+      "schema": "actionPlan",
+      "field": "actions",
+      "note": "maxItems:5 on the actions array (design.md §4.6)."
+    },
+    {
+      "file": "violation/type-both-ref-and-text.json",
+      "schema": "actionPlan",
+      "field": "op",
+      "note": "type must carry exactly one of ref/text (oneOf); carrying both matches neither branch exclusively."
+    }
+  ]
+}

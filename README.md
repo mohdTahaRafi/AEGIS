@@ -13,9 +13,12 @@ The server can be assumed hostile and the user's sensitive values still never le
 
 ## Status
 
-**Phase 0 — spike and foundations. Documentation only; no code yet.**
-No metric has been measured. Every number in the documents is a target, not a result.
-See [docs/CURRENT_BUILD.md](docs/CURRENT_BUILD.md).
+**Phase 0 — spike and foundations.** Monorepo scaffolded; the extension builds clean for Chrome
+and Firefox (MV3) with a throwaway spike UI for the WebGPU/WASM go/no-go measurement; the gateway
+has a passing health check. No product feature exists yet, and the spike has not been run in a
+real browser on real hardware — see [docs/CURRENT_BUILD.md](docs/CURRENT_BUILD.md) for exactly
+what is and isn't verified. No metric has been measured. Every number in the documents is a
+target, not a result.
 
 ## Documentation
 
@@ -24,6 +27,7 @@ See [docs/CURRENT_BUILD.md](docs/CURRENT_BUILD.md).
 | [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md) | How to work in this repo; the invariants that cannot be suspended |
 | [docs/CURRENT_BUILD.md](docs/CURRENT_BUILD.md) | What exists right now and how to run it |
 | [docs/PLAN.md](docs/PLAN.md) | The 8 phases and their exit gates |
+| [docs/planning/](docs/planning/) | One detailed execution document per phase — implement from these |
 | [docs/FEATURES.md](docs/FEATURES.md) | All 105 features, traced to requirements |
 | [docs/TASKS.md](docs/TASKS.md) | The task board |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Open questions and their resolution status |

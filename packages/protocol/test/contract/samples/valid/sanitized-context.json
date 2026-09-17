@@ -1,0 +1,79 @@
+{
+  "schema": "AEGIS/1",
+  "step_id": "s-14",
+  "task": "log in and submit the form",
+  "reason": "initial",
+  "delta_of": null,
+  "viewport": { "w": 1280, "h": 720, "dpr": 1.5, "scroll_y": 1180, "doc_h": 6400 },
+  "page": { "category": "banking", "title": "⟪PERSON_NAME#3⟫ — Profile" },
+  "nodes": [
+    {
+      "id": "n-7f",
+      "role": "textbox",
+      "name": "Aadhaar number",
+      "box": [220, 418, 340, 40],
+      "frame": "f-0",
+      "z": 3,
+      "state": { "focused": false, "disabled": false, "required": true, "has_value": false },
+      "affordances": ["click", "type"],
+      "value": { "kind": "empty" }
+    },
+    {
+      "id": "n-80",
+      "role": "textbox",
+      "name": "Password",
+      "box": [220, 470, 340, 40],
+      "frame": "f-0",
+      "z": 3,
+      "state": { "focused": false, "disabled": false, "required": true, "has_value": true },
+      "affordances": ["click", "type"],
+      "value": { "kind": "presence", "entity": "PASSWORD", "len": 9 }
+    },
+    {
+      "id": "n-81",
+      "role": "button",
+      "name": "Sign in",
+      "box": [220, 530, 120, 36],
+      "frame": "f-0",
+      "z": 3,
+      "state": { "disabled": false },
+      "affordances": ["click"]
+    }
+  ],
+  "removed": ["n-5a"],
+  "text": [
+    { "id": "t-11", "box": [220, 300, 600, 24], "text": "Aadhaar on record: ⟪AADHAAR#2⟫" }
+  ],
+  "redactions": [
+    {
+      "ref": "⟪AADHAAR#2⟫",
+      "entity": "AADHAAR",
+      "class": "CRITICAL",
+      "len": 12,
+      "boxes": [[372, 300, 140, 24]],
+      "method": "placeholder",
+      "confidence": 1.0,
+      "sources": ["pattern:aadhaar+verhoeff", "context:label"],
+      "unverified": false
+    },
+    {
+      "ref": null,
+      "entity": "FACE",
+      "class": "CRITICAL",
+      "boxes": [[40, 90, 96, 96]],
+      "method": "fill",
+      "confidence": 0.93,
+      "sources": ["vision:face"],
+      "unverified": false
+    }
+  ],
+  "unexplained": [
+    { "box": [0, 600, 1280, 120], "reason": "canvas", "status": "grey" }
+  ],
+  "coverage": { "cleared": 0.94, "redacted": 0.03, "unanalysed": 0.03 },
+  "image": null,
+  "history": [
+    { "step_id": "s-13", "actions": [{ "op": "scroll", "direction": "down" }], "outcome": "ok" }
+  ],
+  "client_timing": { "observe": 6.1, "perceive": 12.4, "fuse": 1.2, "guard": 2.0 }
+}
