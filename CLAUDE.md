@@ -4,18 +4,17 @@ Guidance for Claude Code working in this repository.
 
 ## What this project is
 
-AEGIS is a **privacy-preserving browser agent** for SIH 2026, Problem Statement 26171 (ISRO):
-a browser extension that runs a vision model locally, detects and redacts sensitive data
-**before any network request**, sends only anonymized context to an open-weights server model,
-and executes the returned actions on the page — resolving sensitive values back to real values
-**only inside the browser**.
+AEGIS is a **privacy-preserving browser agent**: a browser extension that runs a vision model
+locally, detects and redacts sensitive data **before any network request**, sends only anonymized
+context to an open-weights server model, and executes the returned actions on the page — resolving
+sensitive values back to real values **only inside the browser**.
 
 The differentiating idea: **typed sealed placeholders** (`⟪AADHAAR#2⟫`) that the server can
 reason about but never resolve, plus a local vault for **zero-egress task completion**.
 
 ## Requirement documents — the source of truth
 
-Mirrored in `docs/` (the layout architecture §15.1 prescribes); the originals are in the sibling folder `../project_requredment/`. Read them before making design decisions.
+Mirrored in `docs/` per architecture §15.1. Read them before making design decisions.
 
 | Document | Path | Covers |
 |---|---|---|

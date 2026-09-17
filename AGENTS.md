@@ -24,7 +24,7 @@ perception, detects sensitive data (faces, passwords, Aadhaar, cards, free-text 
 sensitive value with a **typed sealed placeholder** (`⟪AADHAAR#2⟫`), and sends only that anonymized
 context to an open-weights server model. The server returns constrained UI actions. The client
 validates them against the live page and resolves placeholders to real values **only in the browser**,
-from an in-memory vault, under a confirmation policy. SIH 2026 PS 26171 (ISRO).
+from an in-memory vault, under a confirmation policy.
 
 ## Hard invariants
 

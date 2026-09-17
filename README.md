@@ -1,7 +1,6 @@
 # AEGIS
 
-**On-device visual perception for light-weight browser agents.**
-SIH 2026 · Problem Statement 26171 · Indian Space Research Organisation (ISRO).
+**A privacy-preserving browser agent with on-device visual perception.**
 
 A browser extension runs a vision model locally, detects sensitive data on screen, and replaces
 every sensitive value with a **typed sealed placeholder** — `⟪AADHAAR#2⟫` — before anything is sent.
@@ -13,12 +12,12 @@ The server can be assumed hostile and the user's sensitive values still never le
 
 ## Status
 
-**Phase 0 — spike and foundations.** Monorepo scaffolded; the extension builds clean for Chrome
-and Firefox (MV3) with a throwaway spike UI for the WebGPU/WASM go/no-go measurement; the gateway
-has a passing health check. No product feature exists yet, and the spike has not been run in a
-real browser on real hardware — see [docs/CURRENT_BUILD.md](docs/CURRENT_BUILD.md) for exactly
-what is and isn't verified. No metric has been measured. Every number in the documents is a
-target, not a result.
+Early development. The monorepo is scaffolded, the extension builds for Chrome and Firefox
+(Manifest V3), the client–server protocol contract is defined and validated on both sides, and a
+minimal gateway service is running. No end-to-end product feature exists yet. See
+[docs/CURRENT_BUILD.md](docs/CURRENT_BUILD.md) for the current state and
+[docs/PLAN.md](docs/PLAN.md) for the roadmap. No performance metric has been measured yet — every
+number elsewhere in the documentation is a target, not a result.
 
 ## Documentation
 
@@ -33,7 +32,7 @@ target, not a result.
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Open questions and their resolution status |
 | [docs/HISTORY.md](docs/HISTORY.md) | What has been done, and why |
 
-Requirements are the authority (mirrored in `docs/`, originals in `../project_requredment/`):
+Requirements are the authority:
 [product-requirements.md](docs/product-requirements.md) ·
 [architecture.md](docs/architecture.md) ·
 [design.md](docs/design.md)
@@ -59,7 +58,7 @@ Five things make the privacy claim true rather than asserted:
 5. **An independent auditor** — the evaluation harness re-implements the recognizers in another
    language and counts leaks the client could not see.
 
-## Honest limitations
+## Known limitations
 
 - The guard can only find what its recognizers and detectors can find. A PII type none of them knows
   can pass. The residual risk is measured by the harness, not claimed away.
