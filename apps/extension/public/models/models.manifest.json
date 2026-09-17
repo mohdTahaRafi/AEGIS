@@ -1,0 +1,19 @@
+{
+  "schema": "aegis-models/1",
+  "models": [
+    {
+      "id": "face-yunet-2023mar",
+      "role": "face",
+      "file": "face_detection_yunet_2023mar.onnx",
+      "sha256": "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+      "bytes": 232589,
+      "source": "https://github.com/opencv/opencv_zoo/blob/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",
+      "license": "MIT (Shiqi Yu)",
+      "inputShape": [1, 3, 160, 120],
+      "dtype": "float32",
+      "preferredBackend": "auto",
+      "resident": true,
+      "notes": "Used for the Phase-0 go/no-go latency spike (T-0.10/T-0.11) and later as the resident face detector (F-C04). Fetched via scripts/fetch-models.ts, never bundled unverified."
+    }
+  ]
+}

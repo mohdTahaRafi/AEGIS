@@ -1,0 +1,17 @@
+{
+  "name": "@aegis/policy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Sensitivity classes, thresholds, operators and rehydration rules as versioned data. Phase 3.",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "echo 'no lint rules yet — Phase 3'"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^5.0.1"
+  }
+}

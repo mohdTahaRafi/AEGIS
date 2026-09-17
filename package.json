@@ -1,0 +1,23 @@
+{
+  "name": "aegis",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Privacy-preserving browser agent with on-device visual perception (SIH 2026 PS 26171)",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@12.3.4",
+  "scripts": {
+    "dev:chrome": "pnpm --filter @aegis/extension dev",
+    "dev:firefox": "pnpm --filter @aegis/extension dev:firefox",
+    "build": "pnpm --filter @aegis/extension build && pnpm --filter @aegis/extension build:firefox",
+    "gen:protocol": "pnpm --filter @aegis/protocol generate",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint && pnpm --filter @aegis/extension check:no-network"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

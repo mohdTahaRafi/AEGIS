@@ -1,0 +1,28 @@
+{
+  "name": "@aegis/extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "postinstall": "wxt prepare",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check:no-network": "tsx scripts/check-no-network.ts"
+  },
+  "dependencies": {
+    "onnxruntime-web": "^1.30.0",
+    "preact": "^10.29.8"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^5.0.1",
+    "wxt": "^0.21.4"
+  }
+}

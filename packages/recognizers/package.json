@@ -1,0 +1,17 @@
+{
+  "name": "@aegis/recognizers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pure-function PII recognizers with checksums (Verhoeff, Luhn, GSTIN). No DOM, no browser APIs. Phase 3.",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "echo 'no lint rules yet — Phase 3'"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^5.0.1"
+  }
+}

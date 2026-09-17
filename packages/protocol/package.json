@@ -1,0 +1,19 @@
+{
+  "name": "@aegis/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "JSON Schema contract between client and server, plus generated TS types and runtime validators. Phase 1.",
+  "main": "src/index.ts",
+  "scripts": {
+    "generate": "tsx scripts/generate.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "echo 'no lint rules yet — Phase 1'"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^5.0.1"
+  }
+}
