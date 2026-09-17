@@ -37,4 +37,6 @@ async def readyz(
         ready = replay_store.is_loaded()
     else:
         ready = await _model_reachable(settings)
-    return JSONResponse(status_code=200 if ready else 503, content={"status": "ok" if ready else "not ready"})
+    return JSONResponse(
+        status_code=200 if ready else 503, content={"status": "ok" if ready else "not ready"}
+    )

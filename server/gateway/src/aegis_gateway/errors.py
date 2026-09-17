@@ -6,11 +6,14 @@ the envelope (and its `request_id`) is always built the same way, in one place.
 from __future__ import annotations
 
 from fastapi import Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 
 class GatewayError(Exception):
-    def __init__(self, status_code: int, code: str, message: str, *, retryable: bool = False) -> None:
+    def __init__(
+        self, status_code: int, code: str, message: str, *, retryable: bool = False
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
@@ -32,7 +35,12 @@ def session_not_found(session_id: str) -> GatewayError:
 
 
 def step_out_of_order(step_id: str) -> GatewayError:
-    return GatewayError(409, "STEP_OUT_OF_ORDER", f"Step {step_id} is not newer than the last seen step", retryable=False)
+    return GatewayError(
+        409,
+        "STEP_OUT_OF_ORDER",
+        f"Step {step_id} is not newer than the last seen step",
+        retryable=False,
+    )
 
 
 def payload_too_large(limit_mb: int) -> GatewayError:
@@ -48,7 +56,9 @@ def rate_limited() -> GatewayError:
 
 
 def model_unavailable() -> GatewayError:
-    return GatewayError(503, "MODEL_UNAVAILABLE", "Model server unreachable and no replay match", retryable=True)
+    return GatewayError(
+        503, "MODEL_UNAVAILABLE", "Model server unreachable and no replay match", retryable=True
+    )
 
 
 def model_timeout() -> GatewayError:
@@ -73,3 +83,15 @@ async def gateway_error_handler(request: Request, exc: GatewayError) -> JSONResp
     if request_id:
         response.headers["X-Request-Id"] = request_id
     return response
+
+
+async def request_validation_error_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """FastAPI's own body-parameter validation (a route declared with a pydantic-model
+    parameter, e.g. `routes_sessions.create_session`) raises this and, left unhandled, answers
+    with FastAPI's own 422 shape — not design.md §4.7's `{"error": {...}}` 400 `SCHEMA_INVALID`
+    contract. Routes that manually call `Model.model_validate(body)` inside the handler (e.g.
+    `routes_steps.post_step`) never hit this; it exists as the catch-all for any route that
+    doesn't, present or future."""
+    return await gateway_error_handler(request, schema_invalid(str(exc)))

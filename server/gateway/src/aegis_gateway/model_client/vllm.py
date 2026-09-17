@@ -6,13 +6,16 @@ AC: "A forced adversarial prompt cannot produce an out-of-schema action").
 The schema is loaded from `packages/protocol/schema/action-plan.schema.json` directly —
 `packages/protocol` is the project's single source of truth for anything crossing the network
 (CLAUDE.md rule 6), and re-deriving an equivalent schema from the generated Pydantic model here
-would risk drifting from it. `server/deploy/gateway.Dockerfile` copies that schema file alongside
-the gateway's own source so this still works in the built image.
+would risk drifting from it. `AEGIS_ACTION_PLAN_SCHEMA_PATH` overrides the search entirely — set by
+`server/deploy/gateway.Dockerfile`, which `COPY`s that one schema file into the image at a fixed
+path, rather than relying on relative-parents guessing across install layouts (a repo checkout vs.
+an installed package land the file at different depths).
 """
 
 from __future__ import annotations
 
 import json
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -22,20 +25,30 @@ from ..config import Settings
 from ..errors import model_timeout, model_unavailable
 from .adapters import DEFAULT_ADAPTER, ModelAdapter
 
-_SCHEMA_CANDIDATES = [
+
+def _schema_candidates() -> list[Path]:
+    candidates = []
+    env_override = os.environ.get("AEGIS_ACTION_PLAN_SCHEMA_PATH")
+    if env_override:
+        candidates.append(Path(env_override))
     # repo checkout: server/gateway/src/aegis_gateway/model_client/vllm.py -> repo root
-    Path(__file__).resolve().parents[5] / "packages" / "protocol" / "schema" / "action-plan.schema.json",
-    # built image layout (server/deploy/gateway.Dockerfile copies it next to the source)
-    Path(__file__).resolve().parents[2] / "protocol_schema" / "action-plan.schema.json",
-]
+    candidates.append(
+        Path(__file__).resolve().parents[5]
+        / "packages"
+        / "protocol"
+        / "schema"
+        / "action-plan.schema.json"
+    )
+    return candidates
 
 
 @lru_cache(maxsize=1)
 def load_action_plan_schema() -> dict:
-    for candidate in _SCHEMA_CANDIDATES:
+    candidates = _schema_candidates()
+    for candidate in candidates:
         if candidate.exists():
             return json.loads(candidate.read_text())
-    raise FileNotFoundError(f"action-plan.schema.json not found in any of {_SCHEMA_CANDIDATES}")
+    raise FileNotFoundError(f"action-plan.schema.json not found in any of {candidates}")
 
 
 class VLLMClient:
@@ -50,12 +63,17 @@ class VLLMClient:
         payload = {
             "model": self._settings.model_name,
             "messages": messages,
-            "response_format": {"type": "json_schema", "json_schema": {"name": "action_plan", "schema": schema, "strict": True}},
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {"name": "action_plan", "schema": schema, "strict": True},
+            },
             **self._adapter.chat_template_kwargs(),
         }
         try:
             async with httpx.AsyncClient(timeout=self._settings.model_timeout_s) as client:
-                response = await client.post(f"{self._settings.model_url}/chat/completions", json=payload)
+                response = await client.post(
+                    f"{self._settings.model_url}/chat/completions", json=payload
+                )
         except httpx.TimeoutException as exc:
             raise model_timeout() from exc
         except httpx.HTTPError as exc:

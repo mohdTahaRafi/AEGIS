@@ -30,7 +30,9 @@ def validate_plan_against_session(plan: dict, session: Session) -> None:
 
         node_id = action.get("node")
         if node_id is not None and node_id not in session.sent_node_ids:
-            raise PostValidationError(f"node {node_id!r} was not sent this session (or has since been removed)")
+            raise PostValidationError(
+                f"node {node_id!r} was not sent this session (or has since been removed)"
+            )
 
         if op == "type":
             ref = action.get("ref")
@@ -39,7 +41,9 @@ def validate_plan_against_session(plan: dict, session: Session) -> None:
                 if ref not in session.sent_refs:
                     raise PostValidationError(f"ref {ref!r} was not sent this session")
                 if "type" not in session.node_affordances.get(node_id, []):
-                    raise PostValidationError(f"node {node_id!r} does not have the 'type' affordance")
+                    raise PostValidationError(
+                        f"node {node_id!r} does not have the 'type' affordance"
+                    )
             if text is not None and PLACEHOLDER_PATTERN.search(text):
                 raise PostValidationError("type.text must not contain a placeholder string")
 
@@ -56,4 +60,6 @@ def validate_plan_against_session(plan: dict, session: Session) -> None:
                     matched = True
                     break
             if not matched:
-                raise PostValidationError("click_point does not lie within an image region sent in the last two steps")
+                raise PostValidationError(
+                    "click_point does not lie within an image region sent in the last two steps"
+                )

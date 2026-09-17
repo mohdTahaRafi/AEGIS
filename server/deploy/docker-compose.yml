@@ -1,0 +1,66 @@
+# architecture.md §13.2 (T-2.43) — Caddy (TLS) + gateway + vLLM, one host, three processes.
+# vLLM and the gateway share a private network; only Caddy is published, so vLLM is never directly
+# reachable from outside (phase_2_spine.md §2.43's AC).
+#
+# `docker compose up` here needs a GPU host with vLLM's image and the chosen model weights —
+# neither exists yet (blocked on OQ-13, phase_2_spine.md §14). Use docker-compose.replay.yml
+# (T-2.44) for a GPU-free run against recorded responses.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      - gateway
+    networks:
+      - public
+      - private
+
+  gateway:
+    build:
+      context: ../..
+      dockerfile: server/deploy/gateway.Dockerfile
+    env_file:
+      - vllm.env
+    environment:
+      AEGIS_MODE: live
+      AEGIS_MODEL_URL: http://vllm:8000/v1
+    networks:
+      - private
+    depends_on:
+      - vllm
+
+  vllm:
+    image: vllm/vllm-openai:latest
+    env_file:
+      - vllm.env
+    command:
+      - --model
+      - ${AEGIS_MODEL_NAME:-Qwen/Qwen3-VL-8B-Instruct}
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - private
+    # No `ports:` here — vLLM is reachable only from the gateway, on the private network.
+
+networks:
+  public:
+  private:
+    internal: true
+
+volumes:
+  caddy-data:

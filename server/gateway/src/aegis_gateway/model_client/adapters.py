@@ -21,7 +21,9 @@ class ModelAdapter(Protocol):
         {"enable_thinking": False}}` for a Qwen3-style non-thinking mode)."""
         ...
 
-    def convert_point(self, x: float, y: float, viewport_w: float, viewport_h: float) -> tuple[float, float]:
+    def convert_point(
+        self, x: float, y: float, viewport_w: float, viewport_h: float
+    ) -> tuple[float, float]:
         """Model output coordinates -> CSS-pixel viewport coordinates."""
         ...
 
@@ -35,7 +37,9 @@ class IdentityCoordinateAdapter:
     def chat_template_kwargs(self) -> dict:
         return {"chat_template_kwargs": {"enable_thinking": False}}
 
-    def convert_point(self, x: float, y: float, viewport_w: float, viewport_h: float) -> tuple[float, float]:
+    def convert_point(
+        self, x: float, y: float, viewport_w: float, viewport_h: float
+    ) -> tuple[float, float]:
         return (x, y)
 
 

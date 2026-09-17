@@ -1,0 +1,20 @@
+# architecture.md §13.2 (T-2.44) — gateway only, serving recorded responses. No GPU, no vLLM
+# service at all: the whole point is that this comes up on a laptop when the conference wifi or a
+# rented GPU fails, or the demo just needs to be fast and deterministic.
+#
+# The replay store directory is a bind mount so `AEGIS_MODE=record` runs against
+# docker-compose.yml (writing into the same host directory) populate what this file serves.
+
+services:
+  gateway:
+    build:
+      context: ../..
+      dockerfile: server/deploy/gateway.Dockerfile
+    environment:
+      AEGIS_MODE: replay
+      AEGIS_TOKEN: ${AEGIS_TOKEN:-dev-token}
+      AEGIS_RECORD_DIR: /replay-store
+    volumes:
+      - ./replay-store:/replay-store:ro
+    ports:
+      - "8787:8787"

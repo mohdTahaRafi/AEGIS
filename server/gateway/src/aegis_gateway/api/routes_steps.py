@@ -13,7 +13,14 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from ..config import Settings
-from ..errors import model_unavailable, plan_invalid, rate_limited, schema_invalid, session_not_found, step_out_of_order
+from ..errors import (
+    model_unavailable,
+    plan_invalid,
+    rate_limited,
+    schema_invalid,
+    session_not_found,
+    step_out_of_order,
+)
 from ..model_client.vllm import VLLMClient
 from ..prompt import build_messages
 from ..protocol.action_plan import ActionPlan
@@ -53,7 +60,13 @@ def _validate_candidate_plan(plan: dict, session: Session) -> ActionPlan:
     return validated
 
 
-async def _get_plan(messages: list[dict], settings: Settings, replay_store: ReplayStore, model_client: VLLMClient, step_dict: dict) -> dict:
+async def _get_plan(
+    messages: list[dict],
+    settings: Settings,
+    replay_store: ReplayStore,
+    model_client: VLLMClient,
+    step_dict: dict,
+) -> dict:
     if settings.mode == "replay":
         plan = replay_store.lookup(step_dict)
         if plan is None:
@@ -74,6 +87,7 @@ async def post_step(
     replay_store: ReplayStore = Depends(get_replay_store),
     model_client: VLLMClient = Depends(get_model_client),
 ) -> JSONResponse:
+    t_start = time.perf_counter()
     raw_body = await request.json()
     try:
         step_request = SanitizedContext.model_validate(raw_body)
@@ -86,13 +100,32 @@ async def post_step(
 
     _check_rate_limit(session_id, time.time())
 
-    if session.last_step_id is not None and _step_number(step_request.step_id) <= _step_number(session.last_step_id):
+    if session.last_step_id is not None and _step_number(step_request.step_id) <= _step_number(
+        session.last_step_id
+    ):
         raise step_out_of_order(step_request.step_id)
 
     step_dict = step_request.model_dump(by_alias=True, mode="json")
     log_payload(step_dict, settings.log_payloads)
 
-    timings: dict[str, float] = {}
+    # Applied *before* the model is even asked: the plan it returns is a reaction to exactly this
+    # context, so post-validation (§12.3) must check it against nodes/refs/affordances as of *this*
+    # step, not just prior ones — otherwise every single-step session would fail post-validation
+    # for referencing the very nodes it was just shown.
+    session.apply_step_context(
+        step_id=step_request.step_id,
+        nodes=step_dict.get("nodes", []),
+        removed=step_dict.get("removed") or [],
+        redactions=step_dict.get("redactions", []),
+        image_region=step_dict["image"]["region"] if step_dict.get("image") else None,
+        viewport=step_dict["viewport"],
+    )
+    store.touch(session_id)
+
+    # design.md §4.1's Server-Timing components: queue (everything before prompt-building — auth,
+    # parsing, session/lease/rate checks all ran as FastAPI dependencies or above, before this
+    # function even started timing "prompt"), prompt, model, validate.
+    timings: dict[str, float] = {"queue": time.perf_counter() - t_start}
 
     t_prompt = time.perf_counter()
     messages = build_messages(step_dict)
@@ -106,27 +139,30 @@ async def post_step(
     try:
         _validate_candidate_plan(plan, session)
     except (ValidationError, PostValidationError) as first_error:
-        retry_messages = [*messages, {"role": "system", "content": f"Your previous output was invalid: {first_error}. Correct it and output only valid JSON."}]
+        retry_note = (
+            f"Your previous output was invalid: {first_error}. "
+            "Correct it and output only valid JSON."
+        )
+        retry_messages = [*messages, {"role": "system", "content": retry_note}]
         try:
             retry_step_dict = {**step_dict, "_retry_note": str(first_error)}
-            plan = await _get_plan(retry_messages, settings, replay_store, model_client, retry_step_dict)
+            plan = await _get_plan(
+                retry_messages, settings, replay_store, model_client, retry_step_dict
+            )
             _validate_candidate_plan(plan, session)
         except (ValidationError, PostValidationError) as second_error:
             raise plan_invalid(str(second_error)) from second_error
     timings["validate"] = time.perf_counter() - t_validate
 
-    session.apply_step_context(
-        step_id=step_request.step_id,
-        nodes=step_dict.get("nodes", []),
-        removed=step_dict.get("removed") or [],
-        redactions=step_dict.get("redactions", []),
-        image_region=step_dict["image"]["region"] if step_dict.get("image") else None,
-        viewport=step_dict["viewport"],
+    log_event(
+        "step_processed",
+        request_id=getattr(request.state, "request_id", None),
+        mode=settings.mode,
+        step_number=_step_number(step_request.step_id),
     )
-    store.touch(session_id)
-
-    log_event("step_processed", request_id=getattr(request.state, "request_id", None), mode=settings.mode, step_number=_step_number(step_request.step_id))
 
     response = JSONResponse(content=plan)
-    response.headers["Server-Timing"] = ", ".join(f"{name};dur={duration * 1000:.1f}" for name, duration in timings.items())
+    response.headers["Server-Timing"] = ", ".join(
+        f"{name};dur={duration * 1000:.1f}" for name, duration in timings.items()
+    )
     return response

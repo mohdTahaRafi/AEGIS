@@ -64,7 +64,9 @@ class SessionStore:
 
     def create(self, model: str, max_steps: int) -> Session:
         session_id = str(uuid.uuid4())
-        session = Session(session_id=session_id, model=model, max_steps=max_steps, last_seen=self._now())
+        session = Session(
+            session_id=session_id, model=model, max_steps=max_steps, last_seen=self._now()
+        )
         self._sessions[session_id] = session
         return session
 

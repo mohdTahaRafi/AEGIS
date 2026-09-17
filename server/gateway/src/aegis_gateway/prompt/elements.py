@@ -30,7 +30,12 @@ def _state_flags(state: dict) -> list[str]:
 
 def render_element_line(node: dict) -> str:
     box = node["box"]
-    parts = [node["id"], node["role"], f'"{node["name"]}"', f"[{box[0]:g},{box[1]:g},{box[2]:g},{box[3]:g}]"]
+    parts = [
+        node["id"],
+        node["role"],
+        f'"{node["name"]}"',
+        f"[{box[0]:g},{box[1]:g},{box[2]:g},{box[3]:g}]",
+    ]
     flags = _state_flags(node.get("state", {}))
     if flags:
         parts.append(", ".join(flags))

@@ -33,7 +33,7 @@ export default defineConfig({
           // checkVisibility and Range.getClientRects all need real layout (phase_2_spine.md §3.3,
           // same reasoning as Phase 1's Playwright-driven fixture harness in eval/).
           name: 'browser',
-          include: ['test/browser/**/*.spec.ts'],
+          include: ['test/browser/**/*.spec.ts', 'test/e2e/**/*.spec.ts'],
           browser: {
             enabled: true,
             provider: playwright(),

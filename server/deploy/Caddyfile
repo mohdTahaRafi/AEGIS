@@ -1,0 +1,6 @@
+# architecture.md §13.2 (T-2.43) — automatic TLS in a few lines, the reason this project uses
+# Caddy instead of hand-rolling certificate management. Set AEGIS_PUBLIC_HOST to the real
+# hostname before deploying; localhost keeps a self-signed cert for local testing.
+{$AEGIS_PUBLIC_HOST:localhost} {
+	reverse_proxy gateway:8787
+}

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from fastapi import Depends, FastAPI
+from fastapi.exceptions import RequestValidationError
 
 from .api import routes_health, routes_sessions, routes_steps
 from .auth import make_require_token
 from .config import Settings, load_settings
-from .errors import GatewayError, gateway_error_handler
+from .errors import GatewayError, gateway_error_handler, request_validation_error_handler
 from .middleware import BodySizeLimitMiddleware, RequestIdMiddleware
 from .model_client.vllm import VLLMClient
 from .replay.store import ReplayStore
@@ -27,6 +28,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(RequestIdMiddleware)
 
     app.add_exception_handler(GatewayError, gateway_error_handler)
+    app.add_exception_handler(RequestValidationError, request_validation_error_handler)
 
     require_token = make_require_token(settings)
     app.include_router(routes_health.router)

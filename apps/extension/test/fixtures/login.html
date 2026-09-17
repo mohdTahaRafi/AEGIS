@@ -1,0 +1,26 @@
+<!doctype html>
+<!-- phase_2_spine.md §10's milestone demo fixture: a login form the agent fills and submits. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>AEGIS demo login</title>
+  </head>
+  <body>
+    <p id="welcome">Welcome back, Ramesh Kumar</p>
+    <form id="login-form">
+      <label for="username">Username</label>
+      <input id="username" type="text" name="username" autocomplete="username" />
+      <label for="password">Password</label>
+      <input id="password" type="password" name="password" autocomplete="current-password" />
+      <button type="submit">Sign in</button>
+    </form>
+    <div id="success" hidden>Signed in successfully.</div>
+    <script>
+      document.getElementById('login-form').addEventListener('submit', (event) => {
+        event.preventDefault();
+        document.getElementById('login-form').hidden = true;
+        document.getElementById('success').hidden = false;
+      });
+    </script>
+  </body>
+</html>

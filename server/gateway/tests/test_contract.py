@@ -10,12 +10,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic import BaseModel, ValidationError
-
 from aegis_gateway.protocol.action_plan import ActionPlan
 from aegis_gateway.protocol.error import ErrorResponse
 from aegis_gateway.protocol.sanitized_context import SanitizedContext
 from aegis_gateway.protocol.session import SessionCreate, SessionCreated
+from pydantic import BaseModel, ValidationError
 
 SAMPLES_DIR = (
     Path(__file__).resolve().parents[3] / "packages" / "protocol" / "test" / "contract" / "samples"

@@ -24,7 +24,11 @@ def create_session(
 ) -> SessionCreated:
     max_steps = 30  # design.md §4.2: "a safety budget [TD] with a configurable default"
     session = store.create(model=settings.model_name, max_steps=max_steps)
-    return SessionCreated(session_id=session.session_id, model=session.model, limits=Limits(max_steps=max_steps, max_image_px=MAX_IMAGE_PX))
+    return SessionCreated(
+        session_id=session.session_id,
+        model=session.model,
+        limits=Limits(max_steps=max_steps, max_image_px=MAX_IMAGE_PX),
+    )
 
 
 @router.delete("/v1/sessions/{session_id}", status_code=204)

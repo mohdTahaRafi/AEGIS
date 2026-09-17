@@ -7,3 +7,9 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection convention is `Depends(...)` as an argument default — the one
+# case bugbear's "no function calls in defaults" rule (B008) is meant to catch that is actually
+# correct, not a mutable-default bug.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Header", "fastapi.Body"]
