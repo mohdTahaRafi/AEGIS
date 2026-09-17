@@ -38,8 +38,8 @@ describe('classifyAction (design.md §5.1 step 3)', () => {
     });
   });
 
-  it('throws if a ref-based type action reaches it (the validator must have refused it first)', () => {
-    const action = { op: 'type', node: 'n-1', ref: '⟪PASSWORD#1⟫' } as Action;
-    expect(() => classifyAction(action)).toThrow(/PROTECTED_FIELD_READ/);
+  it('classifies a ref-based type action as a rehydration request (T-3.28) rather than dispatching it directly', () => {
+    const action = { op: 'type', node: 'n-1', ref: '⟪AADHAAR#1⟫', clear_first: true } as Action;
+    expect(classifyAction(action)).toEqual({ kind: 'rehydrate', node: 'n-1', ref: '⟪AADHAAR#1⟫', clearFirst: true, expect: undefined });
   });
 });

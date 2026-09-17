@@ -15,16 +15,21 @@
 // action set does not have.
 
 import type { ActionPlan } from '@aegis/protocol';
+import type { Policy } from '@aegis/policy';
+import { defaultPolicy } from '@aegis/policy';
 import { classifyAction } from './actions/dispatch';
+import { rehydrationRequiresConfirmation, resolveRehydration } from './actions/rehydrate';
 import { classifyRisk, requiresConfirmation, type RiskLevel, type RiskSignals } from './actions/risk';
 import { validatePlan, type HardDenialContext } from './actions/validator';
 import { BudgetTracker, DEFAULT_BUDGETS, type BudgetLimits } from './controller/budgets';
 import { Controller } from './controller/machine';
 import { ReconciliationTracker } from './controller/reconcile';
-import { brand } from './egress/brand';
-import { stubGuard } from './egress/guard-stub';
+import type { GuardedPayload } from './egress/brand';
+import { Ledger } from './ledger/ledger';
 import type { ContentPortClient } from './port';
 import { buildSanitizedContext } from './privacy/context/builder';
+import { GuardBlockedError, guard } from './privacy/guard/guard';
+import { Vault } from './privacy/vault';
 import type { BudgetReasonCode } from '../shared/errors';
 import type { GraphMessage, WireScreenNode } from '../shared/messages';
 
@@ -53,13 +58,27 @@ export type SessionEvent =
   | { type: 'ask_user'; question: string }
   | { type: 'stopped'; reason: BudgetReasonCode | 'BLOCKED' | 'SERVER_ERROR' | 'CANCELLED' }
   | { type: 'done'; summary?: string }
-  | { type: 'confirmation_required'; risk: RiskLevel; description: string };
+  | { type: 'confirmation_required'; risk: RiskLevel; description: string }
+  | { type: 'guard_blocked'; rule: string; entity?: string }
+  | { type: 'rehydration_rejected'; code: string };
+
+function countBy<T>(items: readonly T[], keyOf: (item: T) => string): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const item of items) {
+    const key = keyOf(item);
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  return counts;
+}
 
 export interface SessionDeps {
   contentPort: ContentPortClient;
   /** Posts the guarded payload to the gateway and returns the raw (unvalidated) plan JSON. */
-  sendToGateway: (payload: ReturnType<typeof brand>, signal: AbortSignal) => Promise<unknown>;
+  sendToGateway: (payload: GuardedPayload, signal: AbortSignal) => Promise<unknown>;
+  /** Doubles as the vault/rehydration origin key (design.md §3.4 — an internal identifier, never
+   * sent) and, historically, the Phase-2 stub's fixture-origin check (removed in Phase 3). */
   guardOrigin: string;
+  policy?: Policy;
   pageCategory: ReturnType<typeof buildSanitizedContext>['page']['category'];
   pageTitle: string;
   onEvent: (event: SessionEvent) => void;
@@ -81,6 +100,9 @@ export class Session {
   private readonly budgets: BudgetTracker;
   private readonly reconcile = new ReconciliationTracker();
   private readonly now: () => number;
+  private readonly policy: Policy;
+  private readonly vault = new Vault();
+  private readonly ledger = new Ledger();
   private pendingGraph: PendingGraph | null = null;
   private pendingActions = new Map<string, { resolveOk: (ok: boolean, reason?: string) => void }>();
   private lastGraphMessage: GraphMessage | null = null;
@@ -90,6 +112,11 @@ export class Session {
   constructor(private readonly deps: SessionDeps) {
     this.now = deps.now ?? (() => Date.now());
     this.budgets = new BudgetTracker(deps.budgetLimits ?? DEFAULT_BUDGETS, this.now);
+    this.policy = deps.policy ?? defaultPolicy;
+  }
+
+  getLedger(): Ledger {
+    return this.ledger;
   }
 
   getState(): ReturnType<Controller['getState']> {
@@ -113,6 +140,7 @@ export class Session {
 
   cancel(): void {
     this.controller.send({ type: 'cancel' });
+    this.vault.clear();
     this.deps.onEvent({ type: 'stopped', reason: 'CANCELLED' });
   }
 
@@ -122,6 +150,7 @@ export class Session {
 
   private stop(reason: BudgetReasonCode): void {
     this.controller.send({ type: 'stop' });
+    this.vault.clear();
     this.emitState();
     this.deps.onEvent({ type: 'stopped', reason });
   }
@@ -185,19 +214,45 @@ export class Session {
         pageTitle: this.deps.pageTitle,
         nodes: graphMessage.nodes,
         removed: graphMessage.removed,
+        textRuns: graphMessage.textRuns,
         history: this.history,
         clientTiming: {},
+        vault: this.vault,
+        policy: this.policy,
+        originKey: this.deps.guardOrigin,
       });
       timings.sanitize = this.now() - t;
 
       t = this.now();
-      let guarded;
+      let guarded: GuardedPayload;
       try {
-        guarded = stubGuard(context, this.deps.guardOrigin);
+        guarded = guard(context, this.policy, this.vault);
         this.controller.send({ type: 'guard_pass' });
-      } catch {
+        this.ledger.record({
+          stepId,
+          payload: context,
+          timings,
+          guardVerdict: { ok: true },
+          policyVersion: this.policy.version,
+          entityCountsByClass: countBy(context.redactions, (r) => r.class),
+          entityCountsByChannel: countBy(context.redactions.flatMap((r) => r.sources), (s) => s),
+          coverage: context.coverage,
+        });
+      } catch (err) {
+        const blocked = err instanceof GuardBlockedError ? err : new GuardBlockedError('SCHEMA');
         this.controller.send({ type: 'guard_block' });
+        this.ledger.record({
+          stepId,
+          payload: context,
+          timings,
+          guardVerdict: { ok: false, rule: blocked.rule, entity: blocked.entity },
+          policyVersion: this.policy.version,
+          entityCountsByClass: countBy(context.redactions, (r) => r.class),
+          entityCountsByChannel: countBy(context.redactions.flatMap((r) => r.sources), (s) => s),
+          coverage: context.coverage,
+        });
         this.emitState();
+        this.deps.onEvent({ type: 'guard_blocked', rule: blocked.rule, entity: blocked.entity });
         this.deps.onEvent({ type: 'stopped', reason: 'BLOCKED' });
         return;
       }
@@ -263,6 +318,38 @@ export class Session {
     }
   }
 
+  /** design.md §9.3/§9.4 — confirmation (for CRITICAL/`confirm`-class refs), then `resolveFor`'s
+   * six conditions, then dispatch with the real value. The value exists as a JS string only
+   * between `resolveRehydration` returning and `dispatchAndAwait` handing it to the content
+   * script — it is never placed in an event, a log, or `this.history`. */
+  private async resolveAndDispatchRehydration(req: { node: string; ref: string; clearFirst?: boolean }): Promise<{ ok: true } | { ok: false; code: string }> {
+    const targetNode = this.allSeenNodes.get(req.node);
+    if (!targetNode) return { ok: false, code: 'NODE_UNRESOLVED' };
+
+    const description = this.vault.describe(req.ref);
+    if (!description) return { ok: false, code: 'REF_UNKNOWN' };
+
+    let confirmed = true;
+    if (rehydrationRequiresConfirmation(this.policy, description.entity)) {
+      const preview = '•'.repeat(Math.max(0, description.len - 4)) + `#${description.len}`;
+      const desc = `Type your ${description.entity} (${preview}) into "${targetNode.name}"?`;
+      this.deps.onEvent({ type: 'confirmation_required', risk: 'high', description: desc });
+      confirmed = this.deps.confirm ? await this.deps.confirm('high', desc) : false;
+    }
+
+    const result = resolveRehydration(this.vault, this.policy, req.ref, {
+      originKey: this.deps.guardOrigin,
+      confirmed,
+      targetNode,
+    });
+    if (!result.ok) return { ok: false, code: result.code };
+
+    const actionId = `a-${Math.random().toString(36).slice(2)}`;
+    const dispatched = await this.dispatchAndAwait(actionId, { op: 'type', node: req.node, text: result.value, clearFirst: req.clearFirst });
+    if (!dispatched.ok) return { ok: false, code: dispatched.reason ?? 'NODE_UNRESOLVED' };
+    return { ok: true };
+  }
+
   /** Runs every action in a validated plan, in order. Returns the outcome the step record shows. */
   private async actOnPlan(plan: ActionPlan): Promise<'acted' | 'done' | 'stopped'> {
     this.reconcile.resetForNewAction();
@@ -280,6 +367,21 @@ export class Session {
       if (classified.kind === 'host') {
         if (classified.op === 'report') this.deps.onEvent({ type: 'report', title: classified.title, content: classified.content });
         if (classified.op === 'ask_user') this.deps.onEvent({ type: 'ask_user', question: classified.question });
+        continue;
+      }
+
+      if (classified.kind === 'rehydrate') {
+        const resolved = await this.resolveAndDispatchRehydration(classified);
+        if (!resolved.ok) {
+          this.deps.onEvent({ type: 'rehydration_rejected', code: resolved.code });
+          this.history.push({ step_id: '', actions: [{ op: 'type' }], outcome: `REHYDRATE_${resolved.code}` });
+          const decision = this.reconcile.decide(false);
+          if (decision.action === 'stop') {
+            this.stop(decision.reason);
+            return 'stopped';
+          }
+          return 'stopped';
+        }
         continue;
       }
 

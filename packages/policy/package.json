@@ -10,6 +10,10 @@
     "test": "vitest run",
     "lint": "echo 'no lint rules yet — Phase 3'"
   },
+  "dependencies": {
+    "@aegis/recognizers": "workspace:*",
+    "ajv": "^8.20.0"
+  },
   "devDependencies": {
     "typescript": "^5.7.2",
     "vitest": "^5.0.1"

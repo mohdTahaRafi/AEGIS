@@ -8,7 +8,24 @@
 // `src/shared` is importable from both `src/content` and `src/host` (they may not import each
 // other — architecture.md §15.2/§15.3) so this file must not depend on either context's internals.
 
+import type { EntityType } from '@aegis/recognizers';
+
 export type Affordance = 'click' | 'type' | 'select' | 'toggle' | 'scroll';
+
+/** design.md §6.1's Channel D signal (T-3.8), carried from content to host. */
+export interface WireChannelDSignal {
+  entity: EntityType;
+  score: number;
+  valueRead: boolean;
+}
+
+/** design.md §5.5/§3.2 — free text on the page, distinct from field values (T-3.10's NER input,
+ * Channel T's prose scan). */
+export interface WireTextRun {
+  id: string;
+  box: [number, number, number, number];
+  text: string;
+}
 
 export interface WireScreenNodeState {
   focused: boolean;
@@ -50,6 +67,7 @@ export interface WireScreenNode {
   field?: WireScreenNodeField;
   container: string;
   textRuns: string[];
+  domSignal?: WireChannelDSignal;
 }
 
 export type PreflightFailureReason =
@@ -88,6 +106,7 @@ export interface GraphMessage {
   frame: string;
   nodes: WireScreenNode[];
   removed: string[];
+  textRuns: WireTextRun[];
   privacyEpoch: number;
   reason: 'initial' | 'after_action' | 'requested' | 'reconcile';
 }
@@ -161,6 +180,7 @@ export function isContentToHostMessage(value: unknown): value is ContentToHostMe
       typeof value.frame === 'string' &&
       Array.isArray(value.nodes) &&
       Array.isArray(value.removed) &&
+      Array.isArray(value.textRuns) &&
       typeof value.privacyEpoch === 'number'
     );
   }

@@ -1,0 +1,63 @@
+{
+  "id": "default",
+  "version": "2026.09.1",
+  "classes": {
+    "CRITICAL": { "threshold": 0.3, "operator": "placeholder_or_fill", "rehydrate": "confirm" },
+    "HIGH": { "threshold": 0.5, "operator": "placeholder", "rehydrate": "auto_same_origin" },
+    "MEDIUM": { "threshold": 0.7, "operator": "placeholder", "rehydrate": "auto_same_origin" },
+    "LOW": { "threshold": 0.85, "operator": "pass", "rehydrate": "n/a" }
+  },
+  "entityClass": {
+    "PASSWORD": "CRITICAL",
+    "OTP": "CRITICAL",
+    "CARD_NUMBER": "CRITICAL",
+    "CARD_CVV": "CRITICAL",
+    "CARD_EXPIRY": "HIGH",
+    "AADHAAR": "CRITICAL",
+    "FACE": "CRITICAL",
+    "ID_DOCUMENT": "CRITICAL",
+    "SIGNATURE": "HIGH",
+    "QR_CODE": "HIGH",
+    "SECRET": "CRITICAL",
+    "EMAIL": "HIGH",
+    "PHONE": "HIGH",
+    "ADDRESS": "HIGH",
+    "DOB": "HIGH",
+    "BANK_ACCOUNT": "HIGH",
+    "PAN": "HIGH",
+    "GSTIN": "HIGH",
+    "IFSC": "MEDIUM",
+    "UPI_VPA": "HIGH",
+    "PASSPORT": "HIGH",
+    "VEHICLE_REG": "MEDIUM",
+    "PERSON_NAME": "MEDIUM",
+    "USERNAME": "MEDIUM",
+    "PIN_CODE": "LOW",
+    "DATE": "LOW",
+    "AMOUNT": "LOW",
+    "CITY": "LOW",
+    "COUNTRY": "LOW",
+    "UNKNOWN_SENSITIVE": "HIGH",
+    "CAPTCHA": "LOW",
+    "MEDIA": "LOW",
+    "LIVE": "LOW"
+  },
+  "presenceOnly": ["PASSWORD", "OTP", "CARD_NUMBER", "CARD_CVV", "SECRET"],
+  "partialDisclosure": {
+    "CARD_NUMBER": { "last4": false }
+  },
+  "crossOriginRehydration": "deny",
+  "allowRules": [],
+  "riskRules": {
+    "confirm": [
+      "submit_on_auth_or_payment_form",
+      "send",
+      "delete",
+      "purchase",
+      "download",
+      "navigate_other_origin",
+      "click_point",
+      "rehydrate_critical"
+    ]
+  }
+}

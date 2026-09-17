@@ -16,6 +16,7 @@ import { log } from '../shared/logger';
 import { dispatchClick, dispatchClickPoint, dispatchScroll, dispatchSelect, dispatchType } from './execute/dispatch';
 import { NodeResolutionRegistry, passesHitTest, runPreflight } from './execute/preflight';
 import { waitForSettle } from './execute/settle';
+import { extractTextRuns } from './detect/spans';
 import { DeltaTracker } from './observe/delta';
 import { EpochTracker } from './observe/epochs';
 import { startObserving, type ScreenGraphObserverHandle } from './observe/observers';
@@ -109,11 +110,17 @@ export class TopFrameSession {
     const { graph, wireNodes } = await this.extractMerged();
     this.resolutionRegistry.observe(graph, this.containerResolver);
     const delta = this.deltaTracker.compute(wireNodes, this.epochTracker.privacyEpoch);
+    const textRuns = extractTextRuns(document.body, {
+      width: window.innerWidth,
+      height: window.innerHeight,
+      verticalMarginPx: window.innerHeight,
+    });
     this.send({
       type: 'graph',
       frame: 'f-0',
       nodes: delta.nodes,
       removed: delta.removed,
+      textRuns,
       privacyEpoch: this.epochTracker.privacyEpoch,
       reason,
     });

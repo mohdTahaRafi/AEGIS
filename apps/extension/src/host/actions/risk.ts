@@ -24,6 +24,8 @@ export interface RiskSignals {
   highRiskVerbInName?: boolean;
   predictedCrossOriginNavigation?: boolean;
   isDownloadLink?: boolean;
+  /** design.md §9.2's "any rehydration of a CRITICAL value (policy `confirm`)" (T-3.30). */
+  rehydratingCritical?: boolean;
 }
 
 /** [A] OQ-10: 'high' is reserved for the two named-explicitly-dangerous cases (a sensitive-field
@@ -34,6 +36,7 @@ export function classifyRisk(action: WireAction, signals: RiskSignals, modelHint
   let level: RiskLevel = 'low';
 
   if (signals.formHasSensitiveField || signals.onBankingPage) level = max(level, 'high');
+  if (signals.rehydratingCritical) level = max(level, 'high');
   if (signals.highRiskVerbInName) level = max(level, 'medium');
   if (signals.predictedCrossOriginNavigation) level = max(level, 'medium');
   if (signals.isDownloadLink) level = max(level, 'medium');

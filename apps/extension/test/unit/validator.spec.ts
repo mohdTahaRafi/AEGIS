@@ -39,10 +39,10 @@ describe('validatePlan — schema + step lease (T-2.19 AC)', () => {
 });
 
 describe('validatePlan — hard denials (T-2.23 AC)', () => {
-  it('refuses a type action carrying a ref (Phase 2 has no vault to resolve it against)', () => {
-    const plan = validPlan({ actions: [{ op: 'type', node: 'n-1', ref: '⟪PASSWORD#1⟫' }] });
+  it('accepts a well-formed type action carrying a ref (Phase 3: resolveFor decides it downstream, per-ref — see rehydrate.spec.ts)', () => {
+    const plan = validPlan({ actions: [{ op: 'type', node: 'n-1', ref: '⟪AADHAAR#1⟫' }] });
     const result = validatePlan(plan, 's-1', emptyContext());
-    expect(result).toEqual({ ok: false, reason: 'PROTECTED_FIELD_READ', actionIndex: 0 });
+    expect(result.ok).toBe(true);
   });
 
   it('refuses an action targeting a node recognised as a CAPTCHA', () => {
@@ -61,10 +61,11 @@ describe('validatePlan — hard denials (T-2.23 AC)', () => {
     const plan = validPlan({
       actions: [
         { op: 'click', node: 'n-safe' },
-        { op: 'type', node: 'n-2', ref: '⟪OTP#1⟫' },
+        { op: 'click', node: 'n-captcha' },
       ],
     });
-    const result = validatePlan(plan, 's-1', emptyContext());
+    const context: HardDenialContext = { nodeEntities: new Map([['n-captcha', 'CAPTCHA']]), extensionOwnedNodeIds: new Set() };
+    const result = validatePlan(plan, 's-1', context);
     expect(result.ok).toBe(false);
   });
 });

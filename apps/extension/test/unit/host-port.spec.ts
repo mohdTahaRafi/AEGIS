@@ -41,7 +41,7 @@ describe('ContentPortClient', () => {
     new ContentPortClient(port, handlers);
 
     port.emit({ type: 'ready', frame: 'f-0' });
-    port.emit({ type: 'graph', frame: 'f-0', nodes: [], removed: [], privacyEpoch: 0, reason: 'initial' });
+    port.emit({ type: 'graph', frame: 'f-0', nodes: [], removed: [], textRuns: [], privacyEpoch: 0, reason: 'initial' });
     port.emit({ type: 'action-result', actionId: 'a-1', ok: true });
     port.emit({ type: 'settled', actionId: 'a-1' });
     port.emit({ type: 'navigated' });

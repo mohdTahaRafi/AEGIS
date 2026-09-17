@@ -24,17 +24,24 @@ export type HostHandledOp =
 
 export type ContentDispatchable = { kind: 'content'; action: WireAction };
 
+/** design.md §9.3 — a `type` action carrying a vault `ref` instead of literal text. Resolving it
+ * needs the vault, the policy and the current target node's DOM evidence, none of which this
+ * pure classifier has — the caller (Session.actOnPlan) drives `resolveRehydration` and only then
+ * builds the real `ContentDispatchable`. */
+export type RehydrationRequest = {
+  kind: 'rehydrate';
+  node: string;
+  ref: string;
+  clearFirst?: boolean;
+  expect?: WireActionExpect;
+};
+
 function mapExpect(expect: { role?: string; name?: string; box_tolerance_px?: number } | undefined): WireActionExpect | undefined {
   if (!expect) return undefined;
   return { role: expect.role, name: expect.name, boxTolerancePx: expect.box_tolerance_px };
 }
 
-/**
- * Throws if given a `type` action carrying `ref` — the validator's `PROTECTED_FIELD_READ` hard
- * denial must already have refused the whole plan before any action in it reaches here. A throw,
- * not a silent fallback, because reaching this branch means that invariant was violated upstream.
- */
-export function classifyAction(action: Action): HostHandledOp | ContentDispatchable {
+export function classifyAction(action: Action): HostHandledOp | ContentDispatchable | RehydrationRequest {
   switch (action.op) {
     case 'report':
       return { kind: 'host', op: 'report', title: action.title, content: action.content };
@@ -52,7 +59,7 @@ export function classifyAction(action: Action): HostHandledOp | ContentDispatcha
       return { kind: 'content', action: { op: 'click', node: action.node, expect: mapExpect(action.expect) } };
     case 'type':
       if ('ref' in action) {
-        throw new Error('PROTECTED_FIELD_READ: a ref-based type action reached classifyAction — the validator must reject this before dispatch');
+        return { kind: 'rehydrate', node: action.node, ref: action.ref, clearFirst: action.clear_first, expect: mapExpect(action.expect) };
       }
       return {
         kind: 'content',

@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { brand, isBranded } from '../../src/host/egress/brand';
 import { createEgressClient } from '../../src/host/egress/client';
-import { stubGuard } from '../../src/host/egress/guard-stub';
 import type { SanitizedContext } from '@aegis/protocol';
 
 function fakePayload(): SanitizedContext {
@@ -39,31 +38,6 @@ describe('brand (T-2.25 AC — TypeScript brand + runtime WeakSet)', () => {
     brand(a);
     const b = fakePayload();
     expect(isBranded(b)).toBe(false);
-  });
-});
-
-describe('stubGuard (phase_2_spine.md §8 AC)', () => {
-  it('brands the payload for a localhost fixture origin', () => {
-    const branded = stubGuard(fakePayload(), 'http://localhost:5600');
-    expect(isBranded(branded)).toBe(true);
-  });
-
-  it('brands the payload for a 127.0.0.1 fixture origin', () => {
-    const branded = stubGuard(fakePayload(), 'http://127.0.0.1:5600');
-    expect(isBranded(branded)).toBe(true);
-  });
-
-  it('throws PHASE2_STUB_REFUSES_NON_FIXTURE_ORIGIN for a real site', () => {
-    expect(() => stubGuard(fakePayload(), 'https://a-real-bank.example.com')).toThrow(
-      'PHASE2_STUB_REFUSES_NON_FIXTURE_ORIGIN',
-    );
-  });
-
-  it('warns loudly on every call', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    stubGuard(fakePayload(), 'http://localhost:5600');
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('NOT sanitized'));
-    warnSpy.mockRestore();
   });
 });
 

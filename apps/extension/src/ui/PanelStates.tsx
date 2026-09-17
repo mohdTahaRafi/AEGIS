@@ -1,33 +1,19 @@
-// design.md §13.2 (T-2.30) — phase_2_spine.md §7 scopes Phase 2 to exactly six of the design
-// doc's eight listed states: "Awaiting confirmation" (a confirmation card) and "Blocked by guard"
-// (a guard-block card) are explicitly deferred to Phase 3 alongside the payload viewer. Risk
-// classification itself exists now (src/host/actions/risk.ts) — only its confirmation-card UI is
-// deferred, per src/host/session.ts's `confirm` default (auto-approve until that UI exists).
+// design.md §13.2 — Phase 3 adds the two states Phase 2 deferred: "Awaiting confirmation" (a
+// confirmation card, T-3.31) and "Blocked by guard" (a guard-block card, T-3.34). The Phase-2
+// guard-stub banner is gone (T-3.26) — there is no more unredacted-by-design state to warn about.
 
-export type PanelState = 'no-permission' | 'loading' | 'idle' | 'running' | 'error' | 'done';
+export type PanelState = 'no-permission' | 'loading' | 'idle' | 'running' | 'awaiting-confirmation' | 'blocked' | 'error' | 'done';
 
 const STATE_LABELS: Record<PanelState, string> = {
   'no-permission': 'No permission for this site',
   loading: 'Loading',
   idle: 'Idle',
   running: 'Running',
+  'awaiting-confirmation': 'Awaiting confirmation',
+  blocked: 'Blocked by guard',
   error: 'Error',
   done: 'Done',
 };
-
-/** The Phase-2 guard stub's mandated persistent banner (phase_2_spine.md §8) — shown regardless
- * of panel state, because the exposure it warns about exists in every state that can send a
- * payload. */
-export function GuardStubBanner() {
-  return (
-    <div
-      role="alert"
-      style={{ background: '#b00020', color: 'white', padding: '6px 10px', fontWeight: 600, fontSize: 12, textAlign: 'center' }}
-    >
-      PHASE 2 BUILD — NO REDACTION
-    </div>
-  );
-}
 
 export function panelStateLabel(state: PanelState): string {
   return STATE_LABELS[state];

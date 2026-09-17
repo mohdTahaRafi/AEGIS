@@ -1,0 +1,98 @@
+{
+  "$id": "https://aegis.local/schema/policy.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AEGIS privacy policy",
+  "description": "design.md §7.2. Local-only configuration data — never crosses the network (CLAUDE.md rule 6 governs the wire contract in packages/protocol; this is a sibling, not a subset of it). Validated at load; an invalid policy fails loudly, never silently defaults (T-3.6).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "version",
+    "classes",
+    "entityClass",
+    "presenceOnly",
+    "partialDisclosure",
+    "crossOriginRehydration",
+    "allowRules",
+    "riskRules"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 60 },
+    "version": { "type": "string", "minLength": 1, "maxLength": 40 },
+    "classes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["CRITICAL", "HIGH", "MEDIUM", "LOW"],
+      "properties": {
+        "CRITICAL": { "$ref": "#/$defs/classRule" },
+        "HIGH": { "$ref": "#/$defs/classRule" },
+        "MEDIUM": { "$ref": "#/$defs/classRule" },
+        "LOW": { "$ref": "#/$defs/classRule" }
+      }
+    },
+    "entityClass": {
+      "type": "object",
+      "description": "EntityType -> Sensitivity. Every entity in the closed enum must appear.",
+      "additionalProperties": { "$ref": "#/$defs/sensitivity" },
+      "propertyNames": { "$ref": "#/$defs/entityType" }
+    },
+    "presenceOnly": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/entityType" }
+    },
+    "partialDisclosure": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": { "type": "boolean" }
+      }
+    },
+    "crossOriginRehydration": { "enum": ["deny", "confirm", "allow"] },
+    "allowRules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "entity", "reason"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 60 },
+          "entity": { "$ref": "#/$defs/entityType" },
+          "reason": { "type": "string", "maxLength": 200 }
+        }
+      }
+    },
+    "riskRules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["confirm"],
+      "properties": {
+        "confirm": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 60 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sensitivity": { "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"] },
+    "classRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["threshold", "operator", "rehydrate"],
+      "properties": {
+        "threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+        "operator": { "enum": ["placeholder_or_fill", "placeholder", "pass"] },
+        "rehydrate": { "enum": ["confirm", "auto_same_origin", "n/a", "deny"] }
+      }
+    },
+    "entityType": {
+      "enum": [
+        "PASSWORD", "OTP", "CARD_NUMBER", "CARD_CVV", "CARD_EXPIRY", "AADHAAR", "FACE",
+        "ID_DOCUMENT", "SIGNATURE", "QR_CODE", "SECRET", "EMAIL", "PHONE", "ADDRESS", "DOB",
+        "BANK_ACCOUNT", "PAN", "GSTIN", "IFSC", "UPI_VPA", "PASSPORT", "VEHICLE_REG",
+        "PERSON_NAME", "USERNAME", "PIN_CODE", "DATE", "AMOUNT", "CITY", "COUNTRY",
+        "UNKNOWN_SENSITIVE", "CAPTCHA", "MEDIA", "LIVE"
+      ]
+    }
+  }
+}

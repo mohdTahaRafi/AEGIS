@@ -36,12 +36,10 @@ function checkHardDenials(plan: ActionPlan, context: HardDenialContext): Validat
   for (let i = 0; i < plan.actions.length; i += 1) {
     const action = plan.actions[i]!;
 
-    if (action.op === 'type' && 'ref' in action) {
-      // Phase 2 has no vault (phase_2_spine.md §14's forward dependency: "type accepts literal
-      // text only"). Accepting a `ref` here would mean pretending to resolve a protected value
-      // this phase cannot safely handle — refused, not silently downgraded to a no-op.
-      return { ok: false, reason: 'PROTECTED_FIELD_READ', actionIndex: i };
-    }
+    // Phase 3: a `ref`-based `type` is no longer a hard denial — design.md §9.3's `resolveFor`
+    // pipeline (host/actions/rehydrate.ts) decides it per-ref, per-target, per-origin, with a
+    // specific failure code on refusal. A blanket denial here would make CRITICAL rehydration
+    // (the feature the project exists for) impossible.
 
     if ('node' in action && typeof action.node === 'string') {
       if (context.nodeEntities.get(action.node) === 'CAPTCHA') {

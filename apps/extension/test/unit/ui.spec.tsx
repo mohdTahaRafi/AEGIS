@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
 import { render } from 'preact';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { GuardStubBanner, panelStateLabel, type PanelState } from '../../src/ui/PanelStates';
+import { panelStateLabel, type PanelState } from '../../src/ui/PanelStates';
 import { TaskInput } from '../../src/ui/TaskInput';
 import { StepTimeline } from '../../src/ui/StepTimeline';
 import { MetricsBar } from '../../src/ui/MetricsBar';
 import { ReportView } from '../../src/ui/ReportView';
+import { ConfirmAction } from '../../src/ui/ConfirmAction';
+import { GuardBlockCard } from '../../src/ui/GuardBlockCard';
+import { RedactionSummary } from '../../src/ui/RedactionSummary';
 import type { StepRecord } from '../../src/host/session';
 
 let container: HTMLDivElement;
@@ -21,17 +24,73 @@ function mount(vnode: preact.ComponentChild): HTMLDivElement {
   return container;
 }
 
-const ALL_PANEL_STATES: PanelState[] = ['no-permission', 'loading', 'idle', 'running', 'error', 'done'];
+const ALL_PANEL_STATES: PanelState[] = [
+  'no-permission',
+  'loading',
+  'idle',
+  'running',
+  'awaiting-confirmation',
+  'blocked',
+  'error',
+  'done',
+];
 
-describe('PanelStates (T-2.30 AC — six states, visually distinct)', () => {
-  it('every one of the six design.md §13.2 states Phase 2 scopes in has a distinct label', () => {
+describe('PanelStates (T-2.30 / T-3.31 / T-3.34 AC — eight states, visually distinct)', () => {
+  it('every one of design.md §13.2\'s states has a distinct label', () => {
     const labels = ALL_PANEL_STATES.map(panelStateLabel);
-    expect(new Set(labels).size).toBe(6);
+    expect(new Set(labels).size).toBe(ALL_PANEL_STATES.length);
+  });
+});
+
+describe('ConfirmAction (T-3.31 AC)', () => {
+  it('renders the description and risk level, and calls onDecide(true) on Allow once', () => {
+    const onDecide = vi.fn();
+    const el = mount(<ConfirmAction risk="high" description="Type Aadhaar into field X?" onDecide={onDecide} />);
+    expect(el.textContent).toContain('Type Aadhaar into field X?');
+    expect(el.textContent).toContain('high risk');
+    const [allow] = el.querySelectorAll('button');
+    allow!.dispatchEvent(new Event('click', { bubbles: true }));
+    expect(onDecide).toHaveBeenCalledWith(true);
   });
 
-  it('renders the mandated Phase-2 guard-stub banner text', () => {
-    const el = mount(<GuardStubBanner />);
-    expect(el.textContent).toContain('PHASE 2 BUILD — NO REDACTION');
+  it('calls onDecide(false) on Deny', () => {
+    const onDecide = vi.fn();
+    const el = mount(<ConfirmAction risk="medium" description="desc" onDecide={onDecide} />);
+    const [, deny] = el.querySelectorAll('button');
+    deny!.dispatchEvent(new Event('click', { bubbles: true }));
+    expect(onDecide).toHaveBeenCalledWith(false);
+  });
+});
+
+describe('GuardBlockCard (T-3.34 AC)', () => {
+  it('shows the rule and entity, and wires Retry/Stop', () => {
+    const onRetry = vi.fn();
+    const onStop = vi.fn();
+    const el = mount(<GuardBlockCard rule="VAULT_LEAK" entity="AADHAAR" count={1} onRetry={onRetry} onStop={onStop} />);
+    expect(el.textContent).toContain('VAULT_LEAK');
+    expect(el.textContent).toContain('AADHAAR');
+    const [retry, stop] = el.querySelectorAll('button');
+    retry!.dispatchEvent(new Event('click', { bubbles: true }));
+    stop!.dispatchEvent(new Event('click', { bubbles: true }));
+    expect(onRetry).toHaveBeenCalled();
+    expect(onStop).toHaveBeenCalled();
+  });
+});
+
+describe('RedactionSummary (T-3.33 AC)', () => {
+  it('shows counts by entity and the coverage triple', () => {
+    const el = mount(
+      <RedactionSummary
+        redactions={[
+          { ref: '⟪AADHAAR#1⟫', entity: 'AADHAAR', class: 'CRITICAL', boxes: [], method: 'placeholder', confidence: 0.95, sources: [], unverified: false } as never,
+          { ref: null, entity: 'PASSWORD', class: 'CRITICAL', boxes: [], method: 'placeholder', confidence: 1, sources: [], unverified: false } as never,
+        ]}
+        coverage={{ cleared: 0.8, redacted: 0.2, unanalysed: 0 }}
+      />,
+    );
+    expect(el.textContent).toContain('AADHAAR 1');
+    expect(el.textContent).toContain('PASSWORD 1');
+    expect(el.textContent).toContain('80%');
   });
 });
 

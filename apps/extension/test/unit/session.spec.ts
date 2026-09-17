@@ -66,7 +66,7 @@ function buildSession(
 function graphResponder(sent: unknown, emit: (m: unknown) => void): void {
   const msg = sent as { type: string; actionId?: string };
   if (msg.type === 'extract') {
-    emit({ type: 'graph', frame: 'f-0', nodes: [NODE], removed: [], privacyEpoch: 0, reason: 'initial' });
+    emit({ type: 'graph', frame: 'f-0', nodes: [NODE], removed: [], textRuns: [], privacyEpoch: 0, reason: 'initial' });
   }
   if (msg.type === 'dispatch-action') {
     emit({ type: 'action-result', actionId: msg.actionId, ok: true });

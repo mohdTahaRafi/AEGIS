@@ -1,2 +1,22 @@
-// Phase 3 scaffold. See docs/TASKS.md T-3.1…T-3.5.
-export {};
+export * from './types';
+export * from './normalize';
+export * from './checksums/verhoeff';
+export * from './checksums/luhn';
+export * from './checksums/gstin';
+export * from './context/lexicons';
+export * from './context/boost';
+export * from './registry';
+
+export { aadhaarRecognizer } from './patterns/aadhaar';
+export { panRecognizer } from './patterns/pan';
+export { gstinRecognizer } from './patterns/gstin';
+export { ifscRecognizer } from './patterns/ifsc';
+export { upiRecognizer } from './patterns/upi';
+export { cardRecognizer } from './patterns/card';
+export { phoneRecognizer } from './patterns/phone';
+export { emailRecognizer } from './patterns/email';
+export { passportRecognizer } from './patterns/passport';
+export { vehicleRecognizer } from './patterns/vehicle';
+export { pinRecognizer } from './patterns/pin';
+export { dobRecognizer } from './patterns/dob';
+export { secretRecognizer } from './patterns/secret';

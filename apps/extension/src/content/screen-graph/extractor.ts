@@ -2,6 +2,8 @@
 // screen graph. Needs real layout throughout, so this is exercised in test/browser/, not jsdom.
 
 import { computeAccessibleName } from './accname';
+import { classifyChannelD, type ChannelDSignal } from '../detect/channel-d';
+import { classifyProtected } from '../detect/protected';
 import { boxFromRect, readBoxesInOnePass, type Box } from './geometry';
 import { ContainerResolver, computeNodeKeyForElement, type NodeIdentityRegistry } from './identity';
 import { computeRole } from './roles';
@@ -30,9 +32,10 @@ export interface RawScreenNodeField {
   inputmode?: string;
   maskedCss: boolean;
   /**
-   * Always true until Phase 3's T-3.9 (phase_2_spine.md §14 forward dependency): that task
-   * inverts this for PASSWORD/OTP/CARD_NUMBER/CARD_CVV/SECRET fields, which must never have a
-   * code path that reads `.value`.
+   * T-3.9 / FR-23: false for PASSWORD, OTP, CARD_NUMBER, CARD_CVV and SECRET fields — for those,
+   * `computeField` below returns before any expression touches `.value` as a string. `hasValue`/
+   * `valueLen` are still reported (they come from `computeState`, which reads `.value.length`,
+   * never the string itself).
    */
   valueRead: boolean;
   value?: string;
@@ -54,6 +57,8 @@ export interface RawScreenNode {
   container: string;
   /** Ids of child TextRun nodes. Always [] until text-run extraction is built. */
   textRuns: string[];
+  /** design.md §6.1's Channel D signal (T-3.8), or `undefined` if no row matches. */
+  domSignal?: ChannelDSignal;
 }
 
 export interface ExtractedGraph {
@@ -113,25 +118,31 @@ function isMaskedCss(el: Element): boolean {
   return value !== '' && value !== 'none';
 }
 
+/**
+ * T-3.9 — the classification happens BEFORE any value access, and the protected branch has no
+ * expression that touches `.value` as a string at all: it returns immediately with `value`
+ * omitted. This is a deletion, not a check — there is no `if (protected) { don't send value }`
+ * downstream that a refactor could bypass, because the string is never bound to a variable here
+ * in the first place.
+ */
 function computeField(el: Element): RawScreenNodeField | undefined {
   if (el instanceof HTMLInputElement) {
-    return {
-      inputType: el.type,
-      autocomplete: el.getAttribute('autocomplete') ?? undefined,
-      inputmode: el.getAttribute('inputmode') ?? undefined,
-      maskedCss: isMaskedCss(el),
-      valueRead: true,
-      value: el.value,
-    };
+    const protectedClass = classifyProtected(el);
+    const autocomplete = el.getAttribute('autocomplete') ?? undefined;
+    const inputmode = el.getAttribute('inputmode') ?? undefined;
+    const maskedCss = isMaskedCss(el);
+    if (protectedClass) {
+      return { inputType: el.type, autocomplete, inputmode, maskedCss, valueRead: false };
+    }
+    return { inputType: el.type, autocomplete, inputmode, maskedCss, valueRead: true, value: el.value };
   }
   if (el instanceof HTMLTextAreaElement) {
-    return {
-      inputType: 'textarea',
-      autocomplete: el.getAttribute('autocomplete') ?? undefined,
-      maskedCss: false,
-      valueRead: true,
-      value: el.value,
-    };
+    const protectedClass = classifyProtected(el);
+    const autocomplete = el.getAttribute('autocomplete') ?? undefined;
+    if (protectedClass) {
+      return { inputType: 'textarea', autocomplete, maskedCss: false, valueRead: false };
+    }
+    return { inputType: 'textarea', autocomplete, maskedCss: false, valueRead: true, value: el.value };
   }
   return undefined;
 }
@@ -207,6 +218,7 @@ export function extractScreenGraph(
       field: computeField(p.el),
       container: containerResolver.resolve(p.el),
       textRuns: [],
+      domSignal: classifyChannelD(p.el, p.name),
     };
   });
 
