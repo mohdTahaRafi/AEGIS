@@ -1,0 +1,32 @@
+{
+  "screen_id": "id-007",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "CARD_NUMBER",
+      "box": [
+        220,
+        120,
+        190,
+        22
+      ],
+      "value_hash": "sha256:0504c2508ef31d29e6314937231d6c57dc960cf1d242e55761901fe3f60118dd"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYFBHQNUA3KB89SCBK3N8D4M"
+    }
+  ],
+  "tasks": []
+}

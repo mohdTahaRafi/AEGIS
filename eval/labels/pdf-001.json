@@ -1,0 +1,32 @@
+{
+  "screen_id": "pdf-001",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "AADHAAR",
+      "box": [
+        120,
+        220,
+        160,
+        22
+      ],
+      "value_hash": "sha256:6439fdb943991ec6def905f1e7b036efbf4556038c3c6e9a28bc62cc2ed4eb53"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYLF38YY9J5H8L3DTWQXAUCX"
+    }
+  ],
+  "tasks": []
+}

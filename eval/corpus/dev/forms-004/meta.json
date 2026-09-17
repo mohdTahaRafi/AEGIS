@@ -1,0 +1,12 @@
+{
+  "category": "gov",
+  "group": "forms",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Fictitious KYC form: name, DOB with label context, Aadhaar."
+}

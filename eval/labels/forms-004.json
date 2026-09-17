@@ -1,0 +1,52 @@
+{
+  "screen_id": "forms-004",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "PERSON_NAME",
+      "box": [
+        220,
+        120,
+        220,
+        24
+      ],
+      "value_hash": "sha256:c57ac8dcc7a8667896d951cb1826fe5b996e8866607514e2ef92c124a7cb13aa"
+    },
+    {
+      "entity": "DOB",
+      "box": [
+        220,
+        160,
+        120,
+        24
+      ],
+      "value_hash": "sha256:f183cc26148187100aa47180fc0ed202b97f62d1bf295531100b4bc003aa179d"
+    },
+    {
+      "entity": "AADHAAR",
+      "box": [
+        220,
+        200,
+        160,
+        24
+      ],
+      "value_hash": "sha256:3d554ca790e05965db7815c96339ef1107131f116a1d840a61519d66ea7a809b"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARY4SQLTK239N5FBCRBVCPKFT"
+    }
+  ],
+  "tasks": []
+}

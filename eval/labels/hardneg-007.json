@@ -1,0 +1,32 @@
+{
+  "screen_id": "hardneg-007",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "NONE",
+      "box": [
+        220,
+        120,
+        140,
+        22
+      ],
+      "note": "vehicle-registration-shaped rack code in a warehouse system, not a real vehicle plate"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYFEL98CEY26TKZ6NFQ8TTVQ"
+    }
+  ],
+  "tasks": []
+}

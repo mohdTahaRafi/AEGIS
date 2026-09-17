@@ -1,0 +1,32 @@
+{
+  "screen_id": "hardneg-003",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "NONE",
+      "box": [
+        220,
+        120,
+        120,
+        22
+      ],
+      "note": "PAN-shaped catalogue SKU; 4th-char holder-type code is invalid for a real PAN"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARY8WKTL6H2X4WJHL2BPJUQAB"
+    }
+  ],
+  "tasks": []
+}

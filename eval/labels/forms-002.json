@@ -1,0 +1,31 @@
+{
+  "screen_id": "forms-002",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "OTP",
+      "box": [
+        220,
+        120,
+        120,
+        28
+      ]
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYDWN79QW2LMRN8FLPTT55GM"
+    }
+  ],
+  "tasks": []
+}

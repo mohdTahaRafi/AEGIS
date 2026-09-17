@@ -1,0 +1,32 @@
+{
+  "screen_id": "hardneg-005",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "NONE",
+      "box": [
+        220,
+        120,
+        110,
+        22
+      ],
+      "note": "a calendar date with no DOB context \u2014 must not be flagged as DOB"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYYW2VCVCWJFP4LK5NU2FY9J"
+    }
+  ],
+  "tasks": []
+}

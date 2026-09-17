@@ -1,0 +1,12 @@
+{
+  "category": "gov",
+  "group": "faces",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Placeholder ID-document graphic, redacted whole without attempting to read it."
+}

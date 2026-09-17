@@ -35,3 +35,4 @@ docs
 test-results/
 playwright-report/
 coverage/
+.pytest_cache/

@@ -1,0 +1,32 @@
+{
+  "screen_id": "hardneg-008",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "NONE",
+      "box": [
+        220,
+        120,
+        160,
+        22
+      ],
+      "note": "already-masked display (8 digits hidden) \u2014 no full value present to leak"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYSRHXM4KWVH2NMDEZ27ZLWP"
+    }
+  ],
+  "tasks": []
+}

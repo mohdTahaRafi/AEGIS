@@ -1,0 +1,32 @@
+{
+  "screen_id": "id-001",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "AADHAAR",
+      "box": [
+        220,
+        120,
+        160,
+        22
+      ],
+      "value_hash": "sha256:5e12b59b732287fa11b0c2ab61402766378a5d3cff6f119f08c99bdbe21e889e"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYCC4F4PTE7K5PWMNGS4RRBS"
+    }
+  ],
+  "tasks": []
+}

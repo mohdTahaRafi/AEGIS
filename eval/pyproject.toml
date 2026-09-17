@@ -7,6 +7,8 @@ dependencies = [
   "playwright>=1.48",
   "pandas>=2.2",
   "pydantic>=2.9",
+  "jsonschema>=4.23",
+  "psutil>=6.0",
 ]
 
 [project.optional-dependencies]

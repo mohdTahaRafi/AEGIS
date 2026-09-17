@@ -1,0 +1,42 @@
+{
+  "screen_id": "id-008",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "PHONE",
+      "box": [
+        220,
+        120,
+        150,
+        22
+      ],
+      "value_hash": "sha256:55d6fff3da8862fcf520ed92976f3407bac30b0d3da64f4c41d7cc097786eb50"
+    },
+    {
+      "entity": "EMAIL",
+      "box": [
+        220,
+        160,
+        220,
+        22
+      ],
+      "value_hash": "sha256:1f11c20cd65754b204d5a93f72309827de63457d44fd6b9e4ad8fcd71f113ccd"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYZG45VPY4JYASXYPL3HHJS5"
+    }
+  ],
+  "tasks": []
+}

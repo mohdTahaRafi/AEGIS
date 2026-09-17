@@ -38,9 +38,12 @@ export default tseslint.config(
   {
     ignores: [
       '**/node_modules/**',
+      '**/.venv/**',
       '**/.output/**',
       '**/.wxt/**',
       '**/dist/**',
+      '**/.pytest_cache/**',
+      '**/corpus/**',
       '**/build/**',
       '**/*.d.ts',
       '**/generated/**',

@@ -1,0 +1,31 @@
+{
+  "screen_id": "faces-003",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "SIGNATURE",
+      "box": [
+        220,
+        120,
+        200,
+        80
+      ]
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARY7P7CUXPSKLS965QAXW9BC3"
+    }
+  ],
+  "tasks": []
+}

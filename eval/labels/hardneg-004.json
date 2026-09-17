@@ -1,0 +1,32 @@
+{
+  "screen_id": "hardneg-004",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "NONE",
+      "box": [
+        220,
+        120,
+        140,
+        22
+      ],
+      "note": "a price \u2014 LOW class, must pass through, not redacted"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARY2ZX3D3Q9NSUB72FTZ87KSU"
+    }
+  ],
+  "tasks": []
+}

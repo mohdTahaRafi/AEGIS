@@ -1,0 +1,31 @@
+{
+  "screen_id": "faces-004",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "QR_CODE",
+      "box": [
+        220,
+        120,
+        120,
+        120
+      ]
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYUQ5UUTXH3WM9RQJQQDUVJS"
+    }
+  ],
+  "tasks": []
+}

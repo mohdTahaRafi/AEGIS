@@ -1,0 +1,32 @@
+{
+  "screen_id": "hardneg-002",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "NONE",
+      "box": [
+        220,
+        120,
+        160,
+        22
+      ],
+      "note": "12-digit tracking id, Aadhaar-shaped, deliberately fails Verhoeff"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYD28LXTL6PDT34VSXYAXWHM"
+    }
+  ],
+  "tasks": []
+}

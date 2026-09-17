@@ -1,0 +1,32 @@
+{
+  "screen_id": "canvas-001",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "AADHAAR",
+      "box": [
+        40,
+        154,
+        130,
+        22
+      ],
+      "value_hash": "sha256:428cd9b1a9eee17926af81442c1c9e742668cec9f3665df0c02d9c094395fcaa"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYWVKE9K9ZKW9WMS8SUA8ZHR"
+    }
+  ],
+  "tasks": []
+}

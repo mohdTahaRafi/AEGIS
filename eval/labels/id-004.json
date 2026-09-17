@@ -1,0 +1,32 @@
+{
+  "screen_id": "id-004",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "GSTIN",
+      "box": [
+        220,
+        120,
+        170,
+        22
+      ],
+      "value_hash": "sha256:e364116e32c28a3baa41d7d07d8c7d9690fa882b5d04c4615225312d34c0cf1e"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYVW2FUNF3MVR8XDQCWLYEYL"
+    }
+  ],
+  "tasks": []
+}

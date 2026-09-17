@@ -1,0 +1,101 @@
+{
+  "$id": "https://aegis.local/schema/eval-label.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Corpus label",
+  "description": "design.md §18.1. Ground truth for one eval/corpus/<split>/<screen_id> screen. Values are stored as hashes, never plaintext — the auditor hashes candidate strings from a captured payload and compares, so the corpus itself is never a plaintext PII store.",
+  "type": "object",
+  "required": ["screen_id", "viewport", "dpr", "items", "tasks"],
+  "additionalProperties": false,
+  "properties": {
+    "screen_id": {
+      "type": "string",
+      "pattern": "^[a-z]+-[0-9]{3,4}$",
+      "description": "Matches the corpus folder name eval/corpus/<split>/<screen_id>/."
+    },
+    "viewport": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 1 },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "[width, height] in CSS pixels."
+    },
+    "dpr": { "type": "number", "minimum": 0.5, "maximum": 4 },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/labelItem" }
+    },
+    "tasks": {
+      "type": "array",
+      "items": { "type": "string", "maxLength": 80 },
+      "description": "Ids of scripted tasks in eval/tasks/ that use this screen. May be empty for a detection-only fixture."
+    }
+  },
+  "$defs": {
+    "labelItem": {
+      "type": "object",
+      "required": ["entity", "box"],
+      "additionalProperties": false,
+      "properties": {
+        "entity": {
+          "description": "Closed entity enum (design.md §3.3), plus NONE for a hard negative — an item that must NOT be detected as sensitive.",
+          "enum": [
+            "PASSWORD", "OTP", "CARD_NUMBER", "CARD_CVV", "CARD_EXPIRY",
+            "AADHAAR", "FACE", "ID_DOCUMENT", "SIGNATURE", "QR_CODE", "SECRET",
+            "EMAIL", "PHONE", "ADDRESS", "DOB", "BANK_ACCOUNT", "PAN", "GSTIN",
+            "IFSC", "UPI_VPA", "PASSPORT", "VEHICLE_REG", "PERSON_NAME", "USERNAME",
+            "PIN_CODE", "DATE", "AMOUNT", "CITY", "COUNTRY", "UNKNOWN_SENSITIVE",
+            "NONE"
+          ]
+        },
+        "box": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "[x, y, w, h] in CSS pixels at the labelled viewport."
+        },
+        "value_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "sha256 of the real value's canonical form (digits-only for numeric ids, lowercased for email/VPA). Required for any entity that carries a hashable real value — not FACE/ID_DOCUMENT/SIGNATURE/QR_CODE/NONE (imagery or a non-detection, nothing to hash), not PASSWORD/OTP/CARD_NUMBER/CARD_CVV (presence-only per FR-23, the value is never read), and not a canary item (its value is already plaintext in canary_id)."
+        },
+        "canary": {
+          "type": "boolean",
+          "default": false,
+          "description": "True if this item's value is a planted high-entropy tripwire string rather than a realistic synthetic value. See canary_id."
+        },
+        "canary_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9]{24,}$",
+          "description": "The literal canary string, required when canary is true, unique across the whole corpus. Stored in plaintext (unlike value_hash) because a canary's only job is to be searched for verbatim."
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Required for entity:NONE — what this item mimics and why it must not be redacted (design.md §17's hard-negative rule)."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "entity": { "const": "NONE" } } },
+          "then": { "required": ["note"] }
+        },
+        {
+          "if": { "required": ["canary"], "properties": { "canary": { "const": true } } },
+          "then": { "required": ["canary_id"] }
+        },
+        {
+          "if": {
+            "properties": {
+              "entity": { "not": { "enum": ["FACE", "ID_DOCUMENT", "SIGNATURE", "QR_CODE", "NONE", "PASSWORD", "OTP", "CARD_NUMBER", "CARD_CVV"] } },
+              "canary": { "not": { "const": true } }
+            }
+          },
+          "then": { "required": ["value_hash"] },
+          "description": "A canary item's value is already plaintext in canary_id — no separate value_hash is needed."
+        }
+      ]
+    }
+  }
+}

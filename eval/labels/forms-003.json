@@ -1,0 +1,40 @@
+{
+  "screen_id": "forms-003",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "CARD_NUMBER",
+      "box": [
+        220,
+        120,
+        190,
+        28
+      ]
+    },
+    {
+      "entity": "CARD_CVV",
+      "box": [
+        220,
+        160,
+        60,
+        28
+      ]
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARY39GKW8NAZQ22DN9QZY7PFN"
+    }
+  ],
+  "tasks": []
+}

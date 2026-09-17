@@ -1,0 +1,12 @@
+{
+  "category": "social",
+  "group": "faces",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Placeholder avatar graphic, not a real photograph \u2014 see eval/corpus/README.md."
+}

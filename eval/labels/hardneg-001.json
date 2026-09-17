@@ -1,0 +1,32 @@
+{
+  "screen_id": "hardneg-001",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "NONE",
+      "box": [
+        220,
+        120,
+        190,
+        22
+      ],
+      "note": "16-digit order number, card-shaped, deliberately fails Luhn"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYM6EDQQ28692BPMX9S9AKSE"
+    }
+  ],
+  "tasks": []
+}

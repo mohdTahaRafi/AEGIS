@@ -1,0 +1,42 @@
+{
+  "screen_id": "freetext-001",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "PERSON_NAME",
+      "box": [
+        16,
+        60,
+        300,
+        24
+      ],
+      "value_hash": "sha256:89026324a1f4f769bd0c332fd0e3108fc60938e956343cf2f1642fcd5ae1455d"
+    },
+    {
+      "entity": "ADDRESS",
+      "box": [
+        16,
+        90,
+        400,
+        24
+      ],
+      "value_hash": "sha256:ac5f9164742c1fc744a49284254df217a4453fb2c4f58dc1303ae0ee3d1af802"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARY37QP2WBAAG9ZQ5ZKEBHMK6"
+    }
+  ],
+  "tasks": []
+}

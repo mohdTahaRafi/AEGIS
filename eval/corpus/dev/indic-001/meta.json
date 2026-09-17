@@ -1,0 +1,12 @@
+{
+  "category": "gov",
+  "group": "indic",
+  "script": "devanagari",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Devanagari script incl. Devanagari digit forms (\u0966-\u096f) for the Aadhaar number."
+}

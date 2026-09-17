@@ -1,0 +1,32 @@
+{
+  "screen_id": "id-006",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "UPI_VPA",
+      "box": [
+        220,
+        120,
+        180,
+        22
+      ],
+      "value_hash": "sha256:9ef703616b08413923f231dd75b32aa010fac79bbe67740408fcfd15568d063f"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYJZZ747VYCQ58VS7X4928PP"
+    }
+  ],
+  "tasks": []
+}

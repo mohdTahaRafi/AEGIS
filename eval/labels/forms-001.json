@@ -1,0 +1,43 @@
+{
+  "screen_id": "forms-001",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "USERNAME",
+      "box": [
+        220,
+        120,
+        220,
+        28
+      ],
+      "value_hash": "sha256:c08a53b7101b2452793a36f3bcb0fa5104ef82d3ba8a1714499f22d7ae49ff75"
+    },
+    {
+      "entity": "PASSWORD",
+      "box": [
+        220,
+        160,
+        220,
+        28
+      ]
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYSFZD83QCV458M827WVPYN7"
+    }
+  ],
+  "tasks": [
+    "task-login-submit-01"
+  ]
+}

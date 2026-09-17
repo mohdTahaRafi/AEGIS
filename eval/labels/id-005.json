@@ -1,0 +1,32 @@
+{
+  "screen_id": "id-005",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "IFSC",
+      "box": [
+        220,
+        120,
+        130,
+        22
+      ],
+      "value_hash": "sha256:f8e3200b10e795a907b1cd9d3a11cf8327b331383dfec0ec59e67d468d179e56"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYYWV9BXWB3C5FQDRFGSXRZX"
+    }
+  ],
+  "tasks": []
+}
