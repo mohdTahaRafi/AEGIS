@@ -31,6 +31,7 @@ server/recordings/
 .idea/
 *.swp
 docs
+
 # Test artefacts
 test-results/
 playwright-report/

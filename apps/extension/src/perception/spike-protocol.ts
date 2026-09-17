@@ -1,5 +1,8 @@
 /**
- * Phase-0 spike protocol. Replaced by the real worker interface (design §11.1) in Phase 4.
+ * Phase-0 spike protocol for `worker.ts`'s probe/bench messages. Replaced by the real worker
+ * interface (design §11.1) in Phase 4. Moved out of `src/shared/` in Phase 2 (T-2.1): these types
+ * are perception-worker-internal, not a cross-context contract, and `src/shared/` no longer
+ * carries anything named "spike" per that task's AC.
  */
 
 export type Backend = 'webgpu' | 'wasm';

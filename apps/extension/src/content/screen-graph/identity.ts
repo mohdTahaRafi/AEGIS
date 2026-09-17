@@ -3,6 +3,8 @@
 // Identity only chooses *which* element to check; it never authorises an action — the
 // pre-flight facets (§5) are the authority.
 
+import { computeRole } from './roles';
+
 const STRUCTURAL_PATH_MAX_DEPTH = 6;
 
 /** `n-<base36>`, random per session, never a selector or path (phase_2_spine.md §3.2). */
@@ -98,6 +100,51 @@ export function computeNodeKeyForElement(el: Element, frame: string, role: strin
   });
 }
 
+/**
+ * design.md line 83's "random per session" means assigned *once* per logical node and kept for
+ * as long as that node persists — not regenerated on every extraction pass. Without this, a plan
+ * referencing `n-7f` from a prior step would never resolve (the id would already be gone), and
+ * T-2.16's deltas would have no stable basis to diff against.
+ *
+ * Stability ladder per pass: same `Element` object (fast path, a `WeakMap`) → same `key` *and*
+ * that key was unambiguous both last pass and this one (a React-style re-render that destroys and
+ * recreates an identical element) → otherwise a fresh id. An ambiguous key (two simultaneous
+ * siblings sharing one key) never reuses an id via the key path — each gets its own on first
+ * sight and keeps it via the `WeakMap` from then on. This mirrors `ScreenGraphIndex.resolve`'s
+ * "never guess between ambiguous candidates" rule, applied to id assignment instead of resolution.
+ */
+export interface NodeIdentityRegistry {
+  /** Call once per extraction pass with every candidate's key before any `resolveId` call. */
+  prepare(keys: readonly string[]): void;
+  resolveId(el: Element, key: string): string;
+}
+
+export function createNodeIdentityRegistry(rng: () => number = Math.random): NodeIdentityRegistry {
+  const generateId = createNodeIdGenerator(rng);
+  const idByElement = new WeakMap<Element, string>();
+  const idByKey = new Map<string, string>();
+  let keyCounts = new Map<string, number>();
+
+  return {
+    prepare(keys) {
+      keyCounts = new Map();
+      for (const key of keys) keyCounts.set(key, (keyCounts.get(key) ?? 0) + 1);
+    },
+    resolveId(el, key) {
+      const unambiguous = keyCounts.get(key) === 1;
+      const existing = idByElement.get(el);
+      if (existing) {
+        if (unambiguous) idByKey.set(key, existing);
+        return existing;
+      }
+      const id = unambiguous && idByKey.has(key) ? idByKey.get(key)! : generateId();
+      idByElement.set(el, id);
+      if (unambiguous) idByKey.set(key, id);
+      return id;
+    },
+  };
+}
+
 export interface GraphIndexEntry {
   element: Element;
   key: string;
@@ -141,5 +188,51 @@ export class ScreenGraphIndex {
     }
 
     return null;
+  }
+}
+
+const LANDMARK_ROLES = new Set([
+  'banner', 'navigation', 'main', 'complementary', 'contentinfo', 'search', 'form', 'region',
+]);
+
+function isStabilityContainerCandidate(el: Element): boolean {
+  if (el.tagName === 'FORM') return true;
+  if (el.getAttribute('role') === 'dialog') return true;
+  if (LANDMARK_ROLES.has(computeRole(el))) return true;
+  const style = getComputedStyle(el);
+  if (style.position === 'fixed') return true;
+  if (style.contain !== 'none' && style.contain !== '') return true;
+  const contentVisibility = style.getPropertyValue('content-visibility');
+  return contentVisibility !== '' && contentVisibility !== 'visible';
+}
+
+/**
+ * design.md §5.5: the nearest ancestor that is a `<form>`, `[role=dialog]`, landmark, a
+ * `position:fixed` element, or one with `contain`/`content-visibility` — memoised in a
+ * `WeakMap` per instance, as the design specifies. Needs real computed style, so this is
+ * exercised in `test/browser/`, not jsdom.
+ */
+export class ContainerResolver {
+  private readonly ids = new WeakMap<Element, string>();
+  private nextId = 0;
+
+  resolve(el: Element): string {
+    let current: Element | null = el;
+    while (current) {
+      const cached = this.ids.get(current);
+      if (cached) return cached;
+      if (isStabilityContainerCandidate(current)) return this.idFor(current);
+      current = current.parentElement;
+    }
+    return 'root';
+  }
+
+  private idFor(el: Element): string {
+    const existing = this.ids.get(el);
+    if (existing) return existing;
+    this.nextId += 1;
+    const id = `c-${this.nextId}`;
+    this.ids.set(el, id);
+    return id;
   }
 }

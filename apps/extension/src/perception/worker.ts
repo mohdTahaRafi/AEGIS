@@ -7,7 +7,7 @@ import type {
   FromWorker,
   SpikeEnvironment,
   ToWorker,
-} from '../shared/spike';
+} from './spike-protocol';
 
 // Left unset deliberately: Vite bundles onnxruntime-web's own WASM binaries as build assets
 // resolved from this module's URL, so they are already extension-local. Nothing is fetched from

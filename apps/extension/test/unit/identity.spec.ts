@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ScreenGraphIndex,
   computeNodeKeyForElement,
+  createNodeIdentityRegistry,
   createNodeIdGenerator,
 } from '../../src/content/screen-graph/identity';
 
@@ -18,6 +19,64 @@ describe('createNodeIdGenerator', () => {
     const next = createNodeIdGenerator();
     const ids = new Set(Array.from({ length: 500 }, () => next()));
     expect(ids.size).toBe(500);
+  });
+});
+
+describe('createNodeIdentityRegistry — id stability across passes (design.md line 83)', () => {
+  it('gives the same element the same id across repeated passes with no DOM change', () => {
+    document.body.innerHTML = '<button id="a">Delete</button>';
+    const el = document.getElementById('a') as Element;
+    const registry = createNodeIdentityRegistry();
+    registry.prepare(['key-a']);
+    const first = registry.resolveId(el, 'key-a');
+    registry.prepare(['key-a']);
+    const second = registry.resolveId(el, 'key-a');
+    expect(second).toBe(first);
+  });
+
+  it('reuses the old id when an identical element is replaced (unambiguous key)', () => {
+    document.body.innerHTML = '<button id="a">Delete</button>';
+    const original = document.getElementById('a') as Element;
+    const registry = createNodeIdentityRegistry();
+    registry.prepare(['key-shared']);
+    const before = registry.resolveId(original, 'key-shared');
+
+    document.body.innerHTML = '<button id="b">Delete</button>';
+    const replacement = document.getElementById('b') as Element;
+    registry.prepare(['key-shared']);
+    const after = registry.resolveId(replacement, 'key-shared');
+
+    expect(after).toBe(before);
+  });
+
+  it('does not reuse an id via the key path when the key is ambiguous this pass', () => {
+    document.body.innerHTML = '<button id="a">Delete</button>';
+    const a = document.getElementById('a') as Element;
+    const registry = createNodeIdentityRegistry();
+    registry.prepare(['key-dup']);
+    const idA = registry.resolveId(a, 'key-dup');
+
+    document.body.innerHTML = '<button id="b">Delete</button><button id="c">Delete</button>';
+    const b = document.getElementById('b') as Element;
+    const c = document.getElementById('c') as Element;
+    registry.prepare(['key-dup', 'key-dup']);
+    const idB = registry.resolveId(b, 'key-dup');
+    const idC = registry.resolveId(c, 'key-dup');
+
+    expect(idB).not.toBe(idA);
+    expect(idC).not.toBe(idA);
+    expect(idB).not.toBe(idC);
+  });
+
+  it('assigns a fresh id to a genuinely new element', () => {
+    document.body.innerHTML = '<button id="a">Delete</button><button id="b">Add</button>';
+    const a = document.getElementById('a') as Element;
+    const b = document.getElementById('b') as Element;
+    const registry = createNodeIdentityRegistry();
+    registry.prepare(['key-a', 'key-b']);
+    const idA = registry.resolveId(a, 'key-a');
+    const idB = registry.resolveId(b, 'key-b');
+    expect(idA).not.toBe(idB);
   });
 });
 

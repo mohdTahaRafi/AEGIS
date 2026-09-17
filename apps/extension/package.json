@@ -16,6 +16,7 @@
     "check:no-network": "tsx scripts/check-no-network.ts"
   },
   "dependencies": {
+    "@aegis/protocol": "workspace:*",
     "onnxruntime-web": "^1.30.0",
     "preact": "^10.29.8"
   },

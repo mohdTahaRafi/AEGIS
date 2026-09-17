@@ -1,129 +1,115 @@
 import { render } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
-import type { BackendProbe, BenchResult, FromWorker, SpikeEnvironment, ToWorker } from '../../src/shared/spike';
+import { useState } from 'preact/hooks';
+import { ContentPortClient, connectToTab } from '../../src/host/port';
+import { ensureHostPermission } from '../../src/host/platform/capabilities';
+import { createGatewayClient } from '../../src/host/egress/gateway-client';
+import { Session, type SessionEvent, type StepRecord } from '../../src/host/session';
+import { GuardStubBanner, panelStateLabel, type PanelState } from '../../src/ui/PanelStates';
+import { TaskInput } from '../../src/ui/TaskInput';
+import { StepTimeline } from '../../src/ui/StepTimeline';
+import { MetricsBar } from '../../src/ui/MetricsBar';
+import { ReportView } from '../../src/ui/ReportView';
 
-const MODEL_URL = '/models/face_detection_yunet_2023mar.onnx';
-const MODEL_NAME = 'face-yunet-2023mar';
-const RUNS = 30;
-
-function send(worker: Worker, msg: ToWorker) {
-  worker.postMessage(msg);
-}
+// phase_2_spine.md §6.7's demo default; overridable at build time (design.md §13.5's "Server URL"
+// setting — a real settings UI is not built this phase, so this is the one place it lives).
+const GATEWAY_URL = (import.meta.env.VITE_GATEWAY_URL as string | undefined) ?? 'http://localhost:8787';
 
 function App() {
-  const [env, setEnv] = useState<SpikeEnvironment | null>(null);
-  const [probes, setProbes] = useState<BackendProbe[] | null>(null);
-  const [results, setResults] = useState<BenchResult[]>([]);
-  const [running, setRunning] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [worker, setWorker] = useState<Worker | null>(null);
+  const [panelState, setPanelState] = useState<PanelState>('idle');
+  const [steps, setSteps] = useState<StepRecord[]>([]);
+  const [report, setReport] = useState<{ title?: string; content: string } | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
 
-  useEffect(() => {
-    const w = new Worker(new URL('../../src/perception/worker.ts', import.meta.url), { type: 'module' });
-    w.onmessage = (event: MessageEvent<FromWorker>) => {
-      const msg = event.data;
-      if (msg.t === 'env') setEnv(msg.env);
-      else if (msg.t === 'probed') setProbes(msg.probes);
-      else if (msg.t === 'benched') {
-        setResults((prev) => [...prev, msg.result]);
-        setRunning(null);
-      } else if (msg.t === 'error') {
-        setError(`${msg.code}: ${msg.detail}`);
-        setRunning(null);
-      }
-    };
-    setWorker(w);
-    send(w, { t: 'probe' });
-    return () => w.terminate();
-  }, []);
+  function handleSessionEvent(event: SessionEvent): void {
+    if (event.type === 'step') setSteps((prev) => [...prev, event.step]);
+    else if (event.type === 'report') setReport({ title: event.title, content: event.content });
+    else if (event.type === 'done') {
+      setPanelState('done');
+      if (event.summary) setReport({ content: event.summary });
+    } else if (event.type === 'stopped') {
+      setPanelState(event.reason === 'CANCELLED' ? 'idle' : 'error');
+      if (event.reason !== 'CANCELLED') setErrorMessage(event.reason);
+    }
+  }
 
-  function runBench(backend: 'webgpu' | 'wasm') {
-    if (!worker) return;
-    setError(null);
-    setRunning(backend);
-    send(worker, { t: 'bench', backend, modelUrl: MODEL_URL, model: MODEL_NAME, runs: RUNS });
+  async function handleStart(task: string): Promise<void> {
+    setErrorMessage(null);
+    setReport(null);
+    setSteps([]);
+    setPanelState('loading');
+
+    const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id || !tab.url) {
+      setPanelState('error');
+      setErrorMessage('NO_ACTIVE_TAB');
+      return;
+    }
+
+    const origin = new URL(tab.url).origin;
+    const permissionState = await ensureHostPermission(browser.permissions, origin);
+    if (permissionState === 'denied') {
+      setPanelState('no-permission');
+      return;
+    }
+
+    const gateway = createGatewayClient(GATEWAY_URL, import.meta.env.BROWSER === 'firefox' ? 'firefox' : 'chrome');
+    let created;
+    try {
+      created = await gateway.openSession();
+    } catch {
+      setPanelState('error');
+      setErrorMessage('GATEWAY_UNREACHABLE');
+      return;
+    }
+
+    const port = connectToTab(browser.tabs, tab.id);
+    // Forward reference: ContentPortClient needs its handlers now, Session needs the constructed
+    // ContentPortClient — see test/unit/session.spec.ts's buildSession() for the same pattern.
+    // eslint-disable-next-line prefer-const
+    let newSession!: Session;
+    const contentPort = new ContentPortClient(port, {
+      onGraph: (m) => newSession.onGraph(m),
+      onActionResult: (m) => newSession.onActionResult(m.actionId, m.ok, m.reason),
+      onDisconnect: () => setPanelState('error'),
+    });
+    newSession = new Session({
+      contentPort,
+      sendToGateway: (payload, signal) => gateway.sendStep(created.session_id, payload, signal),
+      guardOrigin: origin,
+      pageCategory: 'unknown',
+      pageTitle: tab.title ?? '',
+      onEvent: handleSessionEvent,
+    });
+
+    setSession(newSession);
+    setPanelState('running');
+    await newSession.start(task);
+    await gateway.closeSession(created.session_id);
+  }
+
+  function handleStop(): void {
+    session?.cancel();
   }
 
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', fontSize: 13, padding: 12, maxWidth: 480 }}>
-      <h2 style={{ margin: '0 0 4px' }}>AEGIS — Phase 0 spike</h2>
-      <p style={{ color: '#666', marginTop: 0 }}>
-        Go/no-go: ONNX Runtime Web inference inside the side-panel worker, WebGPU vs WASM.
-        See docs/PLAN.md Phase 0 and docs/TASKS.md T-0.6…T-0.13.
-      </p>
+    <div style={{ fontFamily: 'system-ui, sans-serif', fontSize: 13, maxWidth: 480 }}>
+      <GuardStubBanner />
+      <div style={{ padding: 12 }}>
+        <h2 style={{ margin: '0 0 4px' }}>AEGIS</h2>
+        <p style={{ color: '#666', margin: '0 0 8px' }}>{panelStateLabel(panelState)}</p>
 
-      <section>
-        <h3>Environment</h3>
-        {env ? (
-          <ul>
-            <li>hardwareConcurrency: {env.hardwareConcurrency}</li>
-            <li>deviceMemory: {env.deviceMemoryGB ?? 'unreported'} GB</li>
-            <li>crossOriginIsolated: {String(env.crossOriginIsolated)}</li>
-            <li>SharedArrayBuffer: {String(env.sharedArrayBuffer)}</li>
-            <li>OffscreenCanvas: {String(env.offscreenCanvas)}</li>
-          </ul>
-        ) : (
-          <p>probing…</p>
+        {panelState === 'no-permission' && (
+          <p style={{ color: '#b00' }}>This site needs host permission before AEGIS can run a task here. Try Run again to be prompted.</p>
         )}
-      </section>
+        {panelState === 'error' && errorMessage && <p style={{ color: '#b00' }}>Error: {errorMessage}</p>}
 
-      <section>
-        <h3>Backend availability</h3>
-        {probes ? (
-          <ul>
-            {probes.map((p) => (
-              <li key={p.backend}>
-                <strong>{p.backend}</strong>: {p.available ? 'available' : `unavailable (${p.reason})`}
-                {p.backend === 'wasm' && p.available ? ` — threads=${p.threads}, coi=${p.crossOriginIsolated}` : ''}
-                {p.adapter ? ` — ${p.adapter.vendor} ${p.adapter.architecture}` : ''}
-                {' '}
-                ({p.probeMs.toFixed(1)} ms)
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>probing…</p>
-        )}
-      </section>
+        <TaskInput running={panelState === 'running' || panelState === 'loading'} onStart={handleStart} onStop={handleStop} />
 
-      <section>
-        <h3>Face-detector latency ({MODEL_NAME}, MIT, 227 KB, {RUNS} runs)</h3>
-        <button disabled={running !== null} onClick={() => runBench('webgpu')}>
-          {running === 'webgpu' ? 'Running…' : 'Bench WebGPU'}
-        </button>{' '}
-        <button disabled={running !== null} onClick={() => runBench('wasm')}>
-          {running === 'wasm' ? 'Running…' : 'Bench WASM'}
-        </button>
-        {error && <p style={{ color: '#b00' }}>{error}</p>}
-        <table style={{ marginTop: 8, borderCollapse: 'collapse', width: '100%' }}>
-          <thead>
-            <tr>
-              {['backend', 'load ms', 'warmup ms', 'p50 ms', 'p95 ms', 'min', 'max'].map((h) => (
-                <th key={h} style={{ textAlign: 'left', borderBottom: '1px solid #ccc', padding: 4 }}>
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {results.map((r, i) => (
-              <tr key={i}>
-                <td style={{ padding: 4 }}>{r.backend}</td>
-                <td style={{ padding: 4 }}>{r.loadMs.toFixed(1)}</td>
-                <td style={{ padding: 4 }}>{r.warmupMs.toFixed(1)}</td>
-                <td style={{ padding: 4 }}>{r.p50Ms.toFixed(1)}</td>
-                <td style={{ padding: 4 }}>{r.p95Ms.toFixed(1)}</td>
-                <td style={{ padding: 4 }}>{r.minMs.toFixed(1)}</td>
-                <td style={{ padding: 4 }}>{r.maxMs.toFixed(1)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <p style={{ color: '#666' }}>
-          Copy these numbers into docs/HISTORY.md and docs/DECISIONS.md (OQ-16) once run on the
-          chosen reference laptop, on Chrome and on Firefox.
-        </p>
-      </section>
+        <MetricsBar backend="not connected" steps={steps} />
+        <StepTimeline steps={steps} />
+        {report && <ReportView title={report.title} content={report.content} />}
+      </div>
     </div>
   );
 }

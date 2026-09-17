@@ -82,3 +82,16 @@ export function isOccluded(el: Element, box: DOMRectReadOnly): boolean {
   }
   return hits < 3;
 }
+
+/**
+ * design.md §3.1's `z` field: "stacking rank from occlusion probing" — where `el` (or its
+ * descendant) sits in the full z-order stack at the box's center point. 0 is topmost; a higher
+ * number means more elements are drawn on top of it there.
+ */
+export function computeStackingRank(el: Element, box: DOMRectReadOnly): number {
+  const centerX = box.left + box.width / 2;
+  const centerY = box.top + box.height / 2;
+  const stack = document.elementsFromPoint(centerX, centerY);
+  const index = stack.findIndex((candidate) => el.contains(candidate));
+  return index === -1 ? stack.length : index;
+}
