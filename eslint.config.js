@@ -123,6 +123,31 @@ export default tseslint.config(
     },
   },
 
+  // T-3.19 (FR-28) — the vault module (design.md §8) is importable only by src/host/privacy/**
+  // (which builds/resolves it) and src/host/actions/** (rehydrate.ts calls `resolveFor`).
+  // `session.ts` is a deliberate, disclosed exception: it owns the vault's lifecycle (construct
+  // per task, `clear()` on cancel/stop/done — design.md §8's lifetime rule) and only ever calls
+  // `describe()` (metadata only, never the value) or passes the instance down to builder/guard/
+  // rehydrate — it never reads a resolved value itself. Every other host module is a stranger to
+  // the vault by construction.
+  {
+    files: ['apps/extension/src/host/**/*.{ts,tsx}'],
+    ignores: ['apps/extension/src/host/privacy/**', 'apps/extension/src/host/actions/**', 'apps/extension/src/host/session.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/privacy/vault', '**/privacy/vault/**', '../privacy/vault*', '../../privacy/vault*'],
+              message: 'Only src/host/privacy/**, src/host/actions/** and session.ts (a disclosed exception — see eslint.config.js) may import the vault (T-3.19, design.md §8, FR-28).',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   {
     files: ['**/*.{ts,tsx}'],
     rules: {

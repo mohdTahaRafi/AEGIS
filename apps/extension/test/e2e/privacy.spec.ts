@@ -12,7 +12,7 @@ import { describe, expect, it, afterEach } from 'vitest';
 import fixtureHtml from '../fixtures/profile-aadhaar.html?raw';
 import { dispatchType } from '../../src/content/execute/dispatch';
 import { NodeResolutionRegistry, runPreflight } from '../../src/content/execute/preflight';
-import { extractScreenGraph } from '../../src/content/screen-graph/extractor';
+import { extractScreenGraph, type ExtractedGraph } from '../../src/content/screen-graph/extractor';
 import { ContainerResolver, createNodeIdentityRegistry } from '../../src/content/screen-graph/identity';
 import { extractTextRuns } from '../../src/content/detect/spans';
 import { resolveRehydration } from '../../src/host/actions/rehydrate';
@@ -34,14 +34,14 @@ function loadFixture(): void {
   document.body.innerHTML = bodyMatch![1]!;
 }
 
-function extract(): { nodes: WireScreenNode[]; textRuns: WireTextRun[] } {
+function extract(): { nodes: WireScreenNode[]; textRuns: WireTextRun[]; graph: ExtractedGraph; containerResolver: ContainerResolver } {
   const identity = createNodeIdentityRegistry();
   const containerResolver = new ContainerResolver();
   const graph = extractScreenGraph(identity, containerResolver, {});
   const nodes = graph.nodes.map(({ key: _key, ...wire }) => wire);
   const viewport = { width: window.innerWidth, height: window.innerHeight, verticalMarginPx: window.innerHeight };
   const textRuns = extractTextRuns(document.body, viewport);
-  return { nodes, textRuns };
+  return { nodes, textRuns, graph, containerResolver };
 }
 
 function buildCtx(vault: Vault, nodes: WireScreenNode[], textRuns: WireTextRun[], task = 'log in and submit the form') {
@@ -114,13 +114,15 @@ describe('AC-6 — forcing a miss causes the guard to block; nothing is sent', (
 
   it('a value no channel ever detected is caught by the independent pattern re-sweep (PATTERN)', () => {
     loadFixture();
+    // Remove the Aadhaar line from the DOM entirely (not just post-hoc filtering) so NEITHER the
+    // text-run walk NOR an ancestor's accessible-name fallback can see it — nothing detects or
+    // mints it — then plant the raw value somewhere the substitution pass never walks (design.md's
+    // "part of the page the substitution pass does not walk"), simulated by splicing it into the
+    // built context afterwards.
+    document.getElementById('aadhaar-line')!.remove();
     const { nodes, textRuns } = extract();
     const vault = new Vault();
-    // Remove the Aadhaar line so nothing detects/mints it, then plant the raw value somewhere the
-    // substitution pass never walks (design.md's "part of the page the substitution pass does not
-    // walk") — simulated here by splicing it directly into the built context afterwards.
-    const runsWithoutAadhaarLine = textRuns.filter((r) => !r.text.includes('Aadhaar'));
-    const context = buildCtx(vault, nodes, runsWithoutAadhaarLine);
+    const context = buildCtx(vault, nodes, textRuns);
     const sabotaged = { ...context, task: `${context.task} the number is ${RAW_AADHAAR}` };
 
     let error: unknown;
@@ -152,21 +154,21 @@ describe('AC-11 — hard negatives are never redacted', () => {
 describe('Zero-egress completion (T-3.38)', () => {
   it('resolves the Aadhaar ref locally, into the real DOM field, after confirmation — and the next observation still shows only the ref', () => {
     loadFixture();
-    const { nodes, textRuns } = extract();
+    const { nodes, textRuns, graph, containerResolver } = extract();
     const vault = new Vault();
     const firstContext = buildCtx(vault, nodes, textRuns);
 
     const aadhaarLine = firstContext.text.find((t) => t.text.includes('Aadhaar on record'))!;
     const ref = aadhaarLine.text.match(/⟪AADHAAR#\d+⟫/)![0];
 
-    // The model's plan: type(confirm-aadhaar, ref=⟪AADHAAR#n⟫).
-    const identity = createNodeIdentityRegistry();
-    const containerResolver = new ContainerResolver();
+    // The model's plan: type(confirm-aadhaar, ref=⟪AADHAAR#n⟫). Reuses the SAME graph/
+    // containerResolver `extract()` just produced — a second, independent `extractScreenGraph`
+    // call would assign different (randomly generated) node ids via its own identity registry,
+    // making `targetWireNode.id` meaningless to a freshly built resolution index.
     const registry = new NodeResolutionRegistry();
-    const graph = extractScreenGraph(identity, containerResolver, {});
     const index = registry.observe(graph, containerResolver);
-    const targetElement = graph.elements.get(nodes.find((n) => n.name === 'Aadhaar number' && n.role === 'textbox')!.id)!;
     const targetWireNode = nodes.find((n) => n.name === 'Aadhaar number' && n.role === 'textbox')!;
+    const targetElement = graph.elements.get(targetWireNode.id)!;
 
     const resolved = resolveRehydration(vault, defaultPolicy, ref, { originKey: ORIGIN, confirmed: true, targetNode: targetWireNode });
     // The vault stores the value exactly as first captured (design.md §3.4's `value: string`) —

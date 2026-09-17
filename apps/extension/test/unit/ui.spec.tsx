@@ -9,7 +9,9 @@ import { ReportView } from '../../src/ui/ReportView';
 import { ConfirmAction } from '../../src/ui/ConfirmAction';
 import { GuardBlockCard } from '../../src/ui/GuardBlockCard';
 import { RedactionSummary } from '../../src/ui/RedactionSummary';
+import { PayloadViewer } from '../../src/ui/PayloadViewer';
 import type { StepRecord } from '../../src/host/session';
+import type { SanitizedContext } from '@aegis/protocol';
 
 let container: HTMLDivElement;
 
@@ -169,5 +171,36 @@ describe('ReportView (T-2.29 AC — FR-5)', () => {
   it('renders content with no title', () => {
     const el = mount(<ReportView content="Done" />);
     expect(el.textContent).toContain('Done');
+  });
+});
+
+function fakePayload(): SanitizedContext {
+  return {
+    schema: 'AEGIS/1',
+    step_id: 's-1',
+    task: 'log in',
+    reason: 'initial',
+    viewport: { w: 800, h: 600, dpr: 1, scroll_y: 0, doc_h: 600 },
+    page: { category: 'unknown', title: 'Test' },
+    nodes: [],
+    text: [],
+    redactions: [{ ref: '⟪AADHAAR#1⟫', entity: 'AADHAAR', class: 'CRITICAL', boxes: [], method: 'placeholder', confidence: 0.95, sources: [], unverified: false }] as never,
+    unexplained: [],
+    coverage: { cleared: 1, redacted: 0, unanalysed: 0 },
+    image: null,
+    history: [],
+    client_timing: {},
+  };
+}
+
+describe('PayloadViewer (T-3.32, FR-34, AC-9)', () => {
+  it('the exact bytes are hidden until the toggle is pressed', async () => {
+    const el = mount(<PayloadViewer payload={fakePayload()} />);
+    expect(el.textContent).not.toContain('⟪AADHAAR#1⟫');
+    const button = el.querySelector('button')!;
+    button.dispatchEvent(new Event('click', { bubbles: true }));
+    await Promise.resolve(); // flush Preact's microtask-scheduled re-render
+    expect(el.textContent).toContain('⟪AADHAAR#1⟫');
+    expect(el.textContent).toContain('"schema": "AEGIS/1"');
   });
 });
