@@ -8,6 +8,20 @@ export const AEGIS_IGNORE_ATTR = 'data-aegis-ignore';
 
 const EXCLUDED_TAGS = new Set(['SCRIPT', 'STYLE', 'TEMPLATE']);
 const INTERACTIVE_TAGS = new Set(['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA']);
+// T-4.x/T-6.5/T-6.6, found while driving the ablation runner (T-6.9/T-6.10) against a real
+// corpus fixture, not assumed from reading the code: `roles.ts`'s `computeRole` routes IMG/
+// CANVAS/VIDEO to `role: 'img'` specifically so Channel V (design.md §6.4) picks them up — but
+// design.md §5.2's own node-selection criteria (interactive/landmark/heading/label/text-bearing-
+// block) were written in Phase 2, before that routing existed, and never extended to include
+// them. A bare `<canvas>`/`<video>`/`<img>` with no onclick/tabindex/pointer-cursor and no text
+// children (media elements never have any) satisfied NONE of §5.2's categories, so it was never
+// selected as a node at all — `roles.ts`'s overload was unreachable on any such element, and
+// with it, the whole vision pipeline (face detection since Phase 4, OCR since Phase 6) never ran
+// on real pages that don't happen to also make the element interactive some other way. `[A]`:
+// design.md doesn't explicitly extend §5.2 to media elements, but its own architecture and every
+// phase since 4 clearly intend for them to reach Channel V — recorded here per CLAUDE.md rule 1
+// rather than silently assumed; see docs/HISTORY.md for the fuller account.
+const MEDIA_TAGS = new Set(['IMG', 'CANVAS', 'VIDEO']);
 const INTERACTIVE_ROLES = new Set([
   'button', 'link', 'checkbox', 'radio', 'switch', 'tab', 'menuitem', 'menuitemcheckbox',
   'menuitemradio', 'combobox', 'listbox', 'textbox', 'slider', 'searchbox', 'spinbutton',
@@ -48,6 +62,7 @@ export function isCandidateNode(el: Element): boolean {
 
   if (INTERACTIVE_TAGS.has(el.tagName)) return true;
   if (el.tagName === 'LABEL') return true;
+  if (MEDIA_TAGS.has(el.tagName)) return true;
 
   const role = computeRole(el);
   if (INTERACTIVE_ROLES.has(role)) return true;

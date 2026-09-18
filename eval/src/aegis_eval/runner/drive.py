@@ -51,13 +51,21 @@ def fixture_page_path(split: str, screen_id: str) -> Path:
     return index
 
 
-def open_fixture(context: BrowserContext, split: str, screen_id: str) -> tuple[FixtureOpenResult, Page]:
+def open_fixture(
+    context: BrowserContext, split: str, screen_id: str, base_url: str | None = None
+) -> tuple[FixtureOpenResult, Page]:
     """Returns both the load-timing result and the open `Page`, which the caller keeps open (and
     brings to the front before starting a task — see `run_task_in_panel`'s doc comment on why that
-    matters) rather than closing immediately, unlike Phase 1's version of this function."""
+    matters) rather than closing immediately, unlike Phase 1's version of this function.
+
+    `base_url` (T-6.10): pass `fixture_server.serve_corpus()`'s yielded URL to load the fixture
+    over real HTTP instead of `file://` — required for the vision/image path to work at all (a
+    `file://` origin can never be granted `captureVisibleTab` access; see `fixture_server.py`'s
+    own doc comment for the real bug this was found fixing). `None` (the default) keeps the old
+    `file://` behaviour for any caller that only needs the text/DOM path, unchanged."""
     index = fixture_page_path(split, screen_id)
     page = context.new_page()
-    url = index.as_uri()
+    url = f"{base_url}/{split}/{screen_id}/page/index.html" if base_url else index.as_uri()
     start = time.perf_counter()
     page.goto(url, wait_until="load")
     load_ms = (time.perf_counter() - start) * 1000

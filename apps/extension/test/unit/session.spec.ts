@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ContentPortClient, type HostPort } from '../../src/host/port';
 import { Session, type SessionEvent } from '../../src/host/session';
+import type { PerceptionClient } from '../../src/host/perception-client/client';
 import type { WireScreenNode } from '../../src/shared/messages';
 
 class ScriptedPort implements HostPort {
@@ -232,6 +233,31 @@ describe('Session — hostile-dynamic mode (design.md §5.5, T-6.7)', () => {
     const { session, events } = buildSession(sendToGateway, respond);
 
     await session.start('click sign in');
+
+    expect(session.getState()).toBe('DONE');
+    expect(events.some((e) => e.type === 'stopped')).toBe(false);
+  });
+});
+
+// T-6.9, design.md §18.3 — `dom_only` "disables Channel V; never attaches images," exactly the
+// image-path-disabled shape hostile-dynamic mode already produces (T-6.7) — see that check in
+// session.ts's step loop. Proven here by a `perception.capture` that THROWS if ever called: if
+// this arm were wired wrong and still attempted a capture, this test would fail loudly rather
+// than silently passing on an untested path.
+describe('Session — dom_only ablation arm (T-6.9)', () => {
+  it('never calls capture()/the perception client even though deps.perception is present', async () => {
+    const sendToGateway = vi.fn().mockResolvedValue({ step_id: 's-1', actions: [{ op: 'done', summary: 'ok' }] });
+    const { session, events } = buildSession(sendToGateway, graphResponder, {
+      ablation: 'dom_only',
+      perception: {
+        client: {} as PerceptionClient,
+        capture: async () => {
+          throw new Error('capture() must never be called under dom_only');
+        },
+      },
+    });
+
+    await session.start('report the page');
 
     expect(session.getState()).toBe('DONE');
     expect(events.some((e) => e.type === 'stopped')).toBe(false);

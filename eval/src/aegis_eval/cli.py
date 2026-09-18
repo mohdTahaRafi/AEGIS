@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from aegis_eval.ablations.runner import main as run_ablations
 from aegis_eval.corpus.labels import (
     canary_ids_are_globally_unique,
     iter_label_files,
@@ -22,10 +23,15 @@ def cmd_run(args: argparse.Namespace) -> int:
             heldout_confirmed=args.i_am_really_using_heldout,
             heldout_reason=args.reason,
             headless=not args.headed,
+            ablation_arm=args.ablation,
         )
     except HeldOutAccessDeniedError as exc:
         print(f"error: {exc}")
         return 2
+
+
+def cmd_ablations(args: argparse.Namespace) -> int:
+    return run_ablations(args.split, headless=not args.headed)
 
 
 def cmd_validate_labels(_args: argparse.Namespace) -> int:
@@ -73,6 +79,27 @@ def main() -> None:
     run_p.add_argument(
         "--headed", action="store_true", help="Launch a visible browser instead of headless."
     )
+    run_p.add_argument(
+        "--ablation",
+        choices=["fused", "dom_only", "pixel_only", "blackbox"],
+        default=None,
+        help=(
+            "design.md §18.3 (T-6.9/T-6.10): drive the run against the DEBUG build with this "
+            "arm selected, instead of the ordinary release build. Omit for a normal run."
+        ),
+    )
+
+    ablations_p = sub.add_parser(
+        "ablations",
+        help=(
+            "design.md §18.3/§18.4 (T-6.9/T-6.10): run all four ablation arms and write "
+            "the comparison table"
+        ),
+    )
+    ablations_p.add_argument("--split", choices=["dev", "heldout"], default="dev")
+    ablations_p.add_argument(
+        "--headed", action="store_true", help="Launch a visible browser instead of headless."
+    )
 
     sub.add_parser("validate-labels", help="Validate every eval/labels/*.json file")
 
@@ -80,6 +107,8 @@ def main() -> None:
 
     if args.command == "run":
         sys.exit(cmd_run(args))
+    elif args.command == "ablations":
+        sys.exit(cmd_ablations(args))
     elif args.command == "validate-labels":
         sys.exit(cmd_validate_labels(args))
     else:

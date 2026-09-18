@@ -52,7 +52,7 @@ def test_score_and_write_scoreboard_reports_the_actual_split_it_was_run_against(
     `score_and_write_scoreboard`'s own wiring from the run's actual `split` argument."""
     from aegis_eval.runner.main import score_and_write_scoreboard
 
-    out_path = score_and_write_scoreboard(
+    out_path, _results = score_and_write_scoreboard(
         ledger_exports={}, run_dir=tmp_path, date="2026-01-01",
         hardware="test-machine", browser_version="128.0", split="heldout",
     )
@@ -100,11 +100,13 @@ def test_score_and_write_scoreboard_computes_real_metric4_and_metric5(
         n_samples=5, n_processes=3, rss_samples_mb=[290.0, 300.0], cpu_samples_pct=[1.0, 2.0],
     )
 
-    out_path = score_and_write_scoreboard(
+    out_path, results = score_and_write_scoreboard(
         ledger_exports, run_dir=tmp_path, date="2026-01-01", hardware="test-machine",
         browser_version="128.0", split="dev",
         task_samples=[task_sample], idle_sample=idle_sample, task_wall_clock_ms=[41.0],
     )
+    assert results["metric4"] is not None
+    assert results["metric5"] is not None
     text = out_path.read_text()
     assert "Metric 4 — Client resources" in text
     assert "1.0" in text  # bundled model MB (1048576 bytes)

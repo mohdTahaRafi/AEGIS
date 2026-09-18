@@ -15,6 +15,11 @@ from playwright.sync_api import BrowserContext, sync_playwright
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 EXTENSION_DIR = REPO_ROOT / "apps" / "extension" / ".output" / "chrome-mv3"
+# design.md §18.3, T-6.9/T-6.10: the ablation debug switch (`apps/extension/src/debug/
+# ablations.ts`) only exists in a build made with `pnpm --filter @aegis/extension run
+# build:debug` (`wxt build --mode development`) — WXT's own convention appends `-dev` to a
+# non-production mode's output dir, so this can never collide with `EXTENSION_DIR` above.
+DEBUG_EXTENSION_DIR = REPO_ROOT / "apps" / "extension" / ".output" / "chrome-mv3-dev"
 
 
 class ExtensionNotBuiltError(RuntimeError):
@@ -41,18 +46,27 @@ def extension_id(context: BrowserContext, timeout_s: float = 10.0) -> str:
 
 
 @contextmanager
-def extension_context(headless: bool = True) -> Iterator[BrowserContext]:
+def extension_context(
+    headless: bool = True, extension_dir: Path = EXTENSION_DIR
+) -> Iterator[BrowserContext]:
     """A persistent Chromium context with the unpacked extension loaded.
 
     Extension loading requires launch_persistent_context (a plain launch() cannot load
     extensions) and the --load-extension / --disable-extensions-except flags. Modern Chromium's
     "new" headless mode (Playwright's default for headless=True since Chromium ~112) supports
     extension loading; the old headless mode did not.
+
+    `extension_dir` (T-6.10): pass `DEBUG_EXTENSION_DIR` to drive an ablation run — the release
+    build at the default `EXTENSION_DIR` never ships the ablation switch at all (T-6.9's AC).
     """
-    if not EXTENSION_DIR.exists():
+    if not extension_dir.exists():
+        build_cmd = (
+            "pnpm --filter @aegis/extension run build:debug"
+            if extension_dir == DEBUG_EXTENSION_DIR
+            else "pnpm --filter @aegis/extension build"
+        )
         raise ExtensionNotBuiltError(
-            f"Extension build not found at {EXTENSION_DIR}. Run "
-            "`pnpm --filter @aegis/extension build` first."
+            f"Extension build not found at {extension_dir}. Run `{build_cmd}` first."
         )
 
     # Verified empirically (docs/planning/phase_1_contract_harness.md §13): Playwright's default
@@ -63,8 +77,8 @@ def extension_context(headless: bool = True) -> Iterator[BrowserContext]:
     # its background service worker start with no display attached.
     launch_args = ["--headless=new"] if headless else []
     launch_args += [
-        f"--disable-extensions-except={EXTENSION_DIR}",
-        f"--load-extension={EXTENSION_DIR}",
+        f"--disable-extensions-except={extension_dir}",
+        f"--load-extension={extension_dir}",
     ]
 
     with sync_playwright() as p:

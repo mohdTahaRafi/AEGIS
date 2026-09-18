@@ -15,13 +15,14 @@ from aegis_eval.report.rows import ReportRow
 from aegis_eval.report.scoreboard import Provenance
 from aegis_eval.report.scoreboard import write_scoreboard as write_rich_scoreboard
 from aegis_eval.report.writer import hardware_description, new_run_dir, write_csv, write_markdown
-from aegis_eval.runner.browser import EXTENSION_DIR, extension_context, extension_id
+from aegis_eval.runner.browser import DEBUG_EXTENSION_DIR, EXTENSION_DIR, extension_context, extension_id
 from aegis_eval.runner.collect import (
     LedgerExportMissingError,
     collect_ledger_export,
     write_ledger_export,
 )
 from aegis_eval.runner.drive import (
+    CORPUS_DIR,
     FixturePageMissingError,
     PanelHookMissingError,
     list_fixtures,
@@ -29,6 +30,7 @@ from aegis_eval.runner.drive import (
     open_panel,
     run_task_in_panel,
 )
+from aegis_eval.runner.fixture_server import serve_corpus
 from aegis_eval.runner.gateway_mock import MockGateway
 from aegis_eval.runner.heldout_guard import guard_heldout_access
 from aegis_eval.runner.resources import (
@@ -79,6 +81,48 @@ def _load_label(screen_id: str) -> dict | None:
         return None
     with open(path) as f:
         return json.load(f)
+
+
+def _metric2_summary(m) -> dict | None:
+    if m is None:
+        return None
+    groups = ("structured", "free_text", "visual")
+    return {
+        "macro_recall": m.macro_recall(),
+        "macro_precision": m.macro_precision(),
+        "micro_recall": m.micro_recall(),
+        "micro_precision": m.micro_precision(),
+        "by_group": {
+            g: {"macro_recall": m.macro_recall(g), "macro_precision": m.macro_precision(g)}
+            for g in groups
+        },
+    }
+
+
+def _metric3_summary(m) -> dict | None:
+    if m is None:
+        return None
+    return {
+        "pixel_precision": m.pixel_precision,
+        "over_redaction_rate": m.over_redaction_rate,
+        "mean_iou": m.mean_iou,
+    }
+
+
+def _metric5_summary(m) -> dict | None:
+    if m is None:
+        return None
+    return {
+        "task_wall_clock_p95_ms": m.task_wall_clock_p95_ms,
+        "step_round_trip_p95_ms": m.step_round_trip_p95_ms,
+        "per_stage_p95": m.per_stage_p95,
+    }
+
+
+def _leak_summary(m) -> dict | None:
+    if m is None:
+        return None
+    return {"leak_count": m.leak_count, "n_payloads": m.n_payloads}
 
 
 def score_and_write_scoreboard(
@@ -169,7 +213,17 @@ def score_and_write_scoreboard(
     )
     out_path = run_dir / "rich-scoreboard.md"
     write_rich_scoreboard(out_path, provenance, (None, None), metric2, metric3, metric4, metric5, leak)
-    return out_path
+    # T-6.10: the ablation runner needs the actual metric OBJECTS, not a markdown file it would
+    # otherwise have to re-parse — returned alongside the path so every pre-T-6.10 caller (this
+    # function's own return type) still gets exactly what it always has.
+    results = {
+        "metric2": metric2,
+        "metric3": metric3,
+        "metric4": metric4,
+        "metric5": metric5,
+        "leak": leak,
+    }
+    return out_path, results
 
 
 def run(
@@ -179,7 +233,16 @@ def run(
     heldout_reason: str | None = None,
     headless: bool = True,
     resource_sample_s: float = 1.0,
+    ablation_arm: str | None = None,
 ) -> int:
+    """`ablation_arm` (T-6.9/T-6.10, design.md §18.3): `None` (the default, every pre-T-6.9
+    caller) runs the ordinary single `fused` pipeline against the RELEASE build, unchanged.
+    Any of `'fused' | 'dom_only' | 'pixel_only' | 'blackbox'` instead drives the run against the
+    DEBUG build (`DEBUG_EXTENSION_DIR` — the release build never ships the switch at all, T-6.9's
+    AC) with that arm selected via `storage.local`, exactly the mechanism `debug/ablations.ts`
+    expects. Passing the literal string `'fused'` here (as opposed to leaving the parameter
+    unset) still uses the debug build — useful for confirming the debug build's own `'fused'`
+    behaviour matches the release build's, which `ablations/runner.py`'s comparison relies on."""
     audit_line = guard_heldout_access(split, heldout_confirmed, heldout_reason)
 
     screen_ids = list_fixtures(split)
@@ -187,7 +250,8 @@ def run(
         print(f"[aegis-eval] no fixtures found for split={split}; nothing to run")
         return 1
 
-    run_dir = new_run_dir(split)
+    report_split = f"{split}-{ablation_arm}" if ablation_arm else split
+    run_dir = new_run_dir(report_split)
     hardware = hardware_description()
     date = datetime.now(UTC).isoformat()
 
@@ -197,9 +261,16 @@ def run(
     task_samples: list[ResourceSample] = []
     task_wall_clock_ms: list[float] = []
 
-    with extension_context(headless=headless) as context:
+    extension_dir = DEBUG_EXTENSION_DIR if ablation_arm else EXTENSION_DIR
+    # T-6.10: fixture pages are served over real HTTP now, not `file://` — a `file://` origin can
+    # never be granted `captureVisibleTab` access (see `fixture_server.py`'s own doc comment for
+    # the real, previously-undiscovered bug this was found fixing: the vision/image path has
+    # never actually run through this harness before, in any phase, regardless of ablation arm).
+    with serve_corpus(CORPUS_DIR) as base_url, extension_context(
+        headless=headless, extension_dir=extension_dir
+    ) as context:
         browser_version = context.browser.version if context.browser else "unknown"
-        root_pid = find_browser_root_pid(str(EXTENSION_DIR))
+        root_pid = find_browser_root_pid(str(extension_dir))
         ext_id = extension_id(context)
         # phase_5_measurement.md §16a: no real gateway process needed — see gateway_mock.py's own
         # doc comment for why route interception, not a live model or byte-exact replay, is the
@@ -207,6 +278,17 @@ def run(
         # plan back.
         mock_gateway = MockGateway()
         mock_gateway.install(context)
+
+        if ablation_arm:
+            # Set once, extension-wide, before any fixture runs — every fixture's own panel page
+            # re-reads it fresh at task-start time (`main.tsx`'s debug-only branch), so one write
+            # here is enough for the whole run, not one per fixture.
+            setup_page = context.new_page()
+            setup_page.goto(f"chrome-extension://{ext_id}/sidepanel.html")
+            setup_page.evaluate(
+                "(arm) => chrome.storage.local.set({ aegis_debug_ablation_arm: arm })", ablation_arm
+            )
+            setup_page.close()
 
         # Metric 4's idle baseline (T-5.5): one sample taken with the extension loaded but before
         # any fixture/task has run, so "task" vs "idle" resource use is a real comparison against
@@ -222,7 +304,7 @@ def run(
 
         for screen_id in screen_ids:
             try:
-                opened, fixture_page = open_fixture(context, split, screen_id)
+                opened, fixture_page = open_fixture(context, split, screen_id, base_url)
             except FixturePageMissingError as exc:
                 errors.append(f"{screen_id}: {exc}")
                 continue
@@ -268,9 +350,9 @@ def run(
             )
 
     csv_path = write_csv(rows, run_dir)
-    md_path = write_markdown(rows, run_dir, split=split, audit_lines=[audit_line] if audit_line else None)
-    scoreboard_path = score_and_write_scoreboard(
-        ledger_exports, run_dir, date, hardware, browser_version, split,
+    md_path = write_markdown(rows, run_dir, split=report_split, audit_lines=[audit_line] if audit_line else None)
+    scoreboard_path, scoreboard_results = score_and_write_scoreboard(
+        ledger_exports, run_dir, date, hardware, browser_version, report_split,
         task_samples=task_samples, idle_sample=idle_sample, task_wall_clock_ms=task_wall_clock_ms,
     )
 
@@ -278,6 +360,26 @@ def run(
     print(f"[aegis-eval] report: {md_path}")
     print(f"[aegis-eval] csv: {csv_path}")
     print(f"[aegis-eval] rich scoreboard (T-5.9): {scoreboard_path}")
+    if ablation_arm:
+        # T-6.10: `ablations/runner.py` reads this back to build the cross-arm comparison table —
+        # a small, stable JSON summary rather than re-parsing the markdown report.
+        summary_path = run_dir / "ablation-summary.json"
+        with open(summary_path, "w") as f:
+            json.dump(
+                {
+                    "arm": ablation_arm,
+                    "split": split,
+                    "n_screens": len(rows),
+                    "run_dir": str(run_dir),
+                    "metric2": _metric2_summary(scoreboard_results["metric2"]),
+                    "metric3": _metric3_summary(scoreboard_results["metric3"]),
+                    "metric5": _metric5_summary(scoreboard_results["metric5"]),
+                    "leak": _leak_summary(scoreboard_results["leak"]),
+                },
+                f,
+                indent=2,
+            )
+        print(f"[aegis-eval] ablation summary ({ablation_arm}): {summary_path}")
     if errors:
         print(f"[aegis-eval] {len(errors)} error(s):")
         for e in errors:
