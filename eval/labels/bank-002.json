@@ -1,0 +1,43 @@
+{
+  "screen_id": "bank-002",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "BANK_ACCOUNT",
+      "box": [
+        220,
+        120,
+        180,
+        22
+      ],
+      "value_hash": "sha256:3986f0c3bae1251fd91ff011c76f9f6dc3e49a6487df46fb263c30be5de2e225",
+      "note": "disclosed gap: no dedicated BANK_ACCOUNT pattern recognizer yet \u2014 expected FN"
+    },
+    {
+      "entity": "PAN",
+      "box": [
+        220,
+        160,
+        120,
+        22
+      ],
+      "value_hash": "sha256:79e3c3b6c19c33f58f3d1ab4494d824e8f727bdca246c3afa1c2df5edbbbbbfe"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYCHYM2TPNGMQUW7EWAK4YUP"
+    }
+  ],
+  "tasks": []
+}

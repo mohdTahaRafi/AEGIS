@@ -1,0 +1,12 @@
+{
+  "category": "social",
+  "group": "indic",
+  "script": "devanagari",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Devanagari-script chat message with a phone number in Devanagari digit forms."
+}

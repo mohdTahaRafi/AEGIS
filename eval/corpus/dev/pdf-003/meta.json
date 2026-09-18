@@ -1,0 +1,12 @@
+{
+  "category": "health",
+  "group": "pdf",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "A lab report rendered inside a PDF-viewer-shaped frame; DOB has real label context."
+}
