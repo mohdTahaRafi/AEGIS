@@ -1,0 +1,12 @@
+{
+  "category": "banking",
+  "group": "bank",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "UPI autopay mandate setup: payer UPI ID (known handle ybl) and name."
+}
