@@ -8,5 +8,5 @@
   ],
   "source": "hand-built",
   "licence": "synthetic \u2014 no real data",
-  "notes": "Sign-up form: username, email, password field (presence only, value never read)."
+  "notes": "Mobile-number-update form, single PHONE field."
 }
