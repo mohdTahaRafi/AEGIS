@@ -1,0 +1,52 @@
+{
+  "screen_id": "gov-008",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "PERSON_NAME",
+      "box": [
+        220,
+        120,
+        200,
+        22
+      ],
+      "value_hash": "sha256:ae59f1715d97e4e8253e2e3b11b58e21a41842e57f46b06fdeab15ce6cdb8984"
+    },
+    {
+      "entity": "ADDRESS",
+      "box": [
+        16,
+        160,
+        460,
+        22
+      ],
+      "value_hash": "sha256:b36a1d1d58e1b72db7c1f00b960ee9347b8dd2cfd7346720cf2066ccf993e398"
+    },
+    {
+      "entity": "NONE",
+      "box": [
+        220,
+        200,
+        140,
+        22
+      ],
+      "note": "a tax amount \u2014 LOW class, must pass through, not redacted"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYXF4W5BBTSNZ94CREUKF7BA"
+    }
+  ],
+  "tasks": []
+}

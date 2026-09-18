@@ -1,5 +1,5 @@
 {
-  "screen_id": "gov-005",
+  "screen_id": "gov-007",
   "viewport": [
     1280,
     720
@@ -7,24 +7,24 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "VEHICLE_REG",
+      "entity": "AADHAAR",
       "box": [
         220,
         120,
         160,
         22
       ],
-      "value_hash": "sha256:a403c9b7a5b7952c09c2e85da63bf8959b081059a342f15cec0929690762ae51"
+      "value_hash": "sha256:29b6b69e703ff628d16140cc89cd61eef6cab339c42d9a49bab5faac4555c25a"
     },
     {
-      "entity": "PERSON_NAME",
+      "entity": "PAN",
       "box": [
         220,
         160,
-        180,
+        120,
         22
       ],
-      "value_hash": "sha256:b526b86fccafc6166e6e8730dbbc910032ef3923f5f953b58832d508c15dfd83"
+      "value_hash": "sha256:771e7a3a6a9aff717afe5d016a7844aa56cb0e17a3b9902f89b8b860e8a631bf"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -35,7 +35,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYRXJBYQ6UEP68THU3UTNT7U"
+      "canary_id": "CANARY87FHNKDZUQM7KZ2J2YV5QP"
     }
   ],
   "tasks": []
