@@ -1,5 +1,5 @@
 import { render } from 'preact';
-import { useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { ContentPortClient, connectToTab } from '../../src/host/port';
 import { ensureHostPermission } from '../../src/host/platform/capabilities';
 import { createGatewayClient } from '../../src/host/egress/gateway-client';
@@ -20,6 +20,9 @@ import type { SanitizedContext } from '@aegis/protocol';
 // phase_2_spine.md §6.7's demo default; overridable at build time (design.md §13.5's "Server URL"
 // setting — a real settings UI is not built this phase, so this is the one place it lives).
 const GATEWAY_URL = (import.meta.env.VITE_GATEWAY_URL as string | undefined) ?? 'http://localhost:8787';
+// design.md §4.1 (T-2.31); OQ-15 (docs/DECISIONS.md) leaves the finale's real provisioning model
+// open — `dev-token` matches the gateway's own `config.py` default for local/demo use.
+const GATEWAY_TOKEN = (import.meta.env.VITE_GATEWAY_TOKEN as string | undefined) ?? 'dev-token';
 
 // Mirrors public/models/models.manifest.json's face entry (T-4.3). [A] Duplicated rather than
 // imported: `public/` assets are runtime-fetched static files in WXT/Vite's model, not part of
@@ -69,6 +72,20 @@ async function captureVisibleTabAsBitmap(): Promise<ImageBitmap | null> {
   }
 }
 
+// phase_5_measurement.md §16a's harness-integration gap, closed here: the eval harness needs a
+// way to start a task and read back the resulting ledger from outside the panel's own UI, since
+// Playwright drives pages, not clicks on a specific rendered button. Declared narrowly (two
+// functions, no state exposed) rather than exposing the whole `Session` object. Only ever
+// reachable from this side-panel document's own `window` — a fixture page runs in a completely
+// separate tab/document and has no access to it, so this adds no new surface a hostile page could
+// reach; it's the same trust boundary the panel's own click handlers already sit behind.
+declare global {
+  interface Window {
+    __aegisRunTask?: (task: string) => Promise<void>;
+    __aegisLedgerExport?: () => unknown[];
+  }
+}
+
 function App() {
   const [panelState, setPanelState] = useState<PanelState>('idle');
   const [steps, setSteps] = useState<StepRecord[]>([]);
@@ -80,6 +97,8 @@ function App() {
   const [guardBlock, setGuardBlock] = useState<{ rule: string; entity?: string } | null>(null);
   const [perceptionBackend, setPerceptionBackend] = useState<'webgpu' | 'wasm' | null>(null);
   const [modelsLoadedMB, setModelsLoadedMB] = useState(0);
+  const sessionRef = useRef<Session | null>(null);
+  sessionRef.current = session;
 
   function handleSessionEvent(event: SessionEvent, activeSession: Session): void {
     if (event.type === 'step') {
@@ -125,7 +144,7 @@ function App() {
       return;
     }
 
-    const gateway = createGatewayClient(GATEWAY_URL, import.meta.env.BROWSER === 'firefox' ? 'firefox' : 'chrome');
+    const gateway = createGatewayClient(GATEWAY_URL, import.meta.env.BROWSER === 'firefox' ? 'firefox' : 'chrome', fetch, GATEWAY_TOKEN);
     let created;
     try {
       created = await gateway.openSession();
@@ -193,6 +212,19 @@ function App() {
     setConfirmRequest(null);
     setPanelState('running');
   }
+
+  // Installed once — `handleStart` closes over only stable setters and module-level constants,
+  // never over a render's `session`/`panelState` snapshot, so a single assignment stays correct
+  // across the whole panel's lifetime (see `sessionRef` above for the one value that DOES need to
+  // stay current across renders).
+  useEffect(() => {
+    window.__aegisRunTask = handleStart;
+    window.__aegisLedgerExport = () => sessionRef.current?.getLedger().export() ?? [];
+    return () => {
+      delete window.__aegisRunTask;
+      delete window.__aegisLedgerExport;
+    };
+  }, []);
 
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', fontSize: 13, maxWidth: 480 }}>

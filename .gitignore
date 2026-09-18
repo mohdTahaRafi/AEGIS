@@ -25,6 +25,9 @@ server/recordings/
 .env
 .env.local
 *.local.json
+vllm.env
+.env.vllm
+
 
 # Editor / OS
 .DS_Store

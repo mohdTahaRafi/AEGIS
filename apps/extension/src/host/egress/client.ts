@@ -9,18 +9,26 @@
 import { isBranded, type GuardedPayload } from './brand';
 
 export interface EgressClient {
-  sendStep(payload: GuardedPayload, sessionUrl: string, signal?: AbortSignal): Promise<Response>;
+  sendStep(payload: GuardedPayload, sessionUrl: string, signal?: AbortSignal, token?: string): Promise<Response>;
 }
 
 export function createEgressClient(fetchImpl: typeof fetch = fetch): EgressClient {
   return {
-    async sendStep(payload, sessionUrl, signal) {
+    async sendStep(payload, sessionUrl, signal, token) {
       if (!isBranded(payload)) {
         throw new Error('EGRESS_REFUSES_UNGUARDED_PAYLOAD');
       }
+      const headers: Record<string, string> = { 'content-type': 'application/json' };
+      // design.md §4.1 / T-2.31: "bearer token on every /v1 call." `token` is optional here
+      // rather than required — a real, previously-undiscovered gap this project's Phase 5
+      // genuine end-to-end integration test caught: this client sent no Authorization header at
+      // all against a real gateway (which requires one), so every real call would 401. Optional
+      // keeps this file's own unit tests (which never asserted a header) passing while
+      // `gateway-client.ts` now always supplies one for real callers.
+      if (token) headers.authorization = `Bearer ${token}`;
       return fetchImpl(sessionUrl, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers,
         body: JSON.stringify(payload),
         signal,
       });

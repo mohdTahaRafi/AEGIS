@@ -11,9 +11,10 @@ import type { Vault } from '../vault';
 import type { Box } from '../types';
 import { patternResweep, vaultLeakSweep } from './sweeps';
 import { runImageRescan, type ImageRescanDeps } from './image-rescan';
+import { checkForCanaries } from './canary';
 
 export class GuardBlockedError extends Error {
-  constructor(public readonly rule: 'SCHEMA' | 'ID_SHAPE' | 'VAULT_LEAK' | 'PATTERN', public readonly entity?: string) {
+  constructor(public readonly rule: 'SCHEMA' | 'ID_SHAPE' | 'VAULT_LEAK' | 'PATTERN' | 'CANARY', public readonly entity?: string) {
     super(`GUARD_BLOCK_${rule}`);
     this.name = 'GuardBlockedError';
   }
@@ -24,6 +25,13 @@ export interface GuardDeps {
    * available at all. Step 5 fails closed either way: a payload that carries an image but has no
    * way to independently re-check it never ships that image — see `guard()`'s image branch. */
   imageRescan?: ImageRescanDeps;
+  /** design.md §7.6 step 6 / T-5.8: "debug/harness builds" only — absent (the production default)
+   * means this step never runs at all. Only the eval harness ever supplies a non-empty list (its
+   * own planted high-entropy strings — `eval/src/aegis_eval/corpus/generate_fixtures.py`); no
+   * canary is ever baked into the shipped policy or bundle. Checked against the JSON bytes only —
+   * checking a composed image needs OCR, a Phase 6 capability (`perception/rescan/halo.ts`'s
+   * disclosed gap applies equally here). */
+  canaries?: readonly string[];
 }
 
 async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
@@ -113,8 +121,14 @@ export async function guard(payload: SanitizedContext, policy: Policy, vault: Va
     throw new GuardBlockedError('PATTERN', pattern.entity);
   }
 
-  // Step 6 (canary check) is still a no-op this phase — Phase 5's T-5.8 (phase_4_vision.md §15).
   const afterStep5 = await runStep5(payload, deps);
+
+  // Step 6, after step 5 per design.md's own ordering — checked against the same canonical text
+  // bytes regardless of what step 5 did to the image (canaries are a text-only check here).
+  if (deps.canaries && deps.canaries.length > 0) {
+    const hit = checkForCanaries(bytes, deps.canaries);
+    if (hit) throw new GuardBlockedError('CANARY');
+  }
 
   return brand(afterStep5);
 }

@@ -1,0 +1,79 @@
+# architecture §13.2 / phase_5_measurement.md §7, T-5.11, AC-10 — the fully offline counterpart to
+# ../docker-compose.yml. Differences, all in service of "starts from saved images and
+# pre-downloaded weights with no internet access at all":
+#   - `image:` references instead of registry pulls (load with `docker load -i` from
+#     save-images.sh's output first);
+#   - the gateway is built and tagged `aegis-gateway:offline` BEFORE going offline (`docker build
+#     -f ../gateway.Dockerfile -t aegis-gateway:offline ../../..`), then referenced by tag here —
+#     an offline `docker compose up` cannot build anything that needs network-fetched base images;
+#   - `offline.env` on top of `../vllm.env` (HF_HUB_OFFLINE etc.);
+#   - vLLM's weights are a read-only bind mount from `fetch-weights.sh`'s output, not a registry
+#     pull, and `--download-dir` points at the mount so vLLM never tries to reach the Hub;
+#   - Caddy uses Caddyfile.offline (a self-signed internal cert) instead of automatic HTTPS.
+#
+# DISCLOSED, NOT SILENTLY ASSUMED: not run against real Docker in this environment (no `docker`
+# CLI here, same gap as ../docker-compose.yml since Phase 2) and AC-10 explicitly requires
+# verification "with the machine's network physically disconnected," which this sandbox cannot do
+# even if Docker were installed. Written to the real, intended interface.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "443:443"
+    volumes:
+      - ./Caddyfile.offline:/etc/caddy/Caddyfile:ro
+      - ./internal-cert:/certs:ro
+      - caddy-data:/data
+    depends_on:
+      - gateway
+    networks:
+      - public
+      - private
+
+  gateway:
+    image: aegis-gateway:offline
+    env_file:
+      - ../vllm.env
+      - ./offline.env
+    environment:
+      AEGIS_MODE: live
+      AEGIS_MODEL_URL: http://vllm:8000/v1
+    networks:
+      - private
+    depends_on:
+      - vllm
+
+  vllm:
+    image: vllm/vllm-openai:latest
+    env_file:
+      - ../vllm.env
+      - ./offline.env
+    volumes:
+      - ./weights:/weights:ro
+    command:
+      - --model
+      - ${AEGIS_MODEL_NAME:-Qwen/Qwen3-VL-8B-Instruct}
+      - --download-dir
+      - /weights
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - private
+
+networks:
+  public:
+  private:
+    internal: true
+
+volumes:
+  caddy-data:

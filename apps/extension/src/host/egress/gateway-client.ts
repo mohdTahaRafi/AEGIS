@@ -30,14 +30,18 @@ function defaultSessionCreate(browserName: 'chrome' | 'firefox'): SessionCreate 
   };
 }
 
-export function createGatewayClient(baseUrl: string, browserName: 'chrome' | 'firefox', fetchImpl: typeof fetch = fetch): GatewayClient {
+/** design.md §4.1 (T-2.31) — "bearer token on every /v1 call." OQ-15 (docs/DECISIONS.md, still
+ * open) leaves the finale's real provisioning model unresolved; `token` defaults to the same
+ * `dev-token` the gateway's own `config.py` defaults `AEGIS_TOKEN` to, for local/demo use, and is
+ * overridable at build time exactly like `GATEWAY_URL` above. */
+export function createGatewayClient(baseUrl: string, browserName: 'chrome' | 'firefox', fetchImpl: typeof fetch = fetch, token = 'dev-token'): GatewayClient {
   const egress = createEgressClient(fetchImpl);
 
   return {
     async openSession() {
       const response = await fetchImpl(`${baseUrl}/v1/sessions`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
         body: JSON.stringify(defaultSessionCreate(browserName)),
       });
       if (!response.ok) throw new Error(`SESSION_OPEN_FAILED: ${response.status}`);
@@ -45,13 +49,13 @@ export function createGatewayClient(baseUrl: string, browserName: 'chrome' | 'fi
     },
 
     async sendStep(sessionId, payload, signal) {
-      const response = await egress.sendStep(payload, `${baseUrl}/v1/sessions/${sessionId}/steps`, signal);
+      const response = await egress.sendStep(payload, `${baseUrl}/v1/sessions/${sessionId}/steps`, signal, token);
       if (!response.ok) throw new Error(`STEP_FAILED: ${response.status}`);
       return response.json();
     },
 
     async closeSession(sessionId) {
-      await fetchImpl(`${baseUrl}/v1/sessions/${sessionId}`, { method: 'DELETE' }).catch(() => {});
+      await fetchImpl(`${baseUrl}/v1/sessions/${sessionId}`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } }).catch(() => {});
     },
   };
 }

@@ -1,0 +1,7 @@
+# architecture §13.2, T-5.11 — the offline counterpart to ../Caddyfile: automatic HTTPS needs a
+# real ACME CA over the internet, which an air-gapped deployment doesn't have, so this points at
+# generate-internal-cert.sh's output instead.
+{$AEGIS_PUBLIC_HOST:aegis.internal} {
+	tls /certs/internal.crt /certs/internal.key
+	reverse_proxy gateway:8787
+}

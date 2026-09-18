@@ -8,7 +8,7 @@ service worker each get their own PID)."""
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import psutil
 
@@ -21,6 +21,12 @@ class ResourceSample:
     mean_cpu_pct: float
     n_samples: int
     n_processes: int
+    # Phase 5, T-5.5: design.md §18.2 wants CPU p95 as well as mean/peak, which needs the raw
+    # series, not just the two aggregates above. Added as extra fields (not a breaking change to
+    # the four aggregates every existing caller already reads) so `scorers/metric4.py` can compute
+    # a percentile without this module knowing what a percentile is.
+    rss_samples_mb: list[float] = field(default_factory=list)
+    cpu_samples_pct: list[float] = field(default_factory=list)
 
 
 def find_browser_root_pid(extension_dir_marker: str) -> int | None:
@@ -97,4 +103,6 @@ def sample_process_tree(pid: int, duration_s: float = 1.0, interval_s: float = 0
         mean_cpu_pct=sum(cpu_samples) / len(cpu_samples),
         n_samples=len(rss_samples),
         n_processes=len(procs),
+        rss_samples_mb=rss_samples,
+        cpu_samples_pct=cpu_samples,
     )
