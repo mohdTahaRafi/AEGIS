@@ -1,5 +1,5 @@
 {
-  "screen_id": "hardneg-004",
+  "screen_id": "freetext-009",
   "viewport": [
     1280,
     720
@@ -7,14 +7,14 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "NONE",
+      "entity": "SECRET",
       "box": [
         220,
         120,
-        140,
+        900,
         22
       ],
-      "note": "a price \u2014 LOW class, must pass through, not redacted"
+      "value_hash": "sha256:61a18887db9c9d5abbfb04002493d0107871f16679dbaecbc214995856f62df5"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARY9QRBKQ38TCBACD4ESW2QQV"
+      "canary_id": "CANARY9C6DJTMT3VCN3VEZ3NB2P2"
     }
   ],
   "tasks": []
