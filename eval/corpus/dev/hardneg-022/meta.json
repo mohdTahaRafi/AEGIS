@@ -1,0 +1,12 @@
+{
+  "category": "docs",
+  "group": "hardneg",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Luhn-invalid, Mastercard-IIN-shaped sample number \u2014 must pass through."
+}

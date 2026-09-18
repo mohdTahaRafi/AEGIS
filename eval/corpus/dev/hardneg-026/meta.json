@@ -8,5 +8,5 @@
   ],
   "source": "hand-built",
   "licence": "synthetic \u2014 no real data",
-  "notes": "Hard negative: card-shaped but Luhn-invalid."
+  "notes": "A 10-digit order number deliberately outside PHONE's 6-9-first-digit range \u2014 must pass through."
 }

@@ -8,5 +8,5 @@
   ],
   "source": "hand-built",
   "licence": "synthetic \u2014 no real data",
-  "notes": "Hard negative: a plain reference number."
+  "notes": "PAN-shaped catalogue SKU with an invalid holder-type letter \u2014 must pass through."
 }
