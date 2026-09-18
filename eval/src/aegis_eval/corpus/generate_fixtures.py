@@ -318,7 +318,9 @@ def build_hardneg(rng: random.Random) -> list[Fixture]:
     pan_prefix3 = "".join(rng.choices("ABCDEFGHIJKLMNPQRSTUVWXYZ", k=3))
     pan_letter5 = rng.choice("ABCDEFGHIJKLMNPQRSTUVWXYZ")
     digits = "".join(str(rng.randint(0, 9)) for _ in range(4))
-    product_code = pan_prefix3 + "X" + pan_letter5 + digits  # 'X' is not in the real PAN holder-type set
+    pan_letter10 = rng.choice("ABCDEFGHIJKLMNPQRSTUVWXYZ")
+    # 'X' is not in the real PAN holder-type set; placed at position 4 (the actual holder-type slot)
+    product_code = pan_prefix3 + "X" + pan_letter5 + digits + pan_letter10
     box = (220, 120, 120, 22)
     fixtures.append(
         Fixture(
