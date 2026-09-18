@@ -4,10 +4,12 @@ import { ContentPortClient, connectToTab } from '../../src/host/port';
 import { ensureHostPermission } from '../../src/host/platform/capabilities';
 import { createGatewayClient } from '../../src/host/egress/gateway-client';
 import { Session, type SessionEvent, type StepRecord } from '../../src/host/session';
+import { PerceptionClient } from '../../src/host/perception-client/client';
 import { panelStateLabel, type PanelState } from '../../src/ui/PanelStates';
 import { TaskInput } from '../../src/ui/TaskInput';
 import { StepTimeline } from '../../src/ui/StepTimeline';
 import { MetricsBar } from '../../src/ui/MetricsBar';
+import { ResourceBar } from '../../src/ui/ResourceBar';
 import { ReportView } from '../../src/ui/ReportView';
 import { ConfirmAction } from '../../src/ui/ConfirmAction';
 import { GuardBlockCard } from '../../src/ui/GuardBlockCard';
@@ -19,6 +21,54 @@ import type { SanitizedContext } from '@aegis/protocol';
 // setting — a real settings UI is not built this phase, so this is the one place it lives).
 const GATEWAY_URL = (import.meta.env.VITE_GATEWAY_URL as string | undefined) ?? 'http://localhost:8787';
 
+// Mirrors public/models/models.manifest.json's face entry (T-4.3). [A] Duplicated rather than
+// imported: `public/` assets are runtime-fetched static files in WXT/Vite's model, not part of
+// the module graph — importing JSON from there would require a build-time file read this
+// entrypoint has no reason to also own. Kept in sync by hand; a mismatch fails loudly (sha256
+// verification in `runtime/sessions.ts` rejects a stale hash) rather than silently.
+const FACE_MODEL_SPEC = {
+  id: 'face-yunet-2023mar',
+  role: 'face' as const,
+  url: '/models/face_detection_yunet_2023mar.onnx',
+  sha256: '8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4',
+  resident: true,
+};
+
+/** design.md §11.1 — the host's only reference to `perception/worker.ts`, via the `new
+ * Worker(url, {type:'module'})` constructor rather than an import (the ESLint boundary rule
+ * blocks `src/host/**` from importing `src/perception/**` by module path; a Worker URL is not a
+ * module import — it is exactly the "talk only by message" the boundary requires). */
+function createPerceptionClient(): PerceptionClient {
+  const worker = new Worker(new URL('../../src/perception/worker.ts', import.meta.url), { type: 'module' });
+  return new PerceptionClient(worker);
+}
+
+/** `captureVisibleTab` returns a `data:` URL, not bytes — decoded here by hand (base64 → `Blob`)
+ * rather than by fetching the URL, which would (correctly) trip `check-no-network.ts`'s scan: the
+ * scanner can't distinguish a `data:` URL from a real one by text alone, and a second named
+ * exception isn't warranted when a manual decode is this small. */
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [header, base64] = dataUrl.split(',');
+  const mime = /data:([^;]+);base64/.exec(header ?? '')?.[1] ?? 'image/jpeg';
+  const binary = atob(base64 ?? '');
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+/** architecture §5.3 — captures the visible tab and decodes it into a transferable `ImageBitmap`
+ * in the host, which then hands it to the worker (the only context that touches raw pixels
+ * beyond this decode step). Returns null on any failure (no active tab, permission denied,
+ * `captureVisibleTab` throttled) — the step proceeds L0, never blocking on a capture. */
+async function captureVisibleTabAsBitmap(): Promise<ImageBitmap | null> {
+  try {
+    const dataUrl = await browser.tabs.captureVisibleTab({ format: 'jpeg', quality: 80 });
+    return await createImageBitmap(dataUrlToBlob(dataUrl));
+  } catch {
+    return null;
+  }
+}
+
 function App() {
   const [panelState, setPanelState] = useState<PanelState>('idle');
   const [steps, setSteps] = useState<StepRecord[]>([]);
@@ -28,6 +78,8 @@ function App() {
   const [lastPayload, setLastPayload] = useState<SanitizedContext | null>(null);
   const [confirmRequest, setConfirmRequest] = useState<{ risk: 'low' | 'medium' | 'high'; description: string; resolve: (v: boolean) => void } | null>(null);
   const [guardBlock, setGuardBlock] = useState<{ rule: string; entity?: string } | null>(null);
+  const [perceptionBackend, setPerceptionBackend] = useState<'webgpu' | 'wasm' | null>(null);
+  const [modelsLoadedMB, setModelsLoadedMB] = useState(0);
 
   function handleSessionEvent(event: SessionEvent, activeSession: Session): void {
     if (event.type === 'step') {
@@ -93,6 +145,23 @@ function App() {
       onActionResult: (m) => newSession.onActionResult(m.actionId, m.ok, m.reason),
       onDisconnect: () => setPanelState('error'),
     });
+    // Phase 4: one perception worker per task, matching the vault's own per-task lifetime
+    // (design.md §8) — a fresh worker means a fresh model-registry/backend-probe cycle rather
+    // than pixels or model state surviving across unrelated tasks.
+    const perceptionClient = createPerceptionClient();
+    try {
+      const ready = await perceptionClient.init('auto', [FACE_MODEL_SPEC], 'S');
+      setPerceptionBackend(ready.backend);
+      setModelsLoadedMB(ready.loaded.reduce((sum, m) => sum + m.bytes, 0) / (1024 * 1024));
+    } catch {
+      // Model load or backend probe failed — T-4.2's AC: this disables the image path only
+      // (`deps.perception` is still passed; `runPerceptionStep` calls `capture()` and `perceive()`
+      // regardless, and a session with no usable face model still returns `timedOut` regions,
+      // which the compositor leaves grey, never silently cleared).
+      setPerceptionBackend('wasm');
+      setModelsLoadedMB(0);
+    }
+
     newSession = new Session({
       contentPort,
       sendToGateway: (payload, signal) => gateway.sendStep(created.session_id, payload, signal),
@@ -104,12 +173,15 @@ function App() {
         new Promise<boolean>((resolve) => {
           setConfirmRequest({ risk, description, resolve });
         }),
+      perception: { client: perceptionClient, capture: captureVisibleTabAsBitmap },
     });
 
     setSession(newSession);
     setPanelState('running');
     await newSession.start(task);
     await gateway.closeSession(created.session_id);
+    perceptionClient.terminate(); // per-task lifetime — see the construction site's comment
+    setPerceptionBackend(null);
   }
 
   function handleStop(): void {
@@ -150,6 +222,7 @@ function App() {
         )}
 
         <MetricsBar backend="not connected" steps={steps} />
+        <ResourceBar backend={perceptionBackend} modelsLoadedMB={modelsLoadedMB} />
         <StepTimeline steps={steps} />
         {lastPayload && (
           <>

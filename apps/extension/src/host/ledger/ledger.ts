@@ -15,6 +15,11 @@ export interface LedgerEntry {
   entityCountsByClass: Record<string, number>;
   entityCountsByChannel: Record<string, number>;
   coverage: SanitizedContext['coverage'];
+  /** phase_4_vision.md T-4.19/T-4.23 — absent on a step that never captured a frame (the common
+   * L0 case); present whenever the perception worker actually ran this step, so AC-3's "latency
+   * reported for both paths" and the panel's resource bar have real per-step backend/model data
+   * rather than a single session-wide guess. */
+  perception?: { backend: 'webgpu' | 'wasm'; modelsLoadedMB: number; screenLabel?: { label: string; score: number } };
 }
 
 export class Ledger {

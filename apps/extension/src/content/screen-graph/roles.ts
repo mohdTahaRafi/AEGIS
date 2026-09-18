@@ -66,6 +66,14 @@ function implicitRole(el: Element): string {
       return 'article';
     case 'IMG':
       return 'img';
+    // [A] Phase 4: CANVAS and VIDEO have no distinguishing implicit ARIA role (both are
+    // 'generic'/fallback-content-dependent per HTML-AAM), but Channel V (phase_4_vision.md §4.1)
+    // needs to route exactly these element kinds to vision regardless of accessibility semantics.
+    // Reusing 'img' is a deliberate, disclosed overload for that routing purpose, not a claim
+    // about their actual ARIA role.
+    case 'CANVAS':
+    case 'VIDEO':
+      return 'img';
     case 'H1':
     case 'H2':
     case 'H3':

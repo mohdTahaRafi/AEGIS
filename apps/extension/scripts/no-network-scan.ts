@@ -26,14 +26,20 @@ export interface ScanResult {
 
 /**
  * @param roots Directories to walk for .ts/.tsx files.
- * @param allowedPrefix Absolute path prefix under which a network call is permitted.
+ * @param allowedPrefixes Absolute path prefixes under which a network call is permitted. Accepts
+ *   either a single directory prefix (the original T-1.9 shape — `src/host/egress/`) or an array,
+ *   so a second, narrow, exact-file exception can be added without every call site changing shape.
+ *   Phase 4 (T-4.2) adds exactly one such exception — `src/perception/runtime/sessions.ts` — see
+ *   `check-no-network.ts`'s doc comment on why a model-file integrity fetch is not the kind of
+ *   network call this invariant exists to prevent.
  */
-export function scanForNetworkCalls(roots: string[], allowedPrefix: string): ScanResult {
+export function scanForNetworkCalls(roots: string[], allowedPrefixes: string | readonly string[]): ScanResult {
+  const prefixes = Array.isArray(allowedPrefixes) ? allowedPrefixes : [allowedPrefixes as string];
   const files = roots.flatMap((root) => walk(root));
   const violations: string[] = [];
 
   for (const file of files) {
-    if (file.startsWith(allowedPrefix)) continue;
+    if (prefixes.some((p) => file.startsWith(p))) continue;
     const text = readFileSync(file, 'utf8');
     if (NETWORK_PATTERN.test(text)) {
       violations.push(file);

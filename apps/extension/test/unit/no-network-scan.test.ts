@@ -74,4 +74,28 @@ describe('scanForNetworkCalls', () => {
 
     expect(result.violations).toEqual([]);
   });
+
+  it('T-4.2: accepts an array of allowed prefixes, allowing an exact-file exception alongside the egress folder', () => {
+    write('src/host/egress/client.ts', "fetch('https://gateway.local');");
+    write('src/perception/runtime/sessions.ts', "fetch('/models/face.onnx');");
+
+    const result = scanForNetworkCalls(
+      [path.join(root, 'src')],
+      [path.join(root, 'src', 'host', 'egress'), path.join(root, 'src', 'perception', 'runtime', 'sessions.ts')],
+    );
+
+    expect(result.violations).toEqual([]);
+  });
+
+  it('T-4.2: the exact-file exception does not widen to the rest of that directory', () => {
+    write('src/perception/runtime/sessions.ts', "fetch('/models/face.onnx');");
+    write('src/perception/runtime/other.ts', "fetch('https://evil.example');");
+
+    const result = scanForNetworkCalls(
+      [path.join(root, 'src')],
+      [path.join(root, 'src', 'host', 'egress'), path.join(root, 'src', 'perception', 'runtime', 'sessions.ts')],
+    );
+
+    expect(result.violations).toEqual([path.join(root, 'src', 'perception', 'runtime', 'other.ts')]);
+  });
 });

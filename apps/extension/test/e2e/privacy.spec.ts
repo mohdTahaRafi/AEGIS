@@ -64,7 +64,7 @@ function buildCtx(vault: Vault, nodes: WireScreenNode[], textRuns: WireTextRun[]
 }
 
 describe('AC-2 — no Aadhaar number and no password character in any outbound payload', () => {
-  it('the real fixture, fully extracted and sanitized, contains neither raw value anywhere', () => {
+  it('the real fixture, fully extracted and sanitized, contains neither raw value anywhere', async () => {
     loadFixture();
     const { nodes, textRuns } = extract();
     const vault = new Vault();
@@ -86,12 +86,12 @@ describe('AC-2 — no Aadhaar number and no password character in any outbound p
     expect(aadhaarLine.text).toMatch(/⟪AADHAAR#\d+⟫/);
 
     // An independent scan (the guard) reports zero leaks — it doesn't throw.
-    expect(() => guard(context, defaultPolicy, vault)).not.toThrow();
+    await expect(guard(context, defaultPolicy, vault)).resolves.not.toThrow();
   });
 });
 
 describe('AC-6 — forcing a miss causes the guard to block; nothing is sent', () => {
-  it('a value that reached the vault but slipped past substitution is blocked (VAULT_LEAK)', () => {
+  it('a value that reached the vault but slipped past substitution is blocked (VAULT_LEAK)', async () => {
     loadFixture();
     const { nodes, textRuns } = extract();
     const vault = new Vault();
@@ -104,7 +104,7 @@ describe('AC-6 — forcing a miss causes the guard to block; nothing is sent', (
 
     let error: unknown;
     try {
-      guard(sabotaged, defaultPolicy, vault);
+      await guard(sabotaged, defaultPolicy, vault);
     } catch (e) {
       error = e;
     }
@@ -112,7 +112,7 @@ describe('AC-6 — forcing a miss causes the guard to block; nothing is sent', (
     expect((error as GuardBlockedError).rule).toBe('VAULT_LEAK');
   });
 
-  it('a value no channel ever detected is caught by the independent pattern re-sweep (PATTERN)', () => {
+  it('a value no channel ever detected is caught by the independent pattern re-sweep (PATTERN)', async () => {
     loadFixture();
     // Remove the Aadhaar line from the DOM entirely (not just post-hoc filtering) so NEITHER the
     // text-run walk NOR an ancestor's accessible-name fallback can see it — nothing detects or
@@ -127,7 +127,7 @@ describe('AC-6 — forcing a miss causes the guard to block; nothing is sent', (
 
     let error: unknown;
     try {
-      guard(sabotaged, defaultPolicy, vault);
+      await guard(sabotaged, defaultPolicy, vault);
     } catch (e) {
       error = e;
     }

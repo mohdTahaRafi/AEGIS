@@ -1,166 +1,179 @@
 /// <reference lib="webworker" />
-import * as ort from 'onnxruntime-web';
-import type {
-  Backend,
-  BackendProbe,
-  BenchResult,
-  FromWorker,
-  SpikeEnvironment,
-  ToWorker,
-} from './spike-protocol';
+// design.md §11.1 — the real perception-worker message loop, replacing the Phase-0 spike's
+// probe/bench handlers (kept as `spike-protocol.ts`; its pure math is still locked down by
+// `test/unit/percentile.test.ts`). This is the only place raw pixels live (architecture §5.3):
+// an `ImageBitmap` arrives transferred from the host, is closed once its capture's `compose`/
+// `rescan` finish, and nothing here ever calls `fetch`/`XMLHttpRequest` for anything but a
+// same-origin, extension-bundled model file (verified by sha256 in `runtime/sessions.ts` before
+// any session is created).
 
-// Left unset deliberately: Vite bundles onnxruntime-web's own WASM binaries as build assets
-// resolved from this module's URL, so they are already extension-local. Nothing is fetched from
-// a CDN or the Hugging Face Hub at runtime (FR-13) — verified in the Phase-0 build output.
+import * as ort from 'onnxruntime-web';
+import type { Backend, FromWorker, ToWorker } from '../shared/worker-protocol';
+import { selectBackend } from './runtime/backend';
+import { ModelLoadError, ModelRegistry } from './runtime/sessions';
+import { cropRegion } from './preprocess/crop';
+import { detectFaces } from './models/face';
+import { screenLabel } from './models/vit-encoder';
+import { PriorityQueue } from './schedule/queue';
+import { runWithDeadline } from './schedule/deadline';
+import { applyCropBudget } from './schedule/budget';
+import { compose, encodeWebp, type RedactionBoxSet } from './compose/compositor';
+import { recheckFacesOnComposedImage } from './rescan/face-recheck';
+import { checkHalosForText } from './rescan/halo';
+
 ort.env.allowLocalModels = true;
 
-const ADAPTER_TIMEOUT_MS = 1500;
+let registry: ModelRegistry | null = null;
+let backend: Backend = 'wasm';
+let faceModelId: string | null = null;
 
-function post(msg: FromWorker) {
-  (self as unknown as DedicatedWorkerGlobalScope).postMessage(msg);
+// phase_4_vision.md §3.2: "The worker holds one capture at a time, and closes the bitmap once
+// compose/rescan for that capture have finished." `perceive` transfers the bitmap in and analyses
+// it but does NOT close it — a later `compose` call for the same capture needs the actual pixels
+// to draw the cleared regions. `closeCurrentCapture` is the single place the bitmap is closed, so
+// every path (compose completing, a new perceive superseding an uncomposed one, an init/evict)
+// can call it without duplicating the "did we already close this" bookkeeping.
+let currentCapture: { bitmap: ImageBitmap } | null = null;
+
+function closeCurrentCapture(): void {
+  currentCapture?.bitmap.close();
+  currentCapture = null;
 }
 
-function environment(): SpikeEnvironment {
-  const nav = self.navigator as Navigator & { deviceMemory?: number };
-  return {
-    userAgent: nav.userAgent,
-    hardwareConcurrency: nav.hardwareConcurrency ?? 0,
-    deviceMemoryGB: nav.deviceMemory ?? null,
-    crossOriginIsolated: self.crossOriginIsolated === true,
-    sharedArrayBuffer: typeof SharedArrayBuffer !== 'undefined',
-    offscreenCanvas: typeof OffscreenCanvas !== 'undefined',
-    workerContext: typeof WorkerGlobalScope !== 'undefined',
-  };
+function post(msg: FromWorker, transfer?: Transferable[]): void {
+  (self as unknown as DedicatedWorkerGlobalScope).postMessage(msg, transfer ?? []);
 }
 
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | 'timeout'> {
-  return Promise.race([p, new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), ms))]);
-}
+async function handleInit(msg: Extract<ToWorker, { t: 'init' }>): Promise<void> {
+  const selected = await selectBackend(msg.backendPref);
+  backend = selected.backend;
+  registry = new ModelRegistry(backend);
+  registry.register(msg.models);
 
-async function probeWebGPU(): Promise<BackendProbe> {
-  const started = performance.now();
-  const gpu = (self.navigator as Navigator & { gpu?: GPU }).gpu;
-  if (!gpu) {
-    return { backend: 'webgpu', available: false, reason: 'no_navigator_gpu', probeMs: 0 };
+  // Resident models are warmed up at init (design.md §19) so the first real step isn't penalised
+  // by a lazy first load. A load failure disables only the image path (T-4.2's AC) — logged via a
+  // jobless `error` the host may surface, but `ready` still fires so the agent can proceed L0-only.
+  faceModelId = msg.models.find((m) => m.role === 'face')?.id ?? null;
+  if (faceModelId) {
+    try {
+      await registry.get(faceModelId);
+    } catch (err) {
+      faceModelId = null;
+      post({ t: 'error', code: err instanceof ModelLoadError ? err.code : 'MODEL_LOAD_FAILED', detail: err instanceof Error ? err.message : String(err) });
+    }
   }
-  const adapter = await withTimeout(gpu.requestAdapter(), ADAPTER_TIMEOUT_MS);
-  if (adapter === 'timeout') {
-    return { backend: 'webgpu', available: false, reason: 'timeout', probeMs: performance.now() - started };
+
+  post({ t: 'ready', backend, loaded: registry.loadedInfo(), adapterInfo: selected.adapterInfo });
+}
+
+async function handlePerceive(msg: Extract<ToWorker, { t: 'perceive' }>): Promise<void> {
+  closeCurrentCapture(); // a previous capture whose compose was never called (e.g. L0 decided
+  // after all) must not leak — see this file's `currentCapture` doc comment.
+  currentCapture = { bitmap: msg.bitmap };
+
+  const timings: Record<string, number> = {};
+  const timedOut: Extract<FromWorker, { t: 'perceived' }>['timedOut'] = [];
+  const candidates: Extract<FromWorker, { t: 'perceived' }>['candidates'] = [];
+
+  const cropRegions = msg.regions.filter((r) => r.kind === 'crop');
+  const { admitted, dropped } = applyCropBudget(cropRegions, backend);
+  for (const d of dropped) timedOut.push(d.box);
+
+  const faceStart = performance.now();
+  const faceSession = faceModelId && registry ? await registry.get(faceModelId).catch(() => null) : null;
+  if (faceSession) {
+    const queue = new PriorityQueue<(typeof admitted)[number]>();
+    for (const region of admitted) queue.enqueue({ id: region.id, kind: 'face', payload: region });
+
+    const { completed, timedOut: faceTimedOut } = await runWithDeadline(
+      queue,
+      async (job) => {
+        const crop = cropRegion(msg.bitmap, job.payload.box);
+        return detectFaces(faceSession, ort, crop, job.payload.box);
+      },
+      msg.deadlineMs,
+    );
+    for (const { job, result } of completed) {
+      for (const face of result) candidates.push({ entity: 'FACE', box: face.box, score: face.score, regionId: job.payload.id });
+    }
+    for (const job of faceTimedOut) timedOut.push(job.payload.box);
+  } else {
+    // No face session — every region that would have been screened stays `timedOut`, not
+    // silently cleared (the compositor's clearance rule then leaves it grey, per T-4.2's AC).
+    for (const region of admitted) timedOut.push(region.box);
   }
-  if (!adapter) {
-    return { backend: 'webgpu', available: false, reason: 'no_adapter', probeMs: performance.now() - started };
+  timings.face = performance.now() - faceStart;
+
+  // design.md §4.3: the ViT encoder also embeds a low-res thumbnail of the full viewport on
+  // EVERY capture, for the screen-state label — real call shape, disclosed no-op today (see
+  // `models/vit-encoder.ts`'s top comment).
+  let label: Extract<FromWorker, { t: 'perceived' }>['screenLabel'];
+  if (msg.fullFrame) {
+    const labelStart = performance.now();
+    const result = await screenLabel(msg.bitmap);
+    timings.screenLabel = performance.now() - labelStart;
+    if (result) label = result;
   }
-  const device = await withTimeout(adapter.requestDevice(), ADAPTER_TIMEOUT_MS);
-  if (device === 'timeout' || !device) {
-    return { backend: 'webgpu', available: false, reason: 'no_device', probeMs: performance.now() - started };
+
+  // NOT closed here — `currentCapture` still owns `msg.bitmap` until `compose` (or a superseding
+  // `perceive`) closes it. See the `currentCapture` doc comment above.
+  post({ t: 'perceived', jobId: msg.jobId, candidates, screenLabel: label, timings, timedOut });
+}
+
+async function handleCompose(msg: Extract<ToWorker, { t: 'compose' }>): Promise<void> {
+  if (!currentCapture) {
+    post({ t: 'error', jobId: msg.jobId, code: 'NO_CAPTURE', detail: 'compose called with no prior perceive for this capture' });
+    return;
   }
-  const info = (adapter as GPUAdapter & { info?: GPUAdapterInfo }).info;
-  device.destroy();
-  return {
-    backend: 'webgpu',
-    available: true,
-    adapter: {
-      vendor: info?.vendor ?? 'unknown',
-      architecture: info?.architecture ?? 'unknown',
-      device: info?.device ?? 'unknown',
-      description: info?.description ?? 'unknown',
-    },
-    probeMs: performance.now() - started,
-  };
-}
-
-function probeWasm(): BackendProbe {
-  const started = performance.now();
-  const coi = self.crossOriginIsolated === true;
-  // ORT only uses threads when SharedArrayBuffer is available, which requires cross-origin
-  // isolation. Firefox extension pages never get it (architecture §5.1).
-  const threads = coi ? Math.max(1, Math.min(4, Math.floor((self.navigator.hardwareConcurrency ?? 2) / 2))) : 1;
-  ort.env.wasm.numThreads = threads;
-  return {
-    backend: 'wasm',
-    available: true,
-    simd: true,
-    threads,
-    crossOriginIsolated: coi,
-    probeMs: performance.now() - started,
-  };
-}
-
-function at(sorted: readonly number[], idx: number): number {
-  const v = sorted[idx];
-  if (v === undefined) throw new Error('percentile index out of range on an empty sample');
-  return v;
-}
-
-function percentile(sorted: readonly number[], p: number): number {
-  if (sorted.length === 0) return NaN;
-  const idx = Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1);
-  return at(sorted, Math.max(0, idx));
-}
-
-async function bench(backend: Backend, modelUrl: string, model: string, runs: number): Promise<BenchResult> {
-  const loadStart = performance.now();
-  const session = await ort.InferenceSession.create(modelUrl, {
-    executionProviders: [backend],
-    graphOptimizationLevel: 'all',
+  const output = compose({
+    bitmap: currentCapture.bitmap,
+    cleared: msg.cleared,
+    regions: msg.regions as RedactionBoxSet[],
+    scale: msg.scale,
   });
-  const loadMs = performance.now() - loadStart;
-
-  const inputName = session.inputNames[0];
-  if (!inputName) throw new Error('model exposes no input names');
-  const meta = session.inputMetadata?.[0] as { dimensions?: readonly (number | string)[] } | undefined;
-  // Unknown or symbolic dimensions fall back to the model's documented input size.
-  const shape = (meta?.dimensions ?? [1, 3, 320, 320]).map((d) =>
-    typeof d === 'number' && d > 0 ? d : 1,
-  ) as number[];
-  const resolved = shape.length === 4 && shape[2] === 1 ? [1, 3, 320, 320] : shape;
-
-  const elements = resolved.reduce((a, b) => a * b, 1);
-  const data = new Float32Array(elements);
-  for (let i = 0; i < elements; i++) data[i] = Math.random();
-  const feeds = { [inputName]: new ort.Tensor('float32', data, resolved) };
-
-  const warmStart = performance.now();
-  await session.run(feeds);
-  const warmupMs = performance.now() - warmStart;
-
-  const times: number[] = [];
-  for (let i = 0; i < runs; i++) {
-    const t0 = performance.now();
-    await session.run(feeds);
-    times.push(performance.now() - t0);
-  }
-  await session.release();
-
-  const sorted = [...times].sort((a, b) => a - b);
-  return {
-    backend,
-    model,
-    n: runs,
-    warmupMs,
-    loadMs,
-    p50Ms: percentile(sorted, 50),
-    p95Ms: percentile(sorted, 95),
-    minMs: at(sorted, 0),
-    maxMs: at(sorted, sorted.length - 1),
-    inputShape: resolved,
-  };
+  const webp = await encodeWebp(output.canvas);
+  closeCurrentCapture();
+  post({ t: 'composed', jobId: msg.jobId, webp, coverage: output.coverage }, [webp]);
 }
 
-self.addEventListener('message', async (event: MessageEvent<ToWorker>) => {
-  const msg = event.data;
-  try {
-    if (msg.t === 'probe') {
-      post({ t: 'env', env: environment() });
-      post({ t: 'probed', probes: [await probeWebGPU(), probeWasm()] });
-      return;
-    }
-    if (msg.t === 'bench') {
-      post({ t: 'benched', result: await bench(msg.backend, msg.modelUrl, msg.model, msg.runs) });
-    }
-  } catch (err) {
-    post({ t: 'error', code: 'WORKER_FAILED', detail: err instanceof Error ? err.message : String(err) });
+async function handleRescan(msg: Extract<ToWorker, { t: 'rescan' }>): Promise<void> {
+  const hits: Extract<FromWorker, { t: 'rescanned' }>['hits'] = [];
+  const faceSession = faceModelId && registry ? await registry.get(faceModelId).catch(() => null) : null;
+  if (faceSession) {
+    const faceBoxes = await recheckFacesOnComposedImage(faceSession, ort, msg.image);
+    for (const box of faceBoxes) hits.push({ entity: 'FACE', box, score: 1 });
   }
+  const halos = msg.halos.length > 0 ? msg.halos : msg.redactionBoxes;
+  const textHits = await checkHalosForText(msg.image, halos);
+  for (const box of textHits) hits.push({ entity: 'SECRET', box, score: 1 });
+
+  post({ t: 'rescanned', jobId: msg.jobId, hits });
+}
+
+self.addEventListener('message', (event: MessageEvent<ToWorker>) => {
+  const msg = event.data;
+  (async () => {
+    try {
+      if (msg.t === 'init') return await handleInit(msg);
+      if (msg.t === 'perceive') return await handlePerceive(msg);
+      if (msg.t === 'compose') return await handleCompose(msg);
+      if (msg.t === 'rescan') return await handleRescan(msg);
+      if (msg.t === 'stats') {
+        return post({ t: 'stats', memoryEstimateMB: registry?.memoryEstimateMB() ?? 0, sessions: registry?.loadedInfo() ?? [] });
+      }
+      if (msg.t === 'evict') {
+        registry?.evict(msg.model);
+        return;
+      }
+      // 'ner' — NER stays a Channel-independent call the host makes directly against
+      // `perception/models/pii-ner.ts`'s pure function today (no session, nothing to route
+      // through the worker's model registry); routing it through here is Phase 6 work once a
+      // real profile-L model needs the worker's scheduler.
+    } catch (err) {
+      const jobId = 'jobId' in msg ? msg.jobId : undefined;
+      post({ t: 'error', jobId, code: 'WORKER_FAILED', detail: err instanceof Error ? err.message : String(err) });
+    }
+  })();
 });
 
-post({ t: 'env', env: environment() });
+export { compose, encodeWebp, type RedactionBoxSet };

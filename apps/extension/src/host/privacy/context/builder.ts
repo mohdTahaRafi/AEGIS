@@ -52,6 +52,13 @@ export interface BuildContextInput {
   /** Internal origin identifier — never sent (design.md §3.4). Used only for vault mint/rehydrate
    * origin-matching. */
   originKey: string;
+  /** Phase 4: Channel V candidates (faces, etc.) already detected by a prior `perceive` call this
+   * step, in the same viewport-pixel coordinate space as `nodes[].box`. Merged into fusion
+   * alongside Channel D/T exactly like any other candidate — fusion has no notion of "vision
+   * candidates are special," only `channel: 'vision'`. Absent (not `[]`) is the normal case for a
+   * step that never captured a frame at all — kept optional so every Phase 3 caller/test is
+   * unaffected. */
+  visionCandidates?: Candidate[];
 }
 
 function fieldContext(node: WireScreenNode): RecognizerContext {
@@ -220,6 +227,7 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
   for (const source of freeTextSources) {
     candidates.push(...candidatesFromTextRun(source.key, source.box, source.text));
   }
+  if (input.visionCandidates) candidates.push(...input.visionCandidates);
 
   // 3. Fuse.
   const regions = fuse(policy, candidates);

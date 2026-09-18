@@ -10,6 +10,7 @@ import { ConfirmAction } from '../../src/ui/ConfirmAction';
 import { GuardBlockCard } from '../../src/ui/GuardBlockCard';
 import { RedactionSummary } from '../../src/ui/RedactionSummary';
 import { PayloadViewer } from '../../src/ui/PayloadViewer';
+import { ResourceBar } from '../../src/ui/ResourceBar';
 import type { StepRecord } from '../../src/host/session';
 import type { SanitizedContext } from '@aegis/protocol';
 
@@ -202,5 +203,39 @@ describe('PayloadViewer (T-3.32, FR-34, AC-9)', () => {
     await Promise.resolve(); // flush Preact's microtask-scheduled re-render
     expect(el.textContent).toContain('⟪AADHAAR#1⟫');
     expect(el.textContent).toContain('"schema": "AEGIS/1"');
+  });
+
+  it('T-4.22: shows the composed image alongside the bytes when one was sent', async () => {
+    const payload = fakePayload();
+    payload.image = { level: 'L1', region: [0, 0, 100, 100], scale: 1, format: 'image/webp', sha256: 'a'.repeat(64), data: 'ZmFrZQ==', legend: 'Grey = unanalysed.' };
+    const el = mount(<PayloadViewer payload={payload} />);
+    const button = el.querySelector('button')!;
+    button.dispatchEvent(new Event('click', { bubbles: true }));
+    await Promise.resolve();
+    const img = el.querySelector('img');
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute('src')).toBe('data:image/webp;base64,ZmFrZQ==');
+    expect(el.textContent).toContain('Grey = unanalysed.');
+  });
+
+  it('renders no image element when payload.image is null (the common L0 case)', async () => {
+    const el = mount(<PayloadViewer payload={fakePayload()} />);
+    const button = el.querySelector('button')!;
+    button.dispatchEvent(new Event('click', { bubbles: true }));
+    await Promise.resolve();
+    expect(el.querySelector('img')).toBeNull();
+  });
+});
+
+describe('ResourceBar (T-4.22/T-4.23)', () => {
+  it('shows the ML backend and total model MB', () => {
+    const el = mount(<ResourceBar backend="webgpu" modelsLoadedMB={21.4} />);
+    expect(el.textContent).toContain('webgpu');
+    expect(el.textContent).toContain('21.4');
+  });
+
+  it('shows "not loaded" before the worker has reported a backend', () => {
+    const el = mount(<ResourceBar backend={null} modelsLoadedMB={0} />);
+    expect(el.textContent).toContain('not loaded');
   });
 });

@@ -27,11 +27,17 @@ import { ReconciliationTracker } from './controller/reconcile';
 import type { GuardedPayload } from './egress/brand';
 import { Ledger } from './ledger/ledger';
 import type { ContentPortClient } from './port';
+import { attachImage } from './privacy/context/attach-image';
 import { buildSanitizedContext } from './privacy/context/builder';
 import { GuardBlockedError, guard } from './privacy/guard/guard';
+import type { ImageRescanDeps } from './privacy/guard/image-rescan';
 import { Vault } from './privacy/vault';
+import type { PerceptionClient } from './perception-client/client';
+import { GeometryDigestGuard } from './capture/digest';
+import { runPerceptionStep, type CaptureFn } from './perception-client/run-step';
 import type { BudgetReasonCode } from '../shared/errors';
 import type { GraphMessage, WireScreenNode } from '../shared/messages';
+import type { Box } from '../shared/worker-protocol';
 
 export interface StepStageTimings {
   observe: number;
@@ -89,6 +95,15 @@ export interface SessionDeps {
    * Phase 3's T-3.32-adjacent UI work); the risk classification and the gate itself both exist
    * now so that UI is additive, not a redesign. */
   confirm?: (risk: RiskLevel, description: string) => Promise<boolean>;
+  /** Phase 4: absent (the default) means every step stays L0/text-only, exactly Phase 3's
+   * behaviour — every existing caller/test that doesn't set this is unaffected. Present, it wires
+   * the perception worker into the step loop: capture → `perceive` → (after fusion) `compose` →
+   * the guard's image re-scan. */
+  perception?: {
+    client: PerceptionClient;
+    capture: CaptureFn;
+    digestGuard?: GeometryDigestGuard;
+  };
 }
 
 interface PendingGraph {
@@ -108,11 +123,13 @@ export class Session {
   private lastGraphMessage: GraphMessage | null = null;
   private allSeenNodes = new Map<string, WireScreenNode>();
   private history: { step_id: string; actions: { op: string }[]; outcome: string }[] = [];
+  private readonly digestGuard: GeometryDigestGuard;
 
   constructor(private readonly deps: SessionDeps) {
     this.now = deps.now ?? (() => Date.now());
     this.budgets = new BudgetTracker(deps.budgetLimits ?? DEFAULT_BUDGETS, this.now);
     this.policy = deps.policy ?? defaultPolicy;
+    this.digestGuard = deps.perception?.digestGuard ?? new GeometryDigestGuard();
   }
 
   getLedger(): Ledger {
@@ -199,17 +216,27 @@ export class Session {
       timings.observe = this.now() - t;
 
       t = this.now();
+      const viewport = { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio, scrollY: window.scrollY, docH: document.documentElement.scrollHeight };
+      const perceptionResult = this.deps.perception
+        ? await runPerceptionStep(graphMessage.nodes, {
+            client: this.deps.perception.client,
+            capture: this.deps.perception.capture,
+            digestGuard: this.digestGuard,
+            reobserveGeometry: async () => (await this.requestGraph()).nodes,
+            viewport,
+          })
+        : null;
       this.controller.send({ type: 'perceived' });
       timings.perceive = this.now() - t;
 
       t = this.now();
       this.controller.send({ type: 'sanitized' });
-      const context = buildSanitizedContext({
+      let context = buildSanitizedContext({
         stepId,
         task,
         reason: graphMessage.reason,
         deltaOf,
-        viewport: { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio, scrollY: window.scrollY, docH: document.documentElement.scrollHeight },
+        viewport,
         pageCategory: this.deps.pageCategory,
         pageTitle: this.deps.pageTitle,
         nodes: graphMessage.nodes,
@@ -220,13 +247,47 @@ export class Session {
         vault: this.vault,
         policy: this.policy,
         originKey: this.deps.guardOrigin,
+        visionCandidates: perceptionResult?.visionCandidates,
       });
+
+      // T-4.16/T-4.17: attach the composed image only once the final fused `redactions` are known
+      // — the compositor draws exactly those boxes, never a pre-fusion guess (attach-image.ts's
+      // doc comment on why this is a separate step from buildSanitizedContext).
+      let imageRescanDeps: ImageRescanDeps | undefined;
+      if (perceptionResult?.captured && this.deps.perception) {
+        const client = this.deps.perception.client;
+        const scale = perceptionResult.scale;
+        context = await attachImage({
+          context,
+          scale,
+          visionAnalyzedNodeIds: perceptionResult.visionAnalyzedNodeIds,
+          nodeRequiresVision: (node) => node.role === 'img',
+          legend: 'Grey = unanalysed. Black boxes are redacted (labelled with their placeholder or type). Everything else is shown as captured.',
+          compose: async (regions, cleared, s) => {
+            const composed = await client.compose(regions, cleared, s);
+            return composed;
+          },
+        });
+        imageRescanDeps = {
+          rescan: async (imageBytes, redactionBoxes) => {
+            const result = await client.rescan(imageBytes, [...redactionBoxes], []);
+            return { hits: result.hits.map((h) => ({ box: h.box as Box })) };
+          },
+          // `cleared: []` deliberately — a rescan hit means the clearance decision was wrong at
+          // least once this step, so the recompose is maximally conservative: only the (now
+          // dilated) redaction boxes are drawn at all, nothing already-cleared is re-copied in.
+          recompose: async (dilatedRegions) => {
+            const composed = await client.compose([...dilatedRegions], [], scale);
+            return composed.webp;
+          },
+        };
+      }
       timings.sanitize = this.now() - t;
 
       t = this.now();
       let guarded: GuardedPayload;
       try {
-        guarded = guard(context, this.policy, this.vault);
+        guarded = await guard(context, this.policy, this.vault, { imageRescan: imageRescanDeps });
         this.controller.send({ type: 'guard_pass' });
         this.ledger.record({
           stepId,

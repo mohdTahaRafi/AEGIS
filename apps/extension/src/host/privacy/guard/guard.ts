@@ -8,13 +8,61 @@ import { validators } from '@aegis/protocol';
 import type { Policy } from '@aegis/policy';
 import { brand, type GuardedPayload } from '../../egress/brand';
 import type { Vault } from '../vault';
+import type { Box } from '../types';
 import { patternResweep, vaultLeakSweep } from './sweeps';
+import { runImageRescan, type ImageRescanDeps } from './image-rescan';
 
 export class GuardBlockedError extends Error {
   constructor(public readonly rule: 'SCHEMA' | 'ID_SHAPE' | 'VAULT_LEAK' | 'PATTERN', public readonly entity?: string) {
     super(`GUARD_BLOCK_${rule}`);
     this.name = 'GuardBlockedError';
   }
+}
+
+export interface GuardDeps {
+  /** Absent when there is no image to rescan (the common L0 case) or no perception worker
+   * available at all. Step 5 fails closed either way: a payload that carries an image but has no
+   * way to independently re-check it never ships that image — see `guard()`'s image branch. */
+  imageRescan?: ImageRescanDeps;
+}
+
+async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  let binary = '';
+  for (const byte of new Uint8Array(buffer)) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+/** design.md §7.6 step 5 (phase_4_vision.md §8): two independent checks on the *composed* image,
+ * not the input. `dropped` and `no-rescan-capability` both fall back to L0 by stripping the image
+ * — "degrading to a text-only payload is always available and always safe; sending a questionable
+ * image is not" (phase_4_vision.md §8) — this is never a `GuardBlockedError`: the step proceeds,
+ * just without an image. */
+async function runStep5(payload: SanitizedContext, deps: GuardDeps): Promise<SanitizedContext> {
+  if (!payload.image) return payload;
+  if (!deps.imageRescan) return { ...payload, image: null };
+
+  const regions = payload.redactions.map((r) => ({ entity: r.entity as string, boxes: r.boxes as Box[], placeholder: r.ref ?? null }));
+  const imageBytes = base64ToArrayBuffer(payload.image.data);
+  const outcome = await runImageRescan(imageBytes, regions, deps.imageRescan);
+
+  if (outcome.verdict === 'dropped') return { ...payload, image: null };
+  if (outcome.verdict === 'clean') return payload;
+  return {
+    ...payload,
+    image: { ...payload.image, data: arrayBufferToBase64(outcome.imageBytes), sha256: await sha256Hex(outcome.imageBytes) },
+  };
 }
 
 const NODE_ID_RE = /^n-[0-9a-z]+$/;
@@ -43,7 +91,7 @@ function canonicalBytes(payload: SanitizedContext): string {
   return JSON.stringify(rest);
 }
 
-export function guard(payload: SanitizedContext, policy: Policy, vault: Vault): GuardedPayload {
+export async function guard(payload: SanitizedContext, policy: Policy, vault: Vault, deps: GuardDeps = {}): Promise<GuardedPayload> {
   const schemaResult = validators.sanitizedContext(payload);
   if (!schemaResult.valid) {
     throw new GuardBlockedError('SCHEMA');
@@ -65,9 +113,8 @@ export function guard(payload: SanitizedContext, policy: Policy, vault: Vault): 
     throw new GuardBlockedError('PATTERN', pattern.entity);
   }
 
-  // Step 5 (image re-scan) and step 6 (canary check) are no-ops this phase: there is no image
-  // (L0 only — Phase 4), and canaries are Phase 5's T-5.8. Both are declared, not silently
-  // skipped — see phase_3_privacy_core.md §16.
+  // Step 6 (canary check) is still a no-op this phase — Phase 5's T-5.8 (phase_4_vision.md §15).
+  const afterStep5 = await runStep5(payload, deps);
 
-  return brand(payload);
+  return brand(afterStep5);
 }
