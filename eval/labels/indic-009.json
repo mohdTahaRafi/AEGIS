@@ -1,5 +1,5 @@
 {
-  "screen_id": "hardneg-005",
+  "screen_id": "indic-009",
   "viewport": [
     1280,
     720
@@ -7,14 +7,14 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "NONE",
+      "entity": "PHONE",
       "box": [
-        220,
-        120,
-        110,
+        16,
+        60,
+        340,
         22
       ],
-      "note": "a calendar date with no DOB context \u2014 must not be flagged as DOB"
+      "value_hash": "sha256:d0568a7c22a3e3dac900f6e1dad50cd2c17b3eba01b5c535f6bff12efa52fde3"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYZMWBK2PWTXX3U8QWQ594GX"
+      "canary_id": "CANARYECDWNU6YWF9HJ5F7VKRCE9"
     }
   ],
   "tasks": []

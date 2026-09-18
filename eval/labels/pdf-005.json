@@ -1,0 +1,43 @@
+{
+  "screen_id": "pdf-005",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "BANK_ACCOUNT",
+      "box": [
+        120,
+        180,
+        200,
+        22
+      ],
+      "value_hash": "sha256:2204a5f0185c860c44122ffcae14fb528a30eb6a0ffd99005ae8e98d4e6f9d7a",
+      "note": "disclosed gap: no dedicated BANK_ACCOUNT pattern recognizer yet \u2014 expected FN"
+    },
+    {
+      "entity": "IFSC",
+      "box": [
+        120,
+        210,
+        130,
+        22
+      ],
+      "value_hash": "sha256:dd7fd2db99ecab437a34a9c5568ce030e8b83836dab9338295419f70e5c8d118"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYTW3YRDMDLLWKY7A896ZLEC"
+    }
+  ],
+  "tasks": []
+}

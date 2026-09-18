@@ -1,5 +1,5 @@
 {
-  "category": "banking",
+  "category": "docs",
   "group": "hardneg",
   "script": "latin",
   "viewport": [
@@ -8,5 +8,5 @@
   ],
   "source": "hand-built",
   "licence": "synthetic \u2014 no real data",
-  "notes": "Hard negative: GSTIN-pattern-shaped but checksum-invalid (AC-11's checksum-invalid look-alike, first time exercised for GSTIN)."
+  "notes": "Hard negative: long token shape but low entropy (single repeated digit), below secret.ts's 3.5 threshold."
 }
