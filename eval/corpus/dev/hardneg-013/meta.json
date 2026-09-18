@@ -1,0 +1,12 @@
+{
+  "category": "banking",
+  "group": "hardneg",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Hard negative: GSTIN-pattern-shaped but checksum-invalid (AC-11's checksum-invalid look-alike, first time exercised for GSTIN)."
+}
