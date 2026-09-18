@@ -1,0 +1,62 @@
+{
+  "screen_id": "email-001",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "PERSON_NAME",
+      "box": [
+        16,
+        60,
+        200,
+        20
+      ],
+      "value_hash": "sha256:87fb221af51fd76c5ff1b93f257965696a2dc60317bb494ad5af8c6722d6b1cb"
+    },
+    {
+      "entity": "EMAIL",
+      "box": [
+        240,
+        60,
+        240,
+        20
+      ],
+      "value_hash": "sha256:00f07eecbda6c15bf68e5573f34d7c49bb652ecc14f967bfd0b83c2d423aaed8"
+    },
+    {
+      "entity": "PERSON_NAME",
+      "box": [
+        16,
+        90,
+        200,
+        20
+      ],
+      "value_hash": "sha256:97a2c672e7c0892235e15e41e790745fc62ef614d398b122fa40e48fc7588616"
+    },
+    {
+      "entity": "EMAIL",
+      "box": [
+        240,
+        90,
+        240,
+        20
+      ],
+      "value_hash": "sha256:cba86ab49a97187a16bdd866941fddb22148bcd2b11bd3b9d4d22d408c7be2fc"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARY8ULQ29VYFGANGAGZX68Y8E"
+    }
+  ],
+  "tasks": []
+}

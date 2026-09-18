@@ -1,5 +1,5 @@
 {
-  "screen_id": "faces-001",
+  "screen_id": "faces-005",
   "viewport": [
     1280,
     720
@@ -9,10 +9,10 @@
     {
       "entity": "FACE",
       "box": [
-        40,
-        100,
-        96,
-        96
+        480,
+        260,
+        140,
+        140
       ]
     },
     {
@@ -24,7 +24,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYFSJCP58DDCJ3FAR7QE7B5L"
+      "canary_id": "CANARY8DKDLWG97HTPZUXHBLAF2U"
     }
   ],
   "tasks": []

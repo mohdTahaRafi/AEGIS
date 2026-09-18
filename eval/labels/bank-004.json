@@ -1,0 +1,52 @@
+{
+  "screen_id": "bank-004",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "AADHAAR",
+      "box": [
+        220,
+        120,
+        160,
+        22
+      ],
+      "value_hash": "sha256:64f038c6f66b53c8314226a5abe15ec68c87e504166a0a8922192ae8d376d129"
+    },
+    {
+      "entity": "PAN",
+      "box": [
+        220,
+        160,
+        120,
+        22
+      ],
+      "value_hash": "sha256:e5e1a947554704c357adda62e41b4bffa4c79401fc4eb36a1a06fde84a5b04c1"
+    },
+    {
+      "entity": "NONE",
+      "box": [
+        220,
+        200,
+        140,
+        22
+      ],
+      "note": "a maturity amount \u2014 LOW class, must pass through, not redacted"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARY3R6XCNZZFK7TRL45QE93PX"
+    }
+  ],
+  "tasks": []
+}

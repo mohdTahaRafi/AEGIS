@@ -1,5 +1,5 @@
 {
-  "screen_id": "faces-001",
+  "screen_id": "canvas-002",
   "viewport": [
     1280,
     720
@@ -7,13 +7,14 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "FACE",
+      "entity": "UPI_VPA",
       "box": [
         40,
-        100,
-        96,
-        96
-      ]
+        154,
+        160,
+        22
+      ],
+      "value_hash": "sha256:b819c35efd912eab5f82f1ba958c5b3d7b6415b78350d6536f58bac95f910a3c"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -24,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYFSJCP58DDCJ3FAR7QE7B5L"
+      "canary_id": "CANARY6VEJKH3XSM6KJ42AFMXZK4"
     }
   ],
   "tasks": []

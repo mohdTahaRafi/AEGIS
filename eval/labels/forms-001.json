@@ -14,7 +14,7 @@
         220,
         28
       ],
-      "value_hash": "sha256:c08a53b7101b2452793a36f3bcb0fa5104ef82d3ba8a1714499f22d7ae49ff75"
+      "value_hash": "sha256:bb821e4fa9aa8feb5b6f8e1dfba99f914f3bd24ed64e25c1ea2e5d41b29fbbfb"
     },
     {
       "entity": "PASSWORD",
@@ -34,7 +34,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYSFZD83QCV458M827WVPYN7"
+      "canary_id": "CANARYZJGJ7TDQVFNEBWFY5SQRGR"
     }
   ],
   "tasks": [
