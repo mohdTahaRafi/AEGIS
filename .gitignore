@@ -12,6 +12,7 @@ dist/
 build/
 *.tsbuildinfo
 
+
 # Models — fetched by scripts/fetch-models.ts, never hand-committed
 apps/extension/public/models/*.onnx
 apps/extension/public/models/*.bin
