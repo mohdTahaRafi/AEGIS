@@ -22,7 +22,7 @@ import random
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from aegis_eval.corpus.checksums import gstin_generate, luhn_generate, verhoeff_generate
+from aegis_eval.corpus.checksums import gstin_generate, luhn_generate, verhoeff_generate, verhoeff_valid
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 CORPUS_DEV = REPO_ROOT / "eval" / "corpus" / "dev"
@@ -46,18 +46,21 @@ def sha256_hash(value: str) -> str:
 
 
 def random_bank_account(rng: random.Random) -> str:
-    """9-16 random digits, avoiding the one shape that collides with a different real entity:
+    """9-16 random digits, avoiding two shapes that collide with a different real entity:
     exactly 10 digits starting 6-9 is indistinguishable from an Indian mobile number
-    (`phone.ts`'s `INDIAN_MOBILE_RE`). Found for real: the corpus-growth pass's `bank-005` rolled
-    exactly this collision — a BANK_ACCOUNT fixture whose independently-random value was correctly
-    detected as PHONE (it IS shaped like one), scoring as a false positive against ground truth
-    that only expected BANK_ACCOUNT. Not every fixture using this pattern is retroactively
-    guaranteed collision-free by construction elsewhere in this file — this is the shared,
-    corrected generator going forward."""
+    (`phone.ts`'s `INDIAN_MOBILE_RE`) — found for real via `bank-005`, a BANK_ACCOUNT fixture
+    whose random value was correctly detected as PHONE, scoring as a false positive. Exactly 12
+    digits starting 2-9 with a coincidentally-valid Verhoeff checksum (~1-in-10 chance whenever
+    length is 12) is indistinguishable from a real Aadhaar — found for real via `gov-010`, whose
+    random bank account was correctly detected as a SECOND AADHAAR alongside the fixture's real
+    one. Both are real cross-entity shape collisions in random digit generation, not client bugs;
+    steering away from them here (rather than banning realistic lengths outright) is the fix."""
     length = rng.randint(9, 16)
     digits = "".join(str(rng.randint(0, 9)) for _ in range(length))
     if length == 10 and digits[0] in "6789":
         digits = "1" + digits[1:]
+    if length == 12 and digits[0] in "23456789" and verhoeff_valid(digits):
+        digits = digits[:-1] + str((int(digits[-1]) + 1) % 10)
     return digits
 
 
@@ -2440,6 +2443,650 @@ def build_bank_extra2(rng: random.Random) -> list[Fixture]:
     return fixtures
 
 
+def build_freetext_extra(rng: random.Random) -> list[Fixture]:
+    """More free-text pages beyond `freetext-001..003` — corpus growth pass."""
+    fixtures = []
+
+    name = "".join(rng.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ", k=1)) + "".join(rng.choices("abcdefghijklmnopqrstuvwxyz", k=6))
+    handle = "@" + "".join(rng.choices("abcdefghijklmnopqrstuvwxyz", k=8))
+    box_name = (16, 60, 200, 20)
+    box_handle = (16, 90, 160, 20)
+    fixtures.append(
+        Fixture(
+            "freetext-004", "social", "freetext", "Forum Bio",
+            f'<div id="name" style="position:absolute;left:{box_name[0]}px;top:{box_name[1]}px;">{name}</div>'
+            f'<div id="handle" style="position:absolute;left:{box_handle[0]}px;top:{box_handle[1]}px;">{handle}</div>',
+            [
+                LabelItem("PERSON_NAME", box_name, sha256_hash(name.lower())),
+                LabelItem("USERNAME", box_handle, sha256_hash(handle)),
+            ],
+            notes="A forum profile bio: real name, @handle username (disclosed NER-only gap).",
+        )
+    )
+
+    phone = "+91 " + str(rng.randint(6, 9)) + "".join(str(rng.randint(0, 9)) for _ in range(9))
+    box_ad = (16, 60, 540, 22)
+    fixtures.append(
+        Fixture(
+            "freetext-005", "social", "freetext", "Classified Ad",
+            f'<div id="ad" style="position:absolute;left:{box_ad[0]}px;top:{box_ad[1]}px;">'
+            f"Selling bicycle, good condition. Call {phone} to arrange pickup.</div>",
+            [LabelItem("PHONE", box_ad, sha256_hash(phone.replace(" ", "").replace("+", "")))],
+            notes="A classified ad with a phone number in prose.",
+        )
+    )
+
+    name2 = "".join(rng.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ", k=1)) + "".join(rng.choices("abcdefghijklmnopqrstuvwxyz", k=6))
+    email = "".join(rng.choices("abcdefghijklmnopqrstuvwxyz", k=8)) + "@example.test"
+    box_name2 = (16, 60, 200, 20)
+    box_email2 = (16, 90, 240, 20)
+    fixtures.append(
+        Fixture(
+            "freetext-006", "social", "freetext", "Restaurant Review",
+            f'<div id="reviewer" style="position:absolute;left:{box_name2[0]}px;top:{box_name2[1]}px;">'
+            f"Reviewed by {name2}</div>"
+            f'<div id="contact" style="position:absolute;left:{box_email2[0]}px;top:{box_email2[1]}px;">'
+            f"Reply to {email}</div>",
+            [
+                LabelItem("PERSON_NAME", box_name2, sha256_hash(name2.lower())),
+                LabelItem("EMAIL", box_email2, sha256_hash(email.lower())),
+            ],
+            notes="A restaurant review with reviewer name and reply email in prose.",
+        )
+    )
+
+    name3 = "".join(rng.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ", k=1)) + "".join(rng.choices("abcdefghijklmnopqrstuvwxyz", k=6))
+    phone2 = "+91 " + str(rng.randint(6, 9)) + "".join(str(rng.randint(0, 9)) for _ in range(9))
+    box_testimonial = (16, 60, 420, 22)
+    box_name3 = (16, 90, 200, 20)
+    fixtures.append(
+        Fixture(
+            "freetext-007", "social", "freetext", "Customer Testimonial",
+            f'<div id="quote" style="position:absolute;left:{box_testimonial[0]}px;top:{box_testimonial[1]}px;">'
+            f"Great service, reach them at {phone2} anytime.</div>"
+            f'<div id="name" style="position:absolute;left:{box_name3[0]}px;top:{box_name3[1]}px;">— {name3}</div>',
+            [
+                LabelItem("PHONE", box_testimonial, sha256_hash(phone2.replace(" ", "").replace("+", ""))),
+                LabelItem("PERSON_NAME", box_name3, sha256_hash(name3.lower())),
+            ],
+            notes="A customer testimonial with a phone number and the reviewer's name in prose.",
+        )
+    )
+
+    return fixtures
+
+
+def build_hardneg_extra3(rng: random.Random) -> list[Fixture]:
+    """More hard negatives beyond `hardneg-001..015` — corpus growth pass."""
+    fixtures = []
+
+    # Deliberately rendered ungrouped (no spaces), not 4-4-4-4 like the other card fixtures: with
+    # spacing, a random 16-digit run has ~5 candidate 12-digit windows any of which can
+    # coincidentally form a word-boundary-delimited, Verhoeff-valid Aadhaar shape (found for real:
+    # the first version of this fixture did exactly that, becoming a spurious AADHAAR match).
+    # Kept as one unbroken digit token, no internal `\b` exists for `aadhaar.ts`'s regex to anchor
+    # a sub-match to, regardless of digit content — a structural fix, not a lucky reroll.
+    bad_iin_base = "9" + "".join(str(rng.randint(0, 9)) for _ in range(14))
+    bad_iin_card = bad_iin_base + luhn_generate(bad_iin_base)
+    box = (220, 120, 190, 22)
+    fixtures.append(
+        Fixture(
+            "hardneg-016", "banking", "hardneg", "Loyalty Card Lookup",
+            '<div class="heading">Loyalty Card Lookup</div>'
+            + field_html("Card number", bad_iin_card, box, "card"),
+            [LabelItem("NONE", box, note="16 digits, valid Luhn checksum, but no real card network's IIN prefix — must not be flagged as CARD_NUMBER")],
+            notes="Hard negative: card-shaped and Luhn-valid, but fails the IIN-range check (card.ts requires both).",
+        )
+    )
+
+    amex_base = rng.choice(["34", "37"]) + "".join(str(rng.randint(0, 9)) for _ in range(12))
+    valid_amex_check = luhn_generate(amex_base)
+    bad_amex = amex_base + str((int(valid_amex_check) + 1) % 10)
+    bad_amex_grouped = f"{bad_amex[0:4]} {bad_amex[4:10]} {bad_amex[10:15]}"
+    box2 = (220, 120, 170, 22)
+    fixtures.append(
+        Fixture(
+            "hardneg-017", "banking", "hardneg", "Expense Reimbursement",
+            '<div class="heading">Expense Reimbursement</div>'
+            + field_html("Card number", bad_amex_grouped, box2, "card"),
+            [LabelItem("NONE", box2, note="15 digits, Amex-range IIN prefix, but deliberately Luhn-invalid — must not be flagged as CARD_NUMBER")],
+            notes="Hard negative: Amex-shaped (34/37 prefix, 15 digits) but Luhn-invalid.",
+        )
+    )
+
+    return fixtures
+
+
+def build_identifiers_extra3(rng: random.Random) -> list[Fixture]:
+    """More identifier-shaped pages beyond `id-001..013` — corpus growth pass. Two more real card
+    networks `id-007`/`id-011` never exercised."""
+    fixtures = []
+
+    amex_base = rng.choice(["34", "37"]) + "".join(str(rng.randint(0, 9)) for _ in range(12))
+    amex_card = amex_base + luhn_generate(amex_base)
+    amex_grouped = f"{amex_card[0:4]} {amex_card[4:10]} {amex_card[10:15]}"
+    box = (220, 120, 170, 22)
+    fixtures.append(
+        Fixture(
+            "id-014", "banking", "identifiers", "Travel Booking Payment",
+            '<div class="heading">Travel Booking Payment</div>'
+            + field_html("Card number", amex_grouped, box, "card"),
+            [LabelItem("CARD_NUMBER", box, sha256_hash(amex_card))],
+            notes="Fictitious card number, valid Luhn checksum, American Express-range IIN (15 digits, not 16).",
+        )
+    )
+
+    rupay_prefix = rng.choice(["60", "65", "81", "82"])
+    rupay_base = rupay_prefix + "".join(str(rng.randint(0, 9)) for _ in range(13))
+    rupay_card = rupay_base + luhn_generate(rupay_base)
+    rupay_grouped = " ".join(rupay_card[i : i + 4] for i in range(0, 16, 4))
+    box2 = (220, 120, 190, 22)
+    fixtures.append(
+        Fixture(
+            "id-015", "banking", "identifiers", "Merchant Payout",
+            '<div class="heading">Merchant Payout</div>'
+            + field_html("Card number", rupay_grouped, box2, "card"),
+            [LabelItem("CARD_NUMBER", box2, sha256_hash(rupay_card))],
+            notes="Fictitious card number, valid Luhn checksum, RuPay-range IIN.",
+        )
+    )
+
+    return fixtures
+
+
+def build_canvas_extra3(rng: random.Random) -> list[Fixture]:
+    """More canvas-rendered pages beyond `canvas-001..004` — corpus growth pass."""
+    fixtures = []
+
+    pan_prefix3 = "".join(rng.choices("ABCDEFGHIJKLMNPQRSTUVWXYZ", k=3))
+    pan_holder_type = rng.choice("ABCPFGHLTJ")
+    pan_letter5 = rng.choice("ABCDEFGHIJKLMNPQRSTUVWXYZ")
+    pan_digits = "".join(str(rng.randint(0, 9)) for _ in range(4))
+    pan_letter2 = rng.choice("ABCDEFGHIJKLMNPQRSTUVWXYZ")
+    pan = pan_prefix3 + pan_holder_type + pan_letter5 + pan_digits + pan_letter2
+    box = (40, 154, 140, 22)
+    canvas_js = f"""
+<script>
+  const c4 = document.getElementById('cv4');
+  const ctx4 = c4.getContext('2d');
+  ctx4.font = '16px sans-serif';
+  ctx4.fillStyle = '#111';
+  ctx4.fillText('PAN reference:', 20, 60);
+  ctx4.font = 'bold 16px sans-serif';
+  ctx4.fillText('{pan}', 20, 90);
+</script>
+"""
+    fixtures.append(
+        Fixture(
+            "canvas-005", "canvas_app", "canvas", "Note-Taking App",
+            '<div class="heading">Note-Taking App</div>'
+            f'<canvas id="cv4" width="400" height="200" '
+            f'style="position:absolute;left:20px;top:80px;border:1px solid #ccc;"></canvas>'
+            + canvas_js,
+            [LabelItem("PAN", box, sha256_hash(pan))],
+            notes="Canvas-rendered PAN in a note-taking-app-style page — DOM has no accessible text.",
+        )
+    )
+
+    phone = "+91 " + str(rng.randint(6, 9)) + "".join(str(rng.randint(0, 9)) for _ in range(9))
+    box2 = (40, 154, 200, 22)
+    canvas_js2 = f"""
+<script>
+  const c5 = document.getElementById('cv5');
+  const ctx5 = c5.getContext('2d');
+  ctx5.font = '16px sans-serif';
+  ctx5.fillStyle = '#111';
+  ctx5.fillText('Top player contact:', 20, 60);
+  ctx5.font = 'bold 16px sans-serif';
+  ctx5.fillText('{phone}', 20, 90);
+</script>
+"""
+    fixtures.append(
+        Fixture(
+            "canvas-006", "canvas_app", "canvas", "Game Leaderboard",
+            '<div class="heading">Game Leaderboard</div>'
+            f'<canvas id="cv5" width="400" height="200" '
+            f'style="position:absolute;left:20px;top:80px;border:1px solid #ccc;"></canvas>'
+            + canvas_js2,
+            [LabelItem("PHONE", box2, sha256_hash(phone.replace(" ", "").replace("+", "")))],
+            notes="Canvas-rendered phone number in a game-leaderboard-style page — DOM has no accessible text.",
+        )
+    )
+
+    return fixtures
+
+
+def build_pdf_extra3(rng: random.Random) -> list[Fixture]:
+    """More PDF-viewer-shaped pages beyond `pdf-001..007` — corpus growth pass."""
+    fixtures = []
+    frame_origin = (40, 60)
+
+    pan_prefix3 = "".join(rng.choices("ABCDEFGHIJKLMNPQRSTUVWXYZ", k=3))
+    pan_holder_type = rng.choice("ABCPFGHLTJ")
+    pan_letter5 = rng.choice("ABCDEFGHIJKLMNPQRSTUVWXYZ")
+    pan_digits = "".join(str(rng.randint(0, 9)) for _ in range(4))
+    pan_letter2 = rng.choice("ABCDEFGHIJKLMNPQRSTUVWXYZ")
+    pan = pan_prefix3 + pan_holder_type + pan_letter5 + pan_digits + pan_letter2
+    addr = f"{rng.randint(1,999)} MG Road, Apartment {rng.randint(1,50)}, Bengaluru"
+    local_pan = (80, 120, 120, 22)
+    local_addr = (80, 150, 320, 22)
+    box_pan = (frame_origin[0] + local_pan[0], frame_origin[1] + local_pan[1], local_pan[2], local_pan[3])
+    box_addr = (frame_origin[0] + local_addr[0], frame_origin[1] + local_addr[1], local_addr[2], local_addr[3])
+    fixtures.append(
+        Fixture(
+            "pdf-008", "docs", "pdf", "Rental Agreement Viewer",
+            '<div class="heading">Rental Agreement Viewer</div>'
+            f'<div style="position:absolute;left:{frame_origin[0]}px;top:{frame_origin[1]}px;width:500px;height:600px;'
+            'background:#fff;border:1px solid #999;box-shadow:0 0 8px rgba(0,0,0,0.15);">'
+            '<div style="padding:20px;font-size:13px;color:#666;">Rental_Agreement.pdf — page 1 of 1</div>'
+            + field_html("Tenant PAN", pan, local_pan, "pan")
+            + field_html("Property address", addr, local_addr, "addr")
+            + "</div>",
+            [
+                LabelItem("PAN", box_pan, sha256_hash(pan)),
+                LabelItem("ADDRESS", box_addr, sha256_hash(addr.lower())),
+            ],
+            notes="A rental agreement rendered inside a PDF-viewer-shaped frame.",
+        )
+    )
+
+    pan2_prefix3 = "".join(rng.choices("ABCDEFGHIJKLMNPQRSTUVWXYZ", k=3))
+    pan2_holder_type = rng.choice("ABCPFGHLTJ")
+    pan2_letter5 = rng.choice("ABCDEFGHIJKLMNPQRSTUVWXYZ")
+    pan2_digits = "".join(str(rng.randint(0, 9)) for _ in range(4))
+    pan2_letter2 = rng.choice("ABCDEFGHIJKLMNPQRSTUVWXYZ")
+    pan2 = pan2_prefix3 + pan2_holder_type + pan2_letter5 + pan2_digits + pan2_letter2
+    account = random_bank_account(rng)
+    local_pan2 = (80, 120, 120, 22)
+    local_account = (80, 150, 200, 22)
+    box_pan2 = (frame_origin[0] + local_pan2[0], frame_origin[1] + local_pan2[1], local_pan2[2], local_pan2[3])
+    box_account = (frame_origin[0] + local_account[0], frame_origin[1] + local_account[1], local_account[2], local_account[3])
+    fixtures.append(
+        Fixture(
+            "pdf-009", "banking", "pdf", "Salary Slip Viewer",
+            '<div class="heading">Salary Slip Viewer</div>'
+            f'<div style="position:absolute;left:{frame_origin[0]}px;top:{frame_origin[1]}px;width:500px;height:600px;'
+            'background:#fff;border:1px solid #999;box-shadow:0 0 8px rgba(0,0,0,0.15);">'
+            '<div style="padding:20px;font-size:13px;color:#666;">Salary_Slip.pdf — page 1 of 1</div>'
+            + field_html("PAN", pan2, local_pan2, "pan")
+            + field_html("Bank account", account, local_account, "account")
+            + "</div>",
+            [
+                LabelItem("PAN", box_pan2, sha256_hash(pan2)),
+                LabelItem("BANK_ACCOUNT", box_account, sha256_hash(account), note="disclosed gap: no dedicated BANK_ACCOUNT pattern recognizer yet — expected FN"),
+            ],
+            notes="A salary slip rendered inside a PDF-viewer-shaped frame.",
+        )
+    )
+
+    name = "".join(rng.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ", k=1)) + "".join(rng.choices("abcdefghijklmnopqrstuvwxyz", k=6))
+    addr2 = f"{rng.randint(1,999)} MG Road, Apartment {rng.randint(1,50)}, Bengaluru"
+    local_name = (80, 120, 200, 22)
+    local_addr2 = (80, 150, 320, 22)
+    box_name = (frame_origin[0] + local_name[0], frame_origin[1] + local_name[1], local_name[2], local_name[3])
+    box_addr2 = (frame_origin[0] + local_addr2[0], frame_origin[1] + local_addr2[1], local_addr2[2], local_addr2[3])
+    fixtures.append(
+        Fixture(
+            "pdf-010", "docs", "pdf", "Utility Bill Viewer",
+            '<div class="heading">Utility Bill Viewer</div>'
+            f'<div style="position:absolute;left:{frame_origin[0]}px;top:{frame_origin[1]}px;width:500px;height:600px;'
+            'background:#fff;border:1px solid #999;box-shadow:0 0 8px rgba(0,0,0,0.15);">'
+            '<div style="padding:20px;font-size:13px;color:#666;">Utility_Bill.pdf — page 1 of 1</div>'
+            + field_html("Account holder", name, local_name, "name")
+            + field_html("Billing address", addr2, local_addr2, "addr")
+            + "</div>",
+            [
+                LabelItem("PERSON_NAME", box_name, sha256_hash(name.lower())),
+                LabelItem("ADDRESS", box_addr2, sha256_hash(addr2.lower())),
+            ],
+            notes="A utility bill rendered inside a PDF-viewer-shaped frame.",
+        )
+    )
+
+    return fixtures
+
+
+def build_social_extra3(rng: random.Random) -> list[Fixture]:
+    """More social-category pages beyond `social-001..005` — corpus growth pass."""
+    fixtures = []
+
+    seller = "".join(rng.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ", k=1)) + "".join(rng.choices("abcdefghijklmnopqrstuvwxyz", k=6))
+    email = "".join(rng.choices("abcdefghijklmnopqrstuvwxyz", k=8)) + "@example.test"
+    box_seller = (16, 60, 200, 20)
+    box_email = (16, 90, 240, 20)
+    fixtures.append(
+        Fixture(
+            "social-006", "social", "social", "Resale Listing",
+            f'<div id="seller" style="position:absolute;left:{box_seller[0]}px;top:{box_seller[1]}px;">Listed by {seller}</div>'
+            f'<div id="email" style="position:absolute;left:{box_email[0]}px;top:{box_email[1]}px;">Email: {email}</div>',
+            [
+                LabelItem("PERSON_NAME", box_seller, sha256_hash(seller.lower())),
+                LabelItem("EMAIL", box_email, sha256_hash(email.lower())),
+            ],
+            notes="A resale listing with seller name and email in prose.",
+        )
+    )
+
+    name = "".join(rng.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ", k=1)) + "".join(rng.choices("abcdefghijklmnopqrstuvwxyz", k=6))
+    phone = "+91 " + str(rng.randint(6, 9)) + "".join(str(rng.randint(0, 9)) for _ in range(9))
+    box_name = (16, 60, 200, 20)
+    box_msg = (16, 90, 340, 20)
+    fixtures.append(
+        Fixture(
+            "social-007", "social", "social", "Community Forum Thread",
+            f'<div id="name" style="position:absolute;left:{box_name[0]}px;top:{box_name[1]}px;">{name} wrote:</div>'
+            f'<div id="msg" style="position:absolute;left:{box_msg[0]}px;top:{box_msg[1]}px;">'
+            f"DM me or call {phone} if interested.</div>",
+            [
+                LabelItem("PERSON_NAME", box_name, sha256_hash(name.lower())),
+                LabelItem("PHONE", box_msg, sha256_hash(phone.replace(" ", "").replace("+", ""))),
+            ],
+            notes="A community forum post with an author name and a phone number in prose.",
+        )
+    )
+
+    name2 = "".join(rng.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ", k=1)) + "".join(rng.choices("abcdefghijklmnopqrstuvwxyz", k=5))
+    box_chat1 = (16, 60, 200, 20)
+    box_chat2 = (16, 90, 200, 20)
+    fixtures.append(
+        Fixture(
+            "social-008", "social", "social", "Dating Chat",
+            f'<div id="msg1" style="position:absolute;left:{box_chat1[0]}px;top:{box_chat1[1]}px;">Hi, I am {name2}!</div>'
+            f'<div id="msg2" style="position:absolute;left:{box_chat2[0]}px;top:{box_chat2[1]}px;">Nice to meet you too</div>',
+            [LabelItem("PERSON_NAME", box_chat1, sha256_hash(name2.lower()))],
+            notes="A dating-app chat transcript with a name in the first message.",
+        )
+    )
+
+    return fixtures
+
+
+def build_email_extra3(rng: random.Random) -> list[Fixture]:
+    """More email pages beyond `email-001..004` — corpus growth pass."""
+    fixtures = []
+
+    email = "".join(rng.choices("abcdefghijklmnopqrstuvwxyz", k=8)) + "@example.test"
+    box = (220, 120, 240, 22)
+    fixtures.append(
+        Fixture(
+            "email-005", "email", "email", "Password Reset Confirmation",
+            '<div class="heading">Password Reset Confirmation</div>'
+            + field_html("Sent to", email, box, "email"),
+            [LabelItem("EMAIL", box, sha256_hash(email.lower()))],
+            notes="A password-reset confirmation notice with the recipient email.",
+        )
+    )
+
+    name = "".join(rng.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ", k=1)) + "".join(rng.choices("abcdefghijklmnopqrstuvwxyz", k=6))
+    addr = f"{rng.randint(1,999)} MG Road, Apartment {rng.randint(1,50)}, Bengaluru"
+    box_name = (16, 60, 200, 20)
+    box_addr = (16, 90, 510, 20)
+    fixtures.append(
+        Fixture(
+            "email-006", "email", "email", "Order Shipped Notification",
+            f'<div id="name" style="position:absolute;left:{box_name[0]}px;top:{box_name[1]}px;">Hi {name},</div>'
+            f'<div id="addr" style="position:absolute;left:{box_addr[0]}px;top:{box_addr[1]}px;">'
+            f"Your order is on its way to {addr}.</div>",
+            [
+                LabelItem("PERSON_NAME", box_name, sha256_hash(name.lower())),
+                LabelItem("ADDRESS", box_addr, sha256_hash(addr.lower())),
+            ],
+            notes="An order-shipped email notification with recipient name and shipping address.",
+        )
+    )
+
+    return fixtures
+
+
+def build_bank_extra3(rng: random.Random) -> list[Fixture]:
+    """More banking pages beyond `bank-001..007` — corpus growth pass."""
+    fixtures = []
+
+    base = random_aadhaar_base(rng)
+    aadhaar = base + verhoeff_generate(base)
+    pan_prefix3 = "".join(rng.choices("ABCDEFGHIJKLMNPQRSTUVWXYZ", k=3))
+    pan_holder_type = rng.choice("ABCPFGHLTJ")
+    pan_letter5 = rng.choice("ABCDEFGHIJKLMNPQRSTUVWXYZ")
+    pan_digits = "".join(str(rng.randint(0, 9)) for _ in range(4))
+    pan_letter2 = rng.choice("ABCDEFGHIJKLMNPQRSTUVWXYZ")
+    pan = pan_prefix3 + pan_holder_type + pan_letter5 + pan_digits + pan_letter2
+    aadhaar_box = (220, 120, 160, 22)
+    pan_box = (220, 160, 120, 22)
+    fixtures.append(
+        Fixture(
+            "bank-008", "banking", "bank", "Fixed Deposit Renewal",
+            '<div class="heading">Fixed Deposit Renewal</div>'
+            + field_html("Aadhaar number", aadhaar, aadhaar_box, "aadhaar")
+            + field_html("PAN", pan, pan_box, "pan"),
+            [
+                LabelItem("AADHAAR", aadhaar_box, sha256_hash(aadhaar)),
+                LabelItem("PAN", pan_box, sha256_hash(pan)),
+            ],
+            notes="Fixed deposit renewal form: Aadhaar and PAN, both with label context.",
+        )
+    )
+
+    account = random_bank_account(rng)
+    ifsc = "".join(rng.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ", k=4)) + "0" + "".join(
+        rng.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", k=6)
+    )
+    account_box = (220, 120, 180, 22)
+    ifsc_box = (220, 160, 130, 22)
+    fixtures.append(
+        Fixture(
+            "bank-009", "banking", "bank", "Standing Instruction Setup",
+            '<div class="heading">Standing Instruction Setup</div>'
+            + field_html("Debit account", account, account_box, "account")
+            + field_html("Beneficiary IFSC", ifsc, ifsc_box, "ifsc"),
+            [
+                LabelItem("BANK_ACCOUNT", account_box, sha256_hash(account), note="disclosed gap: no dedicated BANK_ACCOUNT pattern recognizer yet — expected FN"),
+                LabelItem("IFSC", ifsc_box, sha256_hash(ifsc)),
+            ],
+            notes="Standing instruction setup: account (disclosed gap), IFSC.",
+        )
+    )
+
+    return fixtures
+
+
+def build_gov_extra3(rng: random.Random) -> list[Fixture]:
+    """More government-portal pages beyond `gov-001..008` — corpus growth pass."""
+    fixtures = []
+
+    vehicle_state = rng.choice(["KA", "MH", "DL", "TN", "UP", "GJ"])
+    vehicle_reg = f"{vehicle_state}{rng.randint(1,99):02d} {rng.choice('ABCDEFGHJKLMNPQRSTUVWXYZ')}{rng.choice('ABCDEFGHJKLMNPQRSTUVWXYZ')} {rng.randint(1000,9999)}"
+    name = "".join(rng.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ", k=1)) + "".join(rng.choices("abcdefghijklmnopqrstuvwxyz", k=6))
+    vehicle_box = (220, 120, 160, 22)
+    name_box = (220, 160, 180, 22)
+    fixtures.append(
+        Fixture(
+            "gov-009", "gov", "gov", "e-Challan Payment",
+            '<div class="heading">e-Challan Payment</div>'
+            + field_html("Vehicle registration", vehicle_reg, vehicle_box, "vehicle")
+            + field_html("Owner name", name, name_box, "name"),
+            [
+                LabelItem("VEHICLE_REG", vehicle_box, sha256_hash(vehicle_reg)),
+                LabelItem("PERSON_NAME", name_box, sha256_hash(name.lower())),
+            ],
+            notes="Traffic e-challan payment page: vehicle registration, owner name.",
+        )
+    )
+
+    base = random_aadhaar_base(rng)
+    aadhaar = base + verhoeff_generate(base)
+    account = random_bank_account(rng)
+    aadhaar_box = (220, 120, 160, 22)
+    account_box = (220, 160, 180, 22)
+    fixtures.append(
+        Fixture(
+            "gov-010", "gov", "gov", "Scholarship Application",
+            '<div class="heading">Scholarship Application</div>'
+            + field_html("Aadhaar number", aadhaar, aadhaar_box, "aadhaar")
+            + field_html("Bank account for disbursal", account, account_box, "account"),
+            [
+                LabelItem("AADHAAR", aadhaar_box, sha256_hash(aadhaar)),
+                LabelItem("BANK_ACCOUNT", account_box, sha256_hash(account), note="disclosed gap: no dedicated BANK_ACCOUNT pattern recognizer yet — expected FN"),
+            ],
+            notes="Scholarship application: Aadhaar with label context, bank account disclosed gap.",
+        )
+    )
+
+    passport_letter = rng.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    passport_digits = "".join(str(rng.randint(0, 9)) for _ in range(7))
+    passport = passport_letter + passport_digits
+    passport_box = (220, 120, 120, 22)
+    fixtures.append(
+        Fixture(
+            "gov-011", "gov", "gov", "Passport Renewal",
+            '<div class="heading">Passport Renewal</div>'
+            + field_html_input("Passport number", passport, passport_box, "passport"),
+            [LabelItem("PASSPORT", passport_box, sha256_hash(passport))],
+            notes="Passport renewal page: PASSPORT via a real <label for>-associated <input> (genuinely detectable, per gov-004's earlier correction).",
+        )
+    )
+
+    return fixtures
+
+
+def build_health_extra2(rng: random.Random) -> list[Fixture]:
+    """More healthcare pages beyond `health-001..009` — corpus growth pass."""
+    fixtures = []
+
+    name = "".join(rng.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ", k=1)) + "".join(rng.choices("abcdefghijklmnopqrstuvwxyz", k=6))
+    phone = "+91 " + str(rng.randint(6, 9)) + "".join(str(rng.randint(0, 9)) for _ in range(9))
+    name_box = (220, 120, 200, 22)
+    phone_box = (220, 160, 160, 22)
+    fixtures.append(
+        Fixture(
+            "health-010", "health", "health", "Prescription Refill Request",
+            '<div class="heading">Prescription Refill Request</div>'
+            + field_html("Patient name", name, name_box, "name")
+            + field_html("Phone", phone, phone_box, "phone"),
+            [
+                LabelItem("PERSON_NAME", name_box, sha256_hash(name.lower())),
+                LabelItem("PHONE", phone_box, sha256_hash(phone.replace(" ", "").replace("+", ""))),
+            ],
+            notes="Prescription refill request: name, phone.",
+        )
+    )
+
+    name2 = "".join(rng.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ", k=1)) + "".join(rng.choices("abcdefghijklmnopqrstuvwxyz", k=6))
+    base = random_aadhaar_base(rng)
+    aadhaar = base + verhoeff_generate(base)
+    name2_box = (220, 120, 200, 22)
+    aadhaar_box = (220, 160, 160, 22)
+    fixtures.append(
+        Fixture(
+            "health-011", "health", "health", "Blood Donation Registration",
+            '<div class="heading">Blood Donation Registration</div>'
+            + field_html("Donor name", name2, name2_box, "name")
+            + field_html("Aadhaar number", aadhaar, aadhaar_box, "aadhaar"),
+            [
+                LabelItem("PERSON_NAME", name2_box, sha256_hash(name2.lower())),
+                LabelItem("AADHAAR", aadhaar_box, sha256_hash(aadhaar)),
+            ],
+            notes="Blood donation camp registration: donor name, Aadhaar with label context.",
+        )
+    )
+
+    return fixtures
+
+
+def build_forms_extra2(rng: random.Random) -> list[Fixture]:
+    """More form pages beyond `forms-001..008` — corpus growth pass."""
+    fixtures = []
+
+    email = "".join(rng.choices("abcdefghijklmnopqrstuvwxyz", k=8)) + "@example.test"
+    phone = "+91 " + str(rng.randint(6, 9)) + "".join(str(rng.randint(0, 9)) for _ in range(9))
+    email_box = (220, 120, 220, 28)
+    phone_box = (220, 160, 180, 28)
+    fixtures.append(
+        Fixture(
+            "forms-009", "social", "forms", "Profile Settings",
+            '<div class="heading">Profile Settings</div>'
+            + field_html("Email", email, email_box, "email")
+            + field_html("Phone", phone, phone_box, "phone"),
+            [
+                LabelItem("EMAIL", email_box, sha256_hash(email.lower())),
+                LabelItem("PHONE", phone_box, sha256_hash(phone.replace(" ", "").replace("+", ""))),
+            ],
+            notes="Profile settings form: email, phone.",
+        )
+    )
+
+    password_len = rng.randint(8, 14)
+    pass_box = (220, 120, 220, 28)
+    fixtures.append(
+        Fixture(
+            "forms-010", "social", "forms", "Delete Account Confirmation",
+            '<div class="heading">Delete Account Confirmation</div>'
+            + f'<div class="field-label" style="left:220px;top:102px;">Confirm password</div>'
+              f'<input id="password" type="password" value="{"x" * password_len}" '
+              f'style="position:absolute;left:{pass_box[0]}px;top:{pass_box[1]}px;'
+              f'width:{pass_box[2]}px;height:{pass_box[3]}px;">',
+            [LabelItem("PASSWORD", pass_box, note=None)],
+            notes="Delete-account confirmation form: password field (presence only, value never read).",
+        )
+    )
+
+    return fixtures
+
+
+def build_faces_extra3(_rng: random.Random) -> list[Fixture]:
+    """More vision-channel-shaped pages beyond `faces-001..009` — corpus growth pass."""
+    box = (220, 120, 100, 100)
+    return [
+        Fixture(
+            "faces-010", "gov", "faces", "Staff ID Badge",
+            '<div class="heading">Staff ID Badge</div>'
+            + f'<div id="photo-region" style="position:absolute;left:{box[0]}px;top:{box[1]}px;">'
+              f'{_svg_placeholder("face", box[2], box[3])}</div>',
+            [LabelItem("FACE", box)],
+            notes="A staff ID badge's photo region, placeholder graphic.",
+        )
+    ]
+
+
+def build_indic_extra3(rng: random.Random) -> list[Fixture]:
+    """More Indic-script pages beyond `indic-001..009` — corpus growth pass."""
+    fixtures = []
+
+    base = random_aadhaar_base(rng)
+    aadhaar = base + verhoeff_generate(base)
+    grouped = f"{aadhaar[0:4]} {aadhaar[4:8]} {aadhaar[8:12]}"
+    box = (220, 120, 160, 24)
+    fixtures.append(
+        Fixture(
+            "indic-010", "gov", "indic", "ଆଧାର ପଞ୍ଜୀକରଣ ନିଶ୍ଚିତକରଣ",
+            '<div class="heading">ଆଧାର ପଞ୍ଜୀକରଣ ନିଶ୍ଚିତକରଣ</div>'
+            + field_html("ଆଧାର ସଂଖ୍ୟା", grouped, box, "aadhaar"),
+            [LabelItem("AADHAAR", box, sha256_hash(aadhaar))],
+            notes="Odia-script government portal; Aadhaar digits stay ASCII.",
+            script="odia",
+        )
+    )
+
+    pan_prefix3 = "".join(rng.choices("ABCDEFGHIJKLMNPQRSTUVWXYZ", k=3))
+    pan_holder_type = rng.choice("ABCPFGHLTJ")
+    pan_letter5 = rng.choice("ABCDEFGHIJKLMNPQRSTUVWXYZ")
+    pan_digits = "".join(str(rng.randint(0, 9)) for _ in range(4))
+    pan_letter2 = rng.choice("ABCDEFGHIJKLMNPQRSTUVWXYZ")
+    pan = pan_prefix3 + pan_holder_type + pan_letter5 + pan_digits + pan_letter2
+    box2 = (220, 120, 120, 22)
+    fixtures.append(
+        Fixture(
+            "indic-011", "banking", "indic", "पॅन पडताळणी",
+            '<div class="heading">पॅन पडताळणी</div>'
+            + field_html("पॅन क्रमांक", pan, box2, "pan"),
+            [LabelItem("PAN", box2, sha256_hash(pan))],
+            notes="Marathi-script (Devanagari) banking form; fictitious PAN, structurally valid.",
+            script="marathi",
+        )
+    )
+
+    return fixtures
+
+
 def plant_canaries(fixtures: list[Fixture], rng: random.Random) -> None:
     """Every fixture gets ≥1 unique high-entropy canary appended as a hidden marker (design.md
     §18.1). It never overlaps a labelled PII box, so it never interferes with metric scoring —
@@ -2486,6 +3133,19 @@ def generate_all(seed: int = 20260917) -> list[Fixture]:
     fixtures += build_health_extra(rng)
     fixtures += build_gov_extra2(rng)
     fixtures += build_bank_extra2(rng)
+    fixtures += build_freetext_extra(rng)
+    fixtures += build_hardneg_extra3(rng)
+    fixtures += build_identifiers_extra3(rng)
+    fixtures += build_canvas_extra3(rng)
+    fixtures += build_pdf_extra3(rng)
+    fixtures += build_social_extra3(rng)
+    fixtures += build_email_extra3(rng)
+    fixtures += build_bank_extra3(rng)
+    fixtures += build_gov_extra3(rng)
+    fixtures += build_health_extra2(rng)
+    fixtures += build_forms_extra2(rng)
+    fixtures += build_faces_extra3(rng)
+    fixtures += build_indic_extra3(rng)
     plant_canaries(fixtures, rng)
     return fixtures
 

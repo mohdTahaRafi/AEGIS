@@ -1,0 +1,32 @@
+{
+  "screen_id": "indic-011",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "PAN",
+      "box": [
+        220,
+        120,
+        120,
+        22
+      ],
+      "value_hash": "sha256:9d5d7fd651c10e39f87e8d7cdd68cdfc05318032eeb4246b9447e78c5b07b61a"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYQ2AGTELTDP8CY77KRKV4FE"
+    }
+  ],
+  "tasks": []
+}

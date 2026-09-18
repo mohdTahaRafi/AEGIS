@@ -1,0 +1,31 @@
+{
+  "screen_id": "faces-010",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "FACE",
+      "box": [
+        220,
+        120,
+        100,
+        100
+      ]
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYKQYCF5VW2G3WZ42T9SH5H2"
+    }
+  ],
+  "tasks": []
+}

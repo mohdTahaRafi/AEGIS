@@ -1,0 +1,42 @@
+{
+  "screen_id": "social-007",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "PERSON_NAME",
+      "box": [
+        16,
+        60,
+        200,
+        20
+      ],
+      "value_hash": "sha256:cd35d82e3d3c100a805910374c3889a69df6b0ac85163e3f0963cd89870e9f01"
+    },
+    {
+      "entity": "PHONE",
+      "box": [
+        16,
+        90,
+        340,
+        20
+      ],
+      "value_hash": "sha256:99dc14657c0f46a6e6746e8ba8420f0289040eda7a018420550005090aa5157b"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYNCU7YT43FTX5B6Q8VMDL2Z"
+    }
+  ],
+  "tasks": []
+}

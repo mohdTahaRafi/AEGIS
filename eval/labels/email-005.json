@@ -1,0 +1,32 @@
+{
+  "screen_id": "email-005",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "EMAIL",
+      "box": [
+        220,
+        120,
+        240,
+        22
+      ],
+      "value_hash": "sha256:9b7b6732cdbdd4012a672d6cfc658a20dd26d9dbdfa13179e8e9233074e89223"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYYPCFACJAWRKJWXGYNBNGRG"
+    }
+  ],
+  "tasks": []
+}

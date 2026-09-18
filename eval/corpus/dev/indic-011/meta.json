@@ -1,0 +1,12 @@
+{
+  "category": "banking",
+  "group": "indic",
+  "script": "marathi",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Marathi-script (Devanagari) banking form; fictitious PAN, structurally valid."
+}

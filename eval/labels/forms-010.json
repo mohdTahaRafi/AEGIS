@@ -1,0 +1,31 @@
+{
+  "screen_id": "forms-010",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "PASSWORD",
+      "box": [
+        220,
+        120,
+        220,
+        28
+      ]
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYAQD2CPXFD6Q8P95RWD29NV"
+    }
+  ],
+  "tasks": []
+}

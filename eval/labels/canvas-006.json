@@ -1,0 +1,32 @@
+{
+  "screen_id": "canvas-006",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "PHONE",
+      "box": [
+        40,
+        154,
+        200,
+        22
+      ],
+      "value_hash": "sha256:55651eff0f22963fc76094785521f77fa18ed6b6eeea9dfc8617757781763f2a"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYU74YLURKAQM9PYFWG34DZ6"
+    }
+  ],
+  "tasks": []
+}

@@ -1,0 +1,32 @@
+{
+  "screen_id": "freetext-005",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "PHONE",
+      "box": [
+        16,
+        60,
+        540,
+        22
+      ],
+      "value_hash": "sha256:23a6bb950022a4784146c6cf5c79ada3baedef362dd6b9bb244454ca83944712"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARY5L3RD6T2KBH8SDHGPWG37Q"
+    }
+  ],
+  "tasks": []
+}

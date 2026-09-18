@@ -1,0 +1,32 @@
+{
+  "screen_id": "hardneg-016",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "NONE",
+      "box": [
+        220,
+        120,
+        190,
+        22
+      ],
+      "note": "16 digits, valid Luhn checksum, but no real card network's IIN prefix \u2014 must not be flagged as CARD_NUMBER"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARY9APBFMTTXKQFDZRZTKKZCR"
+    }
+  ],
+  "tasks": []
+}

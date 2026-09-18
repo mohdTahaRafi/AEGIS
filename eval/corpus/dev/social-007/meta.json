@@ -1,0 +1,12 @@
+{
+  "category": "social",
+  "group": "social",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "A community forum post with an author name and a phone number in prose."
+}

@@ -1,0 +1,32 @@
+{
+  "screen_id": "gov-011",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "PASSPORT",
+      "box": [
+        220,
+        120,
+        120,
+        22
+      ],
+      "value_hash": "sha256:55abf7e1c887bd1f8ac76a4eb5078c563ef730cd79cc808568cfacf45a4923cb"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYCDDRRDV9Z6FXHJ8CUEP3PX"
+    }
+  ],
+  "tasks": []
+}

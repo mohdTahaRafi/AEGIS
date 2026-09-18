@@ -1,0 +1,12 @@
+{
+  "category": "banking",
+  "group": "hardneg",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Hard negative: card-shaped and Luhn-valid, but fails the IIN-range check (card.ts requires both)."
+}

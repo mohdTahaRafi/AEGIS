@@ -1,0 +1,42 @@
+{
+  "screen_id": "bank-008",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "AADHAAR",
+      "box": [
+        220,
+        120,
+        160,
+        22
+      ],
+      "value_hash": "sha256:9565886bc152ae5b6f06250b9670247c26837cb75c2125842312c750bde5108a"
+    },
+    {
+      "entity": "PAN",
+      "box": [
+        220,
+        160,
+        120,
+        22
+      ],
+      "value_hash": "sha256:45a078907caebd2ccadd03dd02b36ac7031e10240780d121ac2be7d10476dbea"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYMJHKERH94FS3LTED6YUBDH"
+    }
+  ],
+  "tasks": []
+}

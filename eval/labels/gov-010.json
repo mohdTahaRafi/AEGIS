@@ -1,0 +1,43 @@
+{
+  "screen_id": "gov-010",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "AADHAAR",
+      "box": [
+        220,
+        120,
+        160,
+        22
+      ],
+      "value_hash": "sha256:109645938b75b73c885c3d377e5d8362e8501431c3c1c8c97875d0087393c9b7"
+    },
+    {
+      "entity": "BANK_ACCOUNT",
+      "box": [
+        220,
+        160,
+        180,
+        22
+      ],
+      "value_hash": "sha256:3c7d0e4031a6295ca393465f0ac50b5a6da0bdf6c8542b8c038c855264cd3141",
+      "note": "disclosed gap: no dedicated BANK_ACCOUNT pattern recognizer yet \u2014 expected FN"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYUFJE8P63MQHP6NHP2G76TG"
+    }
+  ],
+  "tasks": []
+}
