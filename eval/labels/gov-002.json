@@ -1,0 +1,42 @@
+{
+  "screen_id": "gov-002",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "PAN",
+      "box": [
+        220,
+        120,
+        120,
+        22
+      ],
+      "value_hash": "sha256:542840d78eabaaf151822f6169d40ca8a6d9590cb8d4c05b24de946e7c7168ba"
+    },
+    {
+      "entity": "EMAIL",
+      "box": [
+        220,
+        160,
+        220,
+        22
+      ],
+      "value_hash": "sha256:fe1d56ce2a4d8e394649baf6b183091634a690aff317e277d676b22f42179759"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARY2DH96VCHCAMXNBYK4XMMYW"
+    }
+  ],
+  "tasks": []
+}

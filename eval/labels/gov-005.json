@@ -1,0 +1,42 @@
+{
+  "screen_id": "gov-005",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "VEHICLE_REG",
+      "box": [
+        220,
+        120,
+        160,
+        22
+      ],
+      "value_hash": "sha256:a403c9b7a5b7952c09c2e85da63bf8959b081059a342f15cec0929690762ae51"
+    },
+    {
+      "entity": "PERSON_NAME",
+      "box": [
+        220,
+        160,
+        180,
+        22
+      ],
+      "value_hash": "sha256:b526b86fccafc6166e6e8730dbbc910032ef3923f5f953b58832d508c15dfd83"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYPMXU8GG472NZ8BM8D8BZ74"
+    }
+  ],
+  "tasks": []
+}

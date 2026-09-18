@@ -14,7 +14,7 @@
         260,
         22
       ],
-      "value_hash": "sha256:b868e541b088bec951e4375b725e918e1133b8ccc427dd5446441077aab7603f"
+      "value_hash": "sha256:21b2e2d41b7bcfbbfe496b6a8b8f3d56754305e61ae775ff4d9f286444565659"
     },
     {
       "entity": "EMAIL",
@@ -24,7 +24,7 @@
         260,
         22
       ],
-      "value_hash": "sha256:2b02c8d0839c5f41429a2643fae1f9451959b9a4c957da1b3fa1d36d8651cacb"
+      "value_hash": "sha256:3fb1adc760b6654f944461b734f6876ec13eeb4af33e92bf8c19eac71ddd2664"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -35,7 +35,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARY5J7MYSZL8PGLFHRTS3PS5U"
+      "canary_id": "CANARY5RBS6EW6LTRBXWGJXFW6UN"
     }
   ],
   "tasks": []

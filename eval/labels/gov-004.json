@@ -1,0 +1,42 @@
+{
+  "screen_id": "gov-004",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "PASSPORT",
+      "box": [
+        220,
+        120,
+        120,
+        22
+      ],
+      "value_hash": "sha256:673eeb25a45b0beb6f99f88df3763665d0cdd93f2159d25e2471e68964dfa0d3"
+    },
+    {
+      "entity": "DOB",
+      "box": [
+        220,
+        160,
+        120,
+        22
+      ],
+      "value_hash": "sha256:576887d1f86b7a01bfe482a71ca608476f23c80ba376352233ff4c79b272050e"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYRT83CJAH6ZB8N2JENUZSYC"
+    }
+  ],
+  "tasks": []
+}

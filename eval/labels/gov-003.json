@@ -1,0 +1,42 @@
+{
+  "screen_id": "gov-003",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "AADHAAR",
+      "box": [
+        220,
+        120,
+        160,
+        22
+      ],
+      "value_hash": "sha256:b903b6d07216d4817b3e23dc2e0b5dc88de69cd493da9df46aef764546b98dbb"
+    },
+    {
+      "entity": "ADDRESS",
+      "box": [
+        16,
+        160,
+        460,
+        22
+      ],
+      "value_hash": "sha256:a404e8e5fb32641b044f4295f5780e61b02b12f1384f0db402cd9fbb062ef640"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYTMZY4NNYLS9NXLK4WV9UTQ"
+    }
+  ],
+  "tasks": []
+}

@@ -1,5 +1,5 @@
 {
-  "screen_id": "forms-004",
+  "screen_id": "gov-001",
   "viewport": [
     1280,
     720
@@ -11,10 +11,10 @@
       "box": [
         220,
         120,
-        220,
+        180,
         24
       ],
-      "value_hash": "sha256:19065676961ef440dccef2caddb82cd9b28e1cf378deb625702794cfe1ff5a4a"
+      "value_hash": "sha256:a647744fe977ee376a5ff91937205f18607ee7cfe2d7d3b599c173ee1a8e4b5f"
     },
     {
       "entity": "DOB",
@@ -24,17 +24,17 @@
         120,
         24
       ],
-      "value_hash": "sha256:e60ed4e6a8e67d3802d2a9fa157298dd0fec7f3a9234a23ce3775e3dbaca83f5"
+      "value_hash": "sha256:7e767e20338e7b06ed3e43ebec501a18b170038cc8f5c625fd72cf27b8762c66"
     },
     {
-      "entity": "AADHAAR",
+      "entity": "PHONE",
       "box": [
         220,
         200,
         160,
         24
       ],
-      "value_hash": "sha256:5cd296b2b8f867db97a6614ef7a0360c179168a17c6c657cb0c976b9929512c5"
+      "value_hash": "sha256:835b8ddac58a9ea0516462f81bee0ca5e197d213ed2cda4e43376d68fb2f2037"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -45,7 +45,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARY3SN2JPCLYX784Y57ZQUPXA"
+      "canary_id": "CANARYYPD2J23WJPDQSNJXFESTTN"
     }
   ],
   "tasks": []
