@@ -14,7 +14,7 @@
         140,
         22
       ],
-      "value_hash": "sha256:c6a2e2d9e4d424fab235d64e1a37b76052c644fd6970defee43263e18367abd5"
+      "value_hash": "sha256:292e08a3a073d2a224b0c52214b8c61dd06b430ca238f3b3b60c63b3dfee6334"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYHZ2P5UKAUFCEU7RL6V2CW6"
+      "canary_id": "CANARY99GB9RC5TMENTVYY5YHLCL"
     }
   ],
   "tasks": []

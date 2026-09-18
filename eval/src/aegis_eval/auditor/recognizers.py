@@ -119,10 +119,21 @@ _DIGIT_RUN_RE = re.compile(r"\d(?:[\d \-]*\d)?")
 
 
 def find_aadhaar(text: str) -> list[Candidate]:
+    # [Fixed, corpus growth pass] UIDAI's public Aadhaar spec constrains the first digit to 2-9
+    # (never 0 or 1) — this auditor originally checked only "12 digits + valid Verhoeff," which a
+    # real-world Aadhaar always satisfies but so does ~10% of ANY random 12-digit string (a single
+    # check digit has roughly a 1-in-10 chance of coincidentally validating). Found for real: the
+    # corpus-growth pass added a BANK_ACCOUNT fixture whose independently-random 12-digit value
+    # happened to pass Verhoeff and start with '1' — this auditor flagged it as a genuine AADHAAR
+    # leak, when it was actually a correctly-unredacted, unrelated field (a disclosed BANK_ACCOUNT
+    # detection gap, not a leak). Constraining the first digit to 2-9 — the same public format
+    # constraint `packages/recognizers/src/patterns/aadhaar.ts` already enforces, arrived at
+    # independently from the same public spec, not by reading that file — removes this class of
+    # false positive without weakening real-leak detection (a genuine Aadhaar always satisfies it).
     out: list[Candidate] = []
     for match in _DIGIT_RUN_RE.finditer(text):
         digits = re.sub(r"\D", "", match.group())
-        if len(digits) == 12 and verhoeff_valid(digits):
+        if len(digits) == 12 and digits[0] in "23456789" and verhoeff_valid(digits):
             out.append(Candidate("AADHAAR", match.group(), match.start(), match.end()))
     return out
 

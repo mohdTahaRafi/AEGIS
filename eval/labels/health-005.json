@@ -1,0 +1,53 @@
+{
+  "screen_id": "health-005",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "AADHAAR",
+      "box": [
+        220,
+        120,
+        160,
+        22
+      ],
+      "value_hash": "sha256:3e4a9e5100ffdb242cb78ac2d8bf5e6fe4a06c903f5eaeecc24a9e9556f40a95"
+    },
+    {
+      "entity": "BANK_ACCOUNT",
+      "box": [
+        220,
+        160,
+        180,
+        22
+      ],
+      "value_hash": "sha256:f162939dc94f14cf40d17e1d8e54abcf40c9808a29f15fd673ea90b7ef73278d",
+      "note": "disclosed gap: no dedicated BANK_ACCOUNT pattern recognizer exists yet \u2014 expected FN, not a leak (Channel D/NER only)"
+    },
+    {
+      "entity": "IFSC",
+      "box": [
+        220,
+        200,
+        130,
+        22
+      ],
+      "value_hash": "sha256:2f0ae1f55a4534e2e648d6e94a5c650250c01cbae0ec3e5cc43f5bed688e02ee"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYKXZ6PE9QRBKQ38TCBACD4E"
+    }
+  ],
+  "tasks": []
+}

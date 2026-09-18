@@ -21,10 +21,10 @@ def _all_dev_screen_ids() -> list[str]:
     return sorted(p.name for p in CORPUS_DEV.iterdir() if p.is_dir())
 
 
-# Every dev fixture with a real DOM-addressable value element. canvas-001 is excluded — its value
-# is drawn on a <canvas>, which has no DOM box to measure; its label box is documented as an
-# approximation in its own notes field for exactly this reason.
-SAMPLE_SCREEN_IDS = [s for s in _all_dev_screen_ids() if s != "canvas-001"]
+# Every dev fixture with a real DOM-addressable value element. Every `canvas-*` fixture is
+# excluded — its value is drawn on a <canvas>, which has no DOM box to measure; its label box is
+# documented as an approximation in its own notes field for exactly this reason.
+SAMPLE_SCREEN_IDS = [s for s in _all_dev_screen_ids() if not s.startswith("canvas-")]
 
 
 def _label_boxes(screen_id: str) -> list[tuple[str, list[int]]]:

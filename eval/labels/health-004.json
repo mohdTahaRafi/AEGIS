@@ -1,5 +1,5 @@
 {
-  "screen_id": "id-001",
+  "screen_id": "health-004",
   "viewport": [
     1280,
     720
@@ -7,14 +7,13 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "AADHAAR",
+      "entity": "FACE",
       "box": [
-        220,
-        120,
-        160,
-        22
-      ],
-      "value_hash": "sha256:f48f0de18e226cc73f6215f6456cf6b14ddc521efc8237d4f6c9647c0f4b0392"
+        480,
+        260,
+        140,
+        140
+      ]
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +24,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYTBYBSKQ5YWMBFYS5LJ2JDV"
+      "canary_id": "CANARY3DV6L4KHEWLNEB983VLGSJ"
     }
   ],
   "tasks": []
