@@ -1,6 +1,6 @@
 {
-  "category": "banking",
-  "group": "forms",
+  "category": "gov",
+  "group": "faces",
   "script": "latin",
   "viewport": [
     1280,
@@ -8,5 +8,5 @@
   ],
   "source": "hand-built",
   "licence": "synthetic \u2014 no real data",
-  "notes": "Password field pre-filled (14 chars) \u2014 presence only, value never read."
+  "notes": "A KYC liveness-check flow: a live selfie region next to a held-up ID document."
 }
