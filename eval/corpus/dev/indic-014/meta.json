@@ -1,0 +1,12 @@
+{
+  "category": "banking",
+  "group": "indic",
+  "script": "bengali",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Bengali-script banking form; fictitious PAN."
+}
