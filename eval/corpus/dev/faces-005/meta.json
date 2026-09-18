@@ -1,0 +1,12 @@
+{
+  "category": "social",
+  "group": "faces",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Placeholder self-preview tile in a video-call UI, not a static profile picture."
+}

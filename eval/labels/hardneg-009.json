@@ -1,0 +1,32 @@
+{
+  "screen_id": "hardneg-009",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "NONE",
+      "box": [
+        220,
+        120,
+        200,
+        22
+      ],
+      "note": "a real-shaped postal PIN code with address context \u2014 PIN_CODE is policy class LOW and is never redacted by design, even with context"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYKBNUBSD6S7JSP2YR8RGTR8"
+    }
+  ],
+  "tasks": []
+}
