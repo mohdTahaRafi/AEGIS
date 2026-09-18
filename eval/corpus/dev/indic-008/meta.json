@@ -1,0 +1,12 @@
+{
+  "category": "email",
+  "group": "indic",
+  "script": "malayalam",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Malayalam-script email inbox row: sender name, email address."
+}

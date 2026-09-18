@@ -1,0 +1,12 @@
+{
+  "category": "health",
+  "group": "indic",
+  "script": "gujarati",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Gujarati-script patient-registration form: name, phone."
+}
