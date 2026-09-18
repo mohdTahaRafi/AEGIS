@@ -1,0 +1,12 @@
+{
+  "category": "gov",
+  "group": "gov",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Income-tax e-filing portal: PAN with label context, email."
+}
