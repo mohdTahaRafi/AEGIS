@@ -1,5 +1,5 @@
 {
-  "screen_id": "bank-006",
+  "screen_id": "bank-013",
   "viewport": [
     1280,
     720
@@ -7,24 +7,24 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "NONE",
+      "entity": "UPI_VPA",
       "box": [
         220,
         120,
-        190,
+        220,
         22
       ],
-      "note": "already-masked card display (12 digits hidden) \u2014 no full card number present to leak"
+      "value_hash": "sha256:ed1b0b313e6f747143d76d749c3e8116f779086a6f5d0cf8fe57f6a5308da232"
     },
     {
-      "entity": "IFSC",
+      "entity": "PERSON_NAME",
       "box": [
         220,
         160,
-        130,
+        200,
         22
       ],
-      "value_hash": "sha256:9bffe67274f7920944ad230cf25cca3720fa4a25815fdd4fc896a980183e110b"
+      "value_hash": "sha256:09787c47fcd5785f4fb26d2ce757e9bd27937059b041e5e7f7c99ed15e9597b6"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -35,7 +35,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYFCFYNU83XWV4EMGG8U9LKP"
+      "canary_id": "CANARYKLCAN9EX2UE3MNYJ4ELR4M"
     }
   ],
   "tasks": []

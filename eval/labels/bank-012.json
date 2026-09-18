@@ -1,5 +1,5 @@
 {
-  "screen_id": "bank-005",
+  "screen_id": "bank-012",
   "viewport": [
     1280,
     720
@@ -14,18 +14,17 @@
         180,
         22
       ],
-      "value_hash": "sha256:052a0652ed095f44c7cf920141c84a0c36385b35c2bd41a0d4498ec4906d8487",
-      "note": "disclosed gap: no dedicated BANK_ACCOUNT pattern recognizer yet \u2014 expected FN"
+      "value_hash": "sha256:376140bd889142e2a3c05118664d73dd83b7776e1d92cab8efbd467abb5dce53"
     },
     {
-      "entity": "PAN",
+      "entity": "PERSON_NAME",
       "box": [
         220,
         160,
-        120,
+        200,
         22
       ],
-      "value_hash": "sha256:2c05a11c3c627b9160d3d1a11ecb0ac59356a8eff905522ffde9434d878be3d3"
+      "value_hash": "sha256:c0c55192ae22a42810d43dc6bc662368ec8b3fb4b3a25a1f2fc85a9103f957ca"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -36,7 +35,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYTXLRU9A3GA9W7ZVGBU6HVR"
+      "canary_id": "CANARYSXYQNLFAWDPEYZYFFLZRMH"
     }
   ],
   "tasks": []

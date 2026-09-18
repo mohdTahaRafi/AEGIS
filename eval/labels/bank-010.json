@@ -1,5 +1,5 @@
 {
-  "screen_id": "bank-005",
+  "screen_id": "bank-010",
   "viewport": [
     1280,
     720
@@ -14,18 +14,17 @@
         180,
         22
       ],
-      "value_hash": "sha256:052a0652ed095f44c7cf920141c84a0c36385b35c2bd41a0d4498ec4906d8487",
-      "note": "disclosed gap: no dedicated BANK_ACCOUNT pattern recognizer yet \u2014 expected FN"
+      "value_hash": "sha256:850e8f40f3a184793d2cd16e1b851bca5f7fe48fc00e63ce56775c782985a3f5"
     },
     {
-      "entity": "PAN",
+      "entity": "IFSC",
       "box": [
         220,
         160,
-        120,
+        130,
         22
       ],
-      "value_hash": "sha256:2c05a11c3c627b9160d3d1a11ecb0ac59356a8eff905522ffde9434d878be3d3"
+      "value_hash": "sha256:3b224021377ec13ba9f3ae8d1676e45f167412b64b1bf63d6a9932dcd227e9bf"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -36,7 +35,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYTXLRU9A3GA9W7ZVGBU6HVR"
+      "canary_id": "CANARYPTWZNNLLNLMQXM98RQFDP7"
     }
   ],
   "tasks": []

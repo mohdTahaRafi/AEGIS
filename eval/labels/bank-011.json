@@ -1,5 +1,5 @@
 {
-  "screen_id": "bank-006",
+  "screen_id": "bank-011",
   "viewport": [
     1280,
     720
@@ -7,24 +7,24 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "NONE",
+      "entity": "PAN",
       "box": [
         220,
         120,
-        190,
-        22
-      ],
-      "note": "already-masked card display (12 digits hidden) \u2014 no full card number present to leak"
-    },
-    {
-      "entity": "IFSC",
-      "box": [
-        220,
-        160,
         130,
         22
       ],
-      "value_hash": "sha256:9bffe67274f7920944ad230cf25cca3720fa4a25815fdd4fc896a980183e110b"
+      "value_hash": "sha256:0a94934471f5403472a6ed3f291ded2f426586481beeaee46d5b1c33f8809d1c"
+    },
+    {
+      "entity": "PHONE",
+      "box": [
+        220,
+        160,
+        200,
+        22
+      ],
+      "value_hash": "sha256:bce3de684f887c4652d46c666a01a9ba90d759d0403dcba07492843d8e128b3b"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -35,7 +35,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYFCFYNU83XWV4EMGG8U9LKP"
+      "canary_id": "CANARYDNS3ZWLTZJBV2MFS95BSY8"
     }
   ],
   "tasks": []
