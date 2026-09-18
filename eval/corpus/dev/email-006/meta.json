@@ -1,0 +1,12 @@
+{
+  "category": "email",
+  "group": "email",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "An order-shipped email notification with recipient name and shipping address."
+}
