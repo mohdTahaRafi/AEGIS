@@ -1,5 +1,5 @@
 {
-  "screen_id": "id-003",
+  "screen_id": "indic-002",
   "viewport": [
     1280,
     720
@@ -7,14 +7,14 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "PAN",
+      "entity": "AADHAAR",
       "box": [
         220,
         120,
-        120,
-        22
+        160,
+        24
       ],
-      "value_hash": "sha256:310600ad52614f325c3fc3bdec403b8500c04610e5311a4ed49beeb9c17a86ec"
+      "value_hash": "sha256:4ab0d7f23e064625dc44b5135cf6040ab3bd3193f69c8f11f81d95010061695f"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYL7P7CUXPSKLS965QAXW9BC"
+      "canary_id": "CANARYHV3PHVCHYKT58T2L5T895Z"
     }
   ],
   "tasks": []

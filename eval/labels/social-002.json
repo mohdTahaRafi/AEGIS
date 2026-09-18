@@ -1,0 +1,42 @@
+{
+  "screen_id": "social-002",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "PERSON_NAME",
+      "box": [
+        16,
+        60,
+        160,
+        20
+      ],
+      "value_hash": "sha256:e1cbc33e9248cd523d103ed2d2d8e1bdb510aff2f1873c2e298ecbef09ae51f4"
+    },
+    {
+      "entity": "NONE",
+      "box": [
+        16,
+        90,
+        100,
+        20
+      ],
+      "note": "a bare age number \u2014 must not be flagged as any identifier"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYE66Q4SW8CKKJA82B8UQ25V"
+    }
+  ],
+  "tasks": []
+}

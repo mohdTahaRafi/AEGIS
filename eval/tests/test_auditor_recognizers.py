@@ -73,6 +73,18 @@ def test_find_aadhaar_rejects_a_checksum_invalid_lookalike() -> None:
     assert find_aadhaar(text) == []
 
 
+def test_find_aadhaar_rejects_a_checksum_valid_number_starting_with_0_or_1() -> None:
+    # UIDAI's real Aadhaar spec never starts with 0 or 1 — a random 12-digit code (e.g. a bank
+    # account number) can coincidentally have a valid Verhoeff check digit (~1-in-10 chance) while
+    # never having been a real Aadhaar number. Found for real when a corpus-growth-pass fixture's
+    # independently-random BANK_ACCOUNT value did exactly this and was misreported as a leak.
+    base = "123456789012"[:11]
+    number = base + verhoeff_check_digit(base)
+    assert number[0] in "01"
+    text = f"account number {number}"
+    assert find_aadhaar(text) == []
+
+
 def test_find_card_number_finds_a_luhn_valid_number() -> None:
     matches = find_card_number("card 4111 1111 1111 1111 on file")
     assert len(matches) == 1

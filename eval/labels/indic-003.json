@@ -1,5 +1,5 @@
 {
-  "screen_id": "id-003",
+  "screen_id": "indic-003",
   "viewport": [
     1280,
     720
@@ -7,14 +7,14 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "PAN",
+      "entity": "IFSC",
       "box": [
         220,
         120,
-        120,
+        140,
         22
       ],
-      "value_hash": "sha256:310600ad52614f325c3fc3bdec403b8500c04610e5311a4ed49beeb9c17a86ec"
+      "value_hash": "sha256:071679e4d72d290768fb35d065dd601fc68dcdf90361b7d9e69b1291930162ff"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYL7P7CUXPSKLS965QAXW9BC"
+      "canary_id": "CANARYT6F2242W9KVRGR8U9MXQW8"
     }
   ],
   "tasks": []

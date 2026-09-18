@@ -1,0 +1,42 @@
+{
+  "screen_id": "pdf-004",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "PAN",
+      "box": [
+        120,
+        180,
+        120,
+        22
+      ],
+      "value_hash": "sha256:acfe1d8e76a0182ad3b101495df2011f498b7ff984defc495087b8e8c575b4c5"
+    },
+    {
+      "entity": "ADDRESS",
+      "box": [
+        120,
+        210,
+        300,
+        22
+      ],
+      "value_hash": "sha256:9e950132cd95008d2e5ac0742549a84fc2d1afb0bdc26e383f4217c9640c0784"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARY73TEVPSTDUFNPHB27HZCFQ"
+    }
+  ],
+  "tasks": []
+}

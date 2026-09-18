@@ -1,5 +1,5 @@
 {
-  "screen_id": "id-003",
+  "screen_id": "indic-004",
   "viewport": [
     1280,
     720
@@ -7,14 +7,14 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "PAN",
+      "entity": "PHONE",
       "box": [
-        220,
-        120,
-        120,
+        16,
+        60,
+        340,
         22
       ],
-      "value_hash": "sha256:310600ad52614f325c3fc3bdec403b8500c04610e5311a4ed49beeb9c17a86ec"
+      "value_hash": "sha256:cfe28c88a5b49935d9add2c93ba1ffef23c4b2e99c1cf5845ffce2b5f4002b73"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYL7P7CUXPSKLS965QAXW9BC"
+      "canary_id": "CANARYZ9PCMA2XC9G92WEX6557FY"
     }
   ],
   "tasks": []
