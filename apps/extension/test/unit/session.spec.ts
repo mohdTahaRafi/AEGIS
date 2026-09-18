@@ -140,3 +140,46 @@ describe('Session — cancellation (FR-3)', () => {
     expect(events).toContainEqual({ type: 'stopped', reason: 'CANCELLED' });
   });
 });
+
+describe('Session — canary check (design.md §7.6 step 6, T-5.8, phase_5_measurement.md §16a)', () => {
+  // Short enough to stay below packages/recognizers' generic high-entropy SECRET fallback
+  // (24+ chars) — isolates guard step 6 rather than the independent pattern re-sweep, exactly
+  // like test/unit/canary.spec.ts's SHORT_CANARY.
+  const SHORT_CANARY = 'CANARYSHORT123';
+
+  function canaryResponder(sent: unknown, emit: (m: unknown) => void): void {
+    const msg = sent as { type: string; actionId?: string };
+    if (msg.type === 'extract') {
+      emit({
+        type: 'graph',
+        frame: 'f-0',
+        nodes: [],
+        removed: [],
+        textRuns: [{ id: 't-1', box: [0, 0, 10, 10], text: SHORT_CANARY }],
+        privacyEpoch: 0,
+        reason: 'initial',
+      });
+    }
+  }
+
+  it('a harness-supplied canary blocks the step, never reaching sendToGateway', async () => {
+    const sendToGateway = vi.fn().mockResolvedValue({ step_id: 's-1', actions: [{ op: 'wait', ms: 1 }] });
+    const { session, events } = buildSession(sendToGateway, canaryResponder, { canaries: [SHORT_CANARY] });
+
+    await session.start('report the page');
+
+    expect(sendToGateway).not.toHaveBeenCalled();
+    expect(events.some((e) => e.type === 'guard_blocked' && e.rule === 'CANARY')).toBe(true);
+    expect(events).toContainEqual({ type: 'stopped', reason: 'BLOCKED' });
+  });
+
+  it('without a canary list (the production default), the same page is not blocked by step 6', async () => {
+    const sendToGateway = vi.fn().mockResolvedValue({ step_id: 's-1', actions: [{ op: 'done', summary: 'ok' }] });
+    const { session, events } = buildSession(sendToGateway, canaryResponder);
+
+    await session.start('report the page');
+
+    expect(events.some((e) => e.type === 'guard_blocked')).toBe(false);
+    expect(session.getState()).toBe('DONE');
+  });
+});

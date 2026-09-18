@@ -6,6 +6,7 @@ the side-loading flags an unpacked extension needs (architecture.md §12.3, veri
 
 from __future__ import annotations
 
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -18,6 +19,25 @@ EXTENSION_DIR = REPO_ROOT / "apps" / "extension" / ".output" / "chrome-mv3"
 
 class ExtensionNotBuiltError(RuntimeError):
     pass
+
+
+class ExtensionIdNotFoundError(RuntimeError):
+    pass
+
+
+def extension_id(context: BrowserContext, timeout_s: float = 10.0) -> str:
+    """Reads the loaded extension's id from its background service worker's URL
+    (`chrome-extension://<id>/background.js`) — the only place Playwright exposes it, since
+    `--load-extension` assigns the id at load time rather than it being something this project's
+    own build output records (phase_5_measurement.md §16a's harness-integration work)."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if context.service_workers:
+            return context.service_workers[0].url.split("/")[2]
+        time.sleep(0.1)
+    raise ExtensionIdNotFoundError(
+        "no background service worker appeared — is the extension actually loaded?"
+    )
 
 
 @contextmanager

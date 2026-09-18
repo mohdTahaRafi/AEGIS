@@ -218,9 +218,20 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
     }
   }
 
+  // A leaf node's accessible name frequently duplicates a text run already extracted at the same
+  // box (e.g. a plain `<div>` whose only content is one text node) — detecting the identical
+  // string via both sources produced two independent, never-merged SensitiveRegions for the same
+  // real-world value (found via this project's Phase 5 genuine end-to-end harness run against the
+  // real corpus, not by inspection — every fixture with a canary or an Aadhaar-labelled field
+  // showed a doubled redaction count). `sanitizeFreeText`'s original purpose — an ANCESTOR
+  // landmark's name-computation fallback concatenating DESCENDANT text beyond any single run — is
+  // untouched by this: only an EXACT (box, text) duplicate of an already-included run is skipped.
+  const runBoxTextKeys = new Set(escapedRuns.map((r) => `${r.box.join(',')} ${r.text}`));
+  const dedupedNodeNames = escapedNodes.filter((n) => !runBoxTextKeys.has(`${n.box.join(',')} ${n.name}`));
+
   const freeTextSources: FreeTextSource[] = [
     ...escapedRuns.map((r) => ({ key: `run:${r.id}`, box: r.box, text: r.text })),
-    ...escapedNodes.map((n) => ({ key: `name:${n.id}`, box: n.box, text: n.name })),
+    ...dedupedNodeNames.map((n) => ({ key: `name:${n.id}`, box: n.box, text: n.name })),
     { key: 'task', box: [0, 0, 0, 0] as [number, number, number, number], text: escapedTask },
     { key: 'title', box: [0, 0, 0, 0] as [number, number, number, number], text: escapedTitle },
   ];
@@ -249,6 +260,13 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
     return substitute(text, replacements);
   }
 
+  // Computed BEFORE `nodes` so a deduped node's name (see `dedupedNodeNames` above) can reuse the
+  // matching run's already-substituted text instead of calling `sanitizeFreeText` a second time
+  // with no candidates behind it — which would ship that node's name completely unsanitized.
+  const runSubstitutionByBoxText = new Map(
+    escapedRuns.map((r) => [`${r.box.join(',')} ${r.text}`, sanitizeFreeText(`run:${r.id}`, r.text)]),
+  );
+
   const nodes: SanitizedNode[] = escapedNodes.map((node) => {
     const region = regionsByKey.get(`node:${node.id}`);
     const value = toNodeValue(node, region, vault, policy, originKey, stepId);
@@ -256,10 +274,12 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
       const ref = value && 'ref' in value ? value.ref : null;
       redactions.push(toRedactionEntry(region, ref));
     }
+    const duplicateOfRun = runSubstitutionByBoxText.get(`${node.box.join(',')} ${node.name}`);
+    const sanitizedName = duplicateOfRun ?? sanitizeFreeText(`name:${node.id}`, node.name);
     return {
       id: node.id,
       role: node.role,
-      name: truncate(sanitizeFreeText(`name:${node.id}`, node.name), 200),
+      name: truncate(sanitizedName, 200),
       box: node.box,
       frame: node.frame,
       z: node.z,
@@ -281,10 +301,13 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
     };
   });
 
+  // Reuses `runSubstitutionByBoxText`'s already-computed result rather than calling
+  // `sanitizeFreeText` again — that would push every run's redaction entries into `redactions[]`
+  // a second time.
   const textRunEntries = escapedRuns.map((run) => ({
     id: run.id,
     box: run.box,
-    text: sanitizeFreeText(`run:${run.id}`, run.text),
+    text: runSubstitutionByBoxText.get(`${run.box.join(',')} ${run.text}`)!,
   }));
 
   const sanitizedTask = sanitizeFreeText('task', escapedTask);

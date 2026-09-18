@@ -104,6 +104,15 @@ export interface SessionDeps {
     capture: CaptureFn;
     digestGuard?: GeometryDigestGuard;
   };
+  /** design.md §7.6 step 6 / T-5.8 — "debug/harness builds" only. Absent (the production default)
+   * means guard step 6 never runs at all; only the eval harness ever supplies a real list (its
+   * own planted high-entropy strings). [Fixed, Phase 5] This field didn't exist until a genuine
+   * end-to-end harness run against the real corpus found a real canary that slipped past every
+   * pattern-based detector (a real, disclosed residual-risk case, not a bug in the detector) —
+   * `guard/canary.ts`'s step 6 existed to catch exactly this, but nothing had ever threaded a
+   * harness-supplied list through to it. See docs/HISTORY.md's Phase 5 entry.
+   */
+  canaries?: readonly string[];
 }
 
 interface PendingGraph {
@@ -287,7 +296,7 @@ export class Session {
       t = this.now();
       let guarded: GuardedPayload;
       try {
-        guarded = await guard(context, this.policy, this.vault, { imageRescan: imageRescanDeps });
+        guarded = await guard(context, this.policy, this.vault, { imageRescan: imageRescanDeps, canaries: this.deps.canaries });
         this.controller.send({ type: 'guard_pass' });
         this.ledger.record({
           stepId,

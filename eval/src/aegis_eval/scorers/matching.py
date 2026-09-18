@@ -61,7 +61,15 @@ def match_detections(
     candidates: list[tuple[float, int, int]] = []
     for di, det in enumerate(detections):
         for gi, gt in enumerate(ground_truth):
-            if require_same_entity and det.entity != gt.entity:
+            # UNKNOWN_SENSITIVE (the corpus's canary label — generate_fixtures.py's own
+            # `LabelItem("UNKNOWN_SENSITIVE", ..., canary=True)`) deliberately names no specific
+            # entity: it exists to test whether SOMETHING flags the value, not whether the client
+            # calls it the same thing the corpus does. Found for real running this scorer against
+            # the actual corpus for the first time (Phase 5's harness-integration work) — every
+            # canary the client caught via the generic high-entropy SECRET fallback was being
+            # scored as a false positive AND a separate false negative, a scoring-methodology
+            # bug, not a detection one. See docs/HISTORY.md's Phase 5 entry.
+            if require_same_entity and det.entity != gt.entity and gt.entity != "UNKNOWN_SENSITIVE":
                 continue
             threshold = iou_threshold_for(gt.entity)
             score = iou(det.box, gt.box)

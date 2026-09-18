@@ -1,13 +1,9 @@
 """Ledger export collection (T-1.18).
 
-Phase 1: there is no product panel and no privacy ledger yet (Phase 3 builds it — design.md
-§5.5/§12.1). This module still defines the real collection interface the harness will use from
-Phase 3 onward, and returns a well-formed placeholder now, so:
-  - the report-writing path is exercised end to end in Phase 1 (T-1.21's provenance columns need
-    something to write, even with empty metric fields);
-  - "a missing export is an error, not a silent skip" is meaningful from day one — collect_ledger_export
-    always returns an object, never None, and the runner treats None as a hard failure now so that
-    invariant doesn't have to be introduced later once there is something real to break.
+Phase 1 defined the real collection interface as a placeholder; Phase 5 (phase_5_measurement.md
+§16a) fills it in for real, reading the panel's actual privacy ledger via the
+`window.__aegisLedgerExport()` hook `entrypoints/sidepanel/main.tsx` exposes — exactly the
+mechanism the original placeholder's own doc comment named but Phases 2-4 never built.
 """
 
 from __future__ import annotations
@@ -29,16 +25,22 @@ class LedgerExport:
     screen_id: str
     collected_at: str
     steps: list[dict] = field(default_factory=list)
-    note: str = "placeholder — no product privacy ledger exists yet (Phase 3, T-3.27)"
+    note: str = ""
 
 
-def collect_ledger_export(_page: Page, screen_id: str) -> LedgerExport:
-    """Phase 3 replaces this body with a real read of the panel's exported ledger (e.g. via a
-    `window.__aegisLedgerExport()` hook the panel exposes, or a downloaded JSON file), and must
-    raise LedgerExportMissingError rather than return None if that read fails — the caller
-    (runner.main) treats a missing export as a hard failure, never a silent skip, from day one.
-    """
-    return LedgerExport(screen_id=screen_id, collected_at=datetime.now(UTC).isoformat())
+def collect_ledger_export(page: Page, screen_id: str) -> LedgerExport:
+    """`page` is the PANEL page (the one `run_task_in_panel` drove), not the fixture page — the
+    ledger lives in the panel's own `Session`, not anywhere the fixture page can see. Raises
+    `LedgerExportMissingError` (never returns an export with no explanation) if the hook itself is
+    missing, so the caller's "a missing export is an error, not a silent skip" invariant, true
+    since Phase 1, stays true now that there's something real to fail on."""
+    try:
+        steps = page.evaluate("window.__aegisLedgerExport ? window.__aegisLedgerExport() : null")
+    except Exception as exc:  # noqa: BLE001 - any evaluate failure means "no export", not a crash
+        raise LedgerExportMissingError(f"{screen_id}: evaluating __aegisLedgerExport() failed: {exc}") from exc
+    if steps is None:
+        raise LedgerExportMissingError(f"{screen_id}: window.__aegisLedgerExport is not defined on the panel page")
+    return LedgerExport(screen_id=screen_id, collected_at=datetime.now(UTC).isoformat(), steps=steps)
 
 
 def write_ledger_export(export: LedgerExport, run_dir: Path) -> Path:

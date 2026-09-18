@@ -39,6 +39,17 @@ def test_match_detections_ignores_entity_when_asked() -> None:
     assert len(result.true_positives) == 1
 
 
+def test_unknown_sensitive_ground_truth_matches_any_detected_entity() -> None:
+    # A canary's ground truth deliberately names no specific entity — any real detection at the
+    # same location (whatever the client happened to call it) counts as a match.
+    dets = [Detection("SECRET", (0, 0, 10, 10))]
+    gts = [GroundTruth("UNKNOWN_SENSITIVE", (0, 0, 10, 10))]
+    result = match_detections(dets, gts)
+    assert len(result.true_positives) == 1
+    assert result.false_positives == []
+    assert result.false_negatives == []
+
+
 def test_match_detections_is_one_to_one_greedy_by_iou() -> None:
     # Two ground truths overlap one detection; the detection should match only the closer one.
     dets = [Detection("EMAIL", (0, 0, 10, 10))]

@@ -160,10 +160,21 @@ def build_identifiers(rng: random.Random) -> list[Fixture]:
     )
 
     # id-003: PAN
-    pan_letters1 = "".join(rng.choices("ABCDEFGHIJKLMNPQRSTUVWXYZ", k=5))
+    # [Fixed, Phase 5] The real format's 4th character (of the 5-letter prefix) is a constrained
+    # "holder type" code — packages/recognizers/src/patterns/pan.ts requires it to be one of
+    # ABCFGHJLPT, exactly mirroring the real specification. This generator used to put the
+    # valid-holder-type letter at the very END of the whole 10-character PAN instead (a position
+    # the real format leaves unconstrained) — every PAN this fixture ever produced was therefore
+    # correctly rejected as "not a real PAN" by the client's own recognizer, but the label still
+    # claimed it should be redacted. Found for real by Phase 5's independent Python auditor
+    # (`auditor/recognizers.py`) reporting a genuine leak against a real end-to-end harness run —
+    # not by inspection. See docs/HISTORY.md's Phase 5 entry.
+    pan_prefix3 = "".join(rng.choices("ABCDEFGHIJKLMNPQRSTUVWXYZ", k=3))
+    pan_holder_type = rng.choice("ABCPFGHLTJ")
+    pan_letter5 = rng.choice("ABCDEFGHIJKLMNPQRSTUVWXYZ")
     pan_digits = "".join(str(rng.randint(0, 9)) for _ in range(4))
-    pan_letter2 = rng.choice("ABCPFGHLTJ")
-    pan = pan_letters1 + pan_digits + pan_letter2
+    pan_letter2 = rng.choice("ABCDEFGHIJKLMNPQRSTUVWXYZ")
+    pan = pan_prefix3 + pan_holder_type + pan_letter5 + pan_digits + pan_letter2
     box3 = (220, 120, 120, 22)
     fixtures.append(
         Fixture(
@@ -171,7 +182,7 @@ def build_identifiers(rng: random.Random) -> list[Fixture]:
             '<div class="heading">PAN Verification</div>'
             + field_html("PAN", pan, box3, "pan"),
             [LabelItem("PAN", box3, sha256_hash(pan))],
-            notes="Fictitious PAN, structurally valid (5 letters, 4 digits, 1 letter).",
+            notes="Fictitious PAN, structurally valid (5 letters, 4 digits, 1 letter; 4th letter is a real holder-type code).",
         )
     )
 

@@ -81,7 +81,7 @@ async function captureVisibleTabAsBitmap(): Promise<ImageBitmap | null> {
 // reach; it's the same trust boundary the panel's own click handlers already sit behind.
 declare global {
   interface Window {
-    __aegisRunTask?: (task: string) => Promise<void>;
+    __aegisRunTask?: (task: string, canaries?: readonly string[]) => Promise<void>;
     __aegisLedgerExport?: () => unknown[];
   }
 }
@@ -122,7 +122,7 @@ function App() {
     }
   }
 
-  async function handleStart(task: string): Promise<void> {
+  async function handleStart(task: string, canaries?: readonly string[]): Promise<void> {
     setErrorMessage(null);
     setReport(null);
     setSteps([]);
@@ -154,19 +154,18 @@ function App() {
       return;
     }
 
-    const port = connectToTab(browser.tabs, tab.id);
-    // Forward reference: ContentPortClient needs its handlers now, Session needs the constructed
-    // ContentPortClient — see test/unit/session.spec.ts's buildSession() for the same pattern.
-    // eslint-disable-next-line prefer-const
-    let newSession!: Session;
-    const contentPort = new ContentPortClient(port, {
-      onGraph: (m) => newSession.onGraph(m),
-      onActionResult: (m) => newSession.onActionResult(m.actionId, m.ok, m.reason),
-      onDisconnect: () => setPanelState('error'),
-    });
     // Phase 4: one perception worker per task, matching the vault's own per-task lifetime
     // (design.md §8) — a fresh worker means a fresh model-registry/backend-probe cycle rather
     // than pixels or model state surviving across unrelated tasks.
+    //
+    // [Fixed, Phase 5] This `await` used to sit BETWEEN `contentPort`'s construction and
+    // `newSession`'s assignment below, which left a real window where a graph message arriving
+    // from the content script mid-`init()` called `newSession.onGraph(m)` while `newSession` was
+    // still the forward-reference's `undefined` — a genuine race, not a hypothetical one: it fired
+    // in this project's very first real end-to-end Playwright run against the built extension
+    // (Phase 5's harness-integration work), which no unit test's fake, synchronous content port
+    // could ever have hit. Moved here so every `await` between the forward-reference and the real
+    // assignment is gone — see docs/HISTORY.md's Phase 5 entry.
     const perceptionClient = createPerceptionClient();
     try {
       const ready = await perceptionClient.init('auto', [FACE_MODEL_SPEC], 'S');
@@ -181,6 +180,19 @@ function App() {
       setModelsLoadedMB(0);
     }
 
+    const port = connectToTab(browser.tabs, tab.id);
+    // Forward reference: ContentPortClient needs its handlers now, Session needs the constructed
+    // ContentPortClient — see test/unit/session.spec.ts's buildSession() for the same pattern.
+    // No `await` follows until `newSession` is actually assigned, by construction — see this
+    // block's comment above for why that invariant matters.
+    // eslint-disable-next-line prefer-const
+    let newSession!: Session;
+    const contentPort = new ContentPortClient(port, {
+      onGraph: (m) => newSession.onGraph(m),
+      onActionResult: (m) => newSession.onActionResult(m.actionId, m.ok, m.reason),
+      onDisconnect: () => setPanelState('error'),
+    });
+
     newSession = new Session({
       contentPort,
       sendToGateway: (payload, signal) => gateway.sendStep(created.session_id, payload, signal),
@@ -193,6 +205,7 @@ function App() {
           setConfirmRequest({ risk, description, resolve });
         }),
       perception: { client: perceptionClient, capture: captureVisibleTabAsBitmap },
+      canaries,
     });
 
     setSession(newSession);
