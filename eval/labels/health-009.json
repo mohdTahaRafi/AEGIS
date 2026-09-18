@@ -1,0 +1,52 @@
+{
+  "screen_id": "health-009",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "PERSON_NAME",
+      "box": [
+        220,
+        120,
+        200,
+        24
+      ],
+      "value_hash": "sha256:d0ef55d473d9274d19d10e2b5b31b4a52afe6e69678e4b89ee9e7af75dc32be6"
+    },
+    {
+      "entity": "PHONE",
+      "box": [
+        220,
+        160,
+        160,
+        24
+      ],
+      "value_hash": "sha256:cd08f84605e647f0a8895271a8adce0253a5f780f28042f0f373c6ef77e6b75b"
+    },
+    {
+      "entity": "EMAIL",
+      "box": [
+        220,
+        200,
+        220,
+        24
+      ],
+      "value_hash": "sha256:3c67c463adc0c651f03af3ddb4c542158972ea0d113d671f691844513d256abf"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARY83F4AQQJGY9DBAMVCRR5N3"
+    }
+  ],
+  "tasks": []
+}
