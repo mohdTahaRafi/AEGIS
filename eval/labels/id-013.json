@@ -1,0 +1,33 @@
+{
+  "screen_id": "id-013",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "GSTIN",
+      "box": [
+        220,
+        120,
+        170,
+        22
+      ],
+      "value_hash": "sha256:c59d2ec4c8039a7b634c2071db76a2ac85013c7f46f1b89ab9cd0ddbcb68f83c",
+      "note": "checksum-invalid GSTIN; design.md \u00a76.2 keeps this unverified-but-redacted (0.40), unlike PAN's hard reject \u2014 a genuine, lower-confidence positive"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYVGU8STJPS5XCEUZ9YBWXSZ"
+    }
+  ],
+  "tasks": []
+}

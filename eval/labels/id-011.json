@@ -1,5 +1,5 @@
 {
-  "screen_id": "indic-001",
+  "screen_id": "id-011",
   "viewport": [
     1280,
     720
@@ -7,14 +7,14 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "AADHAAR",
+      "entity": "CARD_NUMBER",
       "box": [
         220,
         120,
-        180,
-        24
+        190,
+        22
       ],
-      "value_hash": "sha256:cc91a996920b08c56b1369a6fd5afaf72dab2cad84125deb1907e5860d1e87b3"
+      "value_hash": "sha256:604628f770b6d922b02193c362f20320d46bb60cc7a4092a79c82a6655acf434"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYLTXU9G7SDZY3NY4NA72ULW"
+      "canary_id": "CANARYVG65PWUZQZ35B2SAWDJKSA"
     }
   ],
   "tasks": []
