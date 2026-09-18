@@ -1,5 +1,5 @@
 {
-  "screen_id": "freetext-005",
+  "screen_id": "forms-015",
   "viewport": [
     1280,
     720
@@ -7,14 +7,13 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "PHONE",
+      "entity": "OTP",
       "box": [
-        16,
-        60,
-        540,
-        22
-      ],
-      "value_hash": "sha256:23a6bb950022a4784146c6cf5c79ada3baedef362dd6b9bb244454ca83944712"
+        220,
+        120,
+        120,
+        28
+      ]
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +24,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYWASQ2TPQ83CUC6DL98AQS4"
+      "canary_id": "CANARYTPR8W2UEQHXANKDSTAVHCL"
     }
   ],
   "tasks": []

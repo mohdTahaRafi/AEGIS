@@ -1,5 +1,5 @@
 {
-  "screen_id": "freetext-008",
+  "screen_id": "forms-012",
   "viewport": [
     1280,
     720
@@ -7,14 +7,22 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "SECRET",
+      "entity": "PASSWORD",
       "box": [
         220,
         120,
-        380,
-        22
-      ],
-      "value_hash": "sha256:fc5f26c2edd0d38e09c19404dc51f4aa8deb04815740dad0972511e8fa194d18"
+        220,
+        28
+      ]
+    },
+    {
+      "entity": "PASSWORD",
+      "box": [
+        220,
+        160,
+        220,
+        28
+      ]
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +33,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYVNGNCW42D8AXY2SSQKQ66R"
+      "canary_id": "CANARYZET59BCQQ74GXT8SWPE53F"
     }
   ],
   "tasks": []

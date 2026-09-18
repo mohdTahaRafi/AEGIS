@@ -1,5 +1,5 @@
 {
-  "screen_id": "forms-001",
+  "screen_id": "forms-016",
   "viewport": [
     1280,
     720
@@ -11,19 +11,20 @@
       "box": [
         220,
         120,
-        220,
-        28
+        200,
+        24
       ],
-      "value_hash": "sha256:bb821e4fa9aa8feb5b6f8e1dfba99f914f3bd24ed64e25c1ea2e5d41b29fbbfb"
+      "value_hash": "sha256:a1ca37d7c12d6d0ac65fa9b559fe0ccec883ab57dc02396a02dc3d7da17a9177"
     },
     {
-      "entity": "PASSWORD",
+      "entity": "EMAIL",
       "box": [
         220,
         160,
         220,
-        28
-      ]
+        24
+      ],
+      "value_hash": "sha256:0cf6747e533fa1eca53b39a13d211dd06314a4d366a520ac3235f876ebe20f30"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -34,10 +35,8 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYJ9M7H9SLQ3GAL9MP6FWTFX"
+      "canary_id": "CANARYEGACHUGCZRYCXPBE6WNPDT"
     }
   ],
-  "tasks": [
-    "task-login-submit-01"
-  ]
+  "tasks": []
 }

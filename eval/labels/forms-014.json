@@ -1,5 +1,5 @@
 {
-  "screen_id": "freetext-005",
+  "screen_id": "forms-014",
   "viewport": [
     1280,
     720
@@ -9,12 +9,12 @@
     {
       "entity": "PHONE",
       "box": [
-        16,
-        60,
-        540,
-        22
+        220,
+        120,
+        200,
+        24
       ],
-      "value_hash": "sha256:23a6bb950022a4784146c6cf5c79ada3baedef362dd6b9bb244454ca83944712"
+      "value_hash": "sha256:b960230228d95c2c79ee4cc27939260ffba8c3ce8556b793751111a6738e16b3"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYWASQ2TPQ83CUC6DL98AQS4"
+      "canary_id": "CANARY6XMLYX96KRTXFSLP536QGZ"
     }
   ],
   "tasks": []

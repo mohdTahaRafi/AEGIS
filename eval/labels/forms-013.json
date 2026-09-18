@@ -1,5 +1,5 @@
 {
-  "screen_id": "forms-004",
+  "screen_id": "forms-013",
   "viewport": [
     1280,
     720
@@ -11,30 +11,30 @@
       "box": [
         220,
         120,
-        220,
+        200,
         24
       ],
-      "value_hash": "sha256:19065676961ef440dccef2caddb82cd9b28e1cf378deb625702794cfe1ff5a4a"
+      "value_hash": "sha256:c85c8045c8f4de25759828997e04184ef470161cb48202b3c2a11ea9bd47f2b4"
     },
     {
-      "entity": "DOB",
+      "entity": "BANK_ACCOUNT",
       "box": [
         220,
         160,
-        120,
+        180,
         24
       ],
-      "value_hash": "sha256:e60ed4e6a8e67d3802d2a9fa157298dd0fec7f3a9234a23ce3775e3dbaca83f5"
+      "value_hash": "sha256:e356810aecac1c71c1b736452da369322c60392e680342d877f08d38527e5e09"
     },
     {
-      "entity": "AADHAAR",
+      "entity": "IFSC",
       "box": [
         220,
         200,
-        160,
+        130,
         24
       ],
-      "value_hash": "sha256:5cd296b2b8f867db97a6614ef7a0360c179168a17c6c657cb0c976b9929512c5"
+      "value_hash": "sha256:7fc4c3e7b9aea80a2425c531fc32bb557fc4507d820b0ea62da9f323fc5a53c5"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -45,7 +45,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYPUXQ277GSC5BBLAU26MXXZ"
+      "canary_id": "CANARYUY7S5CM8N553TY3CB2JMPC"
     }
   ],
   "tasks": []
