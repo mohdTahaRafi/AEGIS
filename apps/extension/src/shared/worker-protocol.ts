@@ -85,7 +85,10 @@ export type ToWorker =
   // entity's display label (`FACE`, `ID_DOCUMENT`, ...) and never validates it against the
   // recognizer vocabulary — keeping it a bare string avoids `packages/recognizers` becoming a
   // type-only dependency of the message contract two execution contexts both have to agree on.
-  | { t: 'compose'; jobId: string; regions: { entity: string; boxes: Box[]; placeholder: string | null }[]; cleared: Box[]; scale: number }
+  // `unlabelled` (T-6.9, the black-box ablation arm): draw every redaction as a plain black box,
+  // no placeholder text and no entity-type fallback label either — optional, defaults to `false`
+  // (every pre-T-6.9 caller unaffected).
+  | { t: 'compose'; jobId: string; regions: { entity: string; boxes: Box[]; placeholder: string | null }[]; cleared: Box[]; scale: number; unlabelled?: boolean }
   // `image`/`redactionBoxes` are the just-composed output and the boxes that produced it — the
   // worker needs the actual pixels to re-run face detection over the composed result
   // (phase_4_vision.md §8); `halos` narrows where the (Phase 6) OCR half will look.

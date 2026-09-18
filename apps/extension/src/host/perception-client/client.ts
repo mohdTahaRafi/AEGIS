@@ -90,9 +90,14 @@ export class PerceptionClient {
     return msg as Extract<FromWorker, { t: 'perceived' }>;
   }
 
-  async compose(regions: Extract<ToWorker, { t: 'compose' }>['regions'], cleared: Extract<ToWorker, { t: 'compose' }>['cleared'], scale: number): Promise<Extract<FromWorker, { t: 'composed' }>> {
+  async compose(
+    regions: Extract<ToWorker, { t: 'compose' }>['regions'],
+    cleared: Extract<ToWorker, { t: 'compose' }>['cleared'],
+    scale: number,
+    unlabelled = false,
+  ): Promise<Extract<FromWorker, { t: 'composed' }>> {
     const jobId = nextJobId();
-    const msg = await this.request({ t: 'compose', jobId, regions, cleared, scale });
+    const msg = await this.request({ t: 'compose', jobId, regions, cleared, scale, unlabelled });
     return msg as Extract<FromWorker, { t: 'composed' }>;
   }
 

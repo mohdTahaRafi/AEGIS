@@ -24,6 +24,12 @@ export interface ComposeInput {
   cleared: readonly Box[];
   regions: readonly RedactionBoxSet[];
   scale: number;
+  /** T-6.9, the black-box ablation arm: "render redactions as unlabelled black boxes... send no
+   * refs." The JSON side already sends no ref (every `placeholder` is `null` under that arm —
+   * `replacementFor`'s own ablation check, `host/privacy/context/builder.ts`); this is the image
+   * side's half — without it, the entity-type fallback label below (`FACE`, `ID_DOCUMENT`, ...)
+   * would still visually leak the entity TYPE even with no ref in the JSON. Defaults to `false`. */
+  unlabelled?: boolean;
 }
 
 export interface ComposeOutput {
@@ -38,7 +44,7 @@ function boxArea([, , w, h]: Box): number {
 }
 
 export function compose(input: ComposeInput): ComposeOutput {
-  const { bitmap, cleared, regions, scale } = input;
+  const { bitmap, cleared, regions, scale, unlabelled = false } = input;
   const width = Math.round(bitmap.width * scale);
   const height = Math.round(bitmap.height * scale);
   const canvas = new OffscreenCanvas(width, height);
@@ -65,7 +71,7 @@ export function compose(input: ComposeInput): ComposeOutput {
       ctx.fillRect(x * scale, y * scale, w * scale, h * scale);
       redactedArea += boxArea(box);
 
-      const label = region.placeholder ?? (NON_RESOLVABLE_LABELS.has(region.entity) ? region.entity : null);
+      const label = unlabelled ? null : region.placeholder ?? (NON_RESOLVABLE_LABELS.has(region.entity) ? region.entity : null);
       if (label && w * scale >= MIN_LABEL_BOX_PX && h * scale >= MIN_LABEL_BOX_PX / 2) {
         drawFittedLabel(ctx, label, x * scale, y * scale, w * scale, h * scale);
       }

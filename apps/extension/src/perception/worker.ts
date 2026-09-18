@@ -169,6 +169,7 @@ async function handleCompose(msg: Extract<ToWorker, { t: 'compose' }>): Promise<
     cleared: msg.cleared,
     regions: msg.regions as RedactionBoxSet[],
     scale: msg.scale,
+    unlabelled: msg.unlabelled,
   });
   const webp = await encodeWebp(output.canvas);
   closeCurrentCapture();

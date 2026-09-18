@@ -24,6 +24,17 @@ function hexToRgb(hex: string): [number, number, number] {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
+/** Text rendering leaves gaps between/within glyphs — the exact center pixel of a label isn't
+ * reliably "inside a stroke," so label-presence checks scan a horizontal band through the box's
+ * vertical center for at least one white pixel, rather than asserting one exact coordinate. */
+function hasWhitePixelInRow(canvas: OffscreenCanvas, y: number, xStart: number, xEnd: number): boolean {
+  for (let x = xStart; x <= xEnd; x++) {
+    const [r, g, b] = pixelAt(canvas, x, y);
+    if (r === 255 && g === 255 && b === 255) return true;
+  }
+  return false;
+}
+
 describe('compose (T-4.16, phase_4_vision.md §7)', () => {
   it('a region with no positive clearance is grey by default', async () => {
     const bitmap = await solidBitmap(100, 100, '#ff0000');
@@ -77,5 +88,60 @@ describe('compose (T-4.16, phase_4_vision.md §7)', () => {
       const [gr, gg, gb] = hexToRgb(GREY_FILL);
       expect([r, g, b]).toEqual([gr, gg, gb]);
     }
+  });
+
+  // T-6.9, design.md §18.3 — the black-box ablation arm's image-side half: "render redactions as
+  // unlabelled black boxes." The JSON side already sends no ref under that arm
+  // (`host/privacy/context/builder.ts`'s own `ablation === 'blackbox'` check); this is the only
+  // place a NON-resolvable entity's type name (`FACE` etc, drawn even with `placeholder: null`
+  // today) could still visually leak through the image alone.
+  describe('unlabelled (T-6.9, black-box ablation arm)', () => {
+    const bigBox: [number, number, number, number] = [10, 10, 100, 60];
+
+    it('by default, a real placeholder ref is drawn as a white label inside the box', async () => {
+      const bitmap = await solidBitmap(150, 100, '#00ff00');
+      const output = compose({
+        bitmap,
+        cleared: [[0, 0, 150, 100]],
+        regions: [{ entity: 'AADHAAR', boxes: [bigBox], placeholder: '⟪AADHAAR#1⟫' }],
+        scale: 1,
+      });
+      expect(hasWhitePixelInRow(output.canvas, 40, 10, 109)).toBe(true);
+    });
+
+    it('by default, a non-resolvable entity (FACE) still draws its type name as a fallback label', async () => {
+      const bitmap = await solidBitmap(150, 100, '#00ff00');
+      const output = compose({
+        bitmap,
+        cleared: [[0, 0, 150, 100]],
+        regions: [{ entity: 'FACE', boxes: [bigBox], placeholder: null }],
+        scale: 1,
+      });
+      expect(hasWhitePixelInRow(output.canvas, 40, 10, 109)).toBe(true);
+    });
+
+    it('unlabelled: true suppresses the placeholder label — pure black, no text', async () => {
+      const bitmap = await solidBitmap(150, 100, '#00ff00');
+      const output = compose({
+        bitmap,
+        cleared: [[0, 0, 150, 100]],
+        regions: [{ entity: 'AADHAAR', boxes: [bigBox], placeholder: '⟪AADHAAR#1⟫' }],
+        scale: 1,
+        unlabelled: true,
+      });
+      expect(hasWhitePixelInRow(output.canvas, 40, 10, 109)).toBe(false);
+    });
+
+    it('unlabelled: true ALSO suppresses the non-resolvable-entity type-name fallback (FACE etc)', async () => {
+      const bitmap = await solidBitmap(150, 100, '#00ff00');
+      const output = compose({
+        bitmap,
+        cleared: [[0, 0, 150, 100]],
+        regions: [{ entity: 'FACE', boxes: [bigBox], placeholder: null }],
+        scale: 1,
+        unlabelled: true,
+      });
+      expect(hasWhitePixelInRow(output.canvas, 40, 10, 109)).toBe(false);
+    });
   });
 });

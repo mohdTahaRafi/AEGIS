@@ -4,6 +4,7 @@
 // capture/escalation/compose dance — this is the one place all of it is wired together.
 
 import type { Candidate } from '../privacy/types';
+import type { AblationArm } from '../../shared/ablation';
 import type { Box } from '../../shared/worker-protocol';
 import type { WireScreenNode } from '../../shared/messages';
 import type { PerceptionClient } from './client';
@@ -26,6 +27,11 @@ export interface PerceptionStepDeps {
    * `requestGraph`-equivalent so this module never talks to the content port directly. */
   reobserveGeometry: () => Promise<WireScreenNode[]>;
   viewport: { w: number; h: number };
+  /** T-6.9: `'pixel_only'` forces one whole-viewport crop region regardless of DOM structure
+   * (design.md §18.3: "ignore Channel D and DOM text; OCR the full frame") — every other arm
+   * (including `undefined`, the release default) leaves this function's normal DOM-node-driven
+   * region selection untouched. */
+  ablation?: AblationArm;
 }
 
 export interface PerceptionStepResult {
@@ -52,15 +58,16 @@ function geometryBoxesOf(nodes: readonly WireScreenNode[]): { id: string; box: r
 }
 
 export async function runPerceptionStep(nodes: readonly WireScreenNode[], deps: PerceptionStepDeps): Promise<PerceptionStepResult> {
-  const visionNodes = nodes.filter(isVisionNode);
+  const pixelOnly = deps.ablation === 'pixel_only';
+  const visionNodes = pixelOnly ? [] : nodes.filter(isVisionNode);
   const explainedFraction = structuralCoverage(
     nodes.map((n) => ({ box: n.box, requiresVision: isVisionNode(n) })),
     deps.viewport,
   );
-  const decision = decideEscalation({ explainedFraction, serverRequestedRegion: null });
+  const decision = pixelOnly ? { level: 'L1' as const, fullFrame: true, region: null } : decideEscalation({ explainedFraction, serverRequestedRegion: null });
 
   const scale = Math.min(1, IMAGE_LONG_SIDE_MAX_PX / Math.max(deps.viewport.w, deps.viewport.h));
-  const noCaptureNeeded = decision.level === 'L0' && visionNodes.length === 0;
+  const noCaptureNeeded = !pixelOnly && decision.level === 'L0' && visionNodes.length === 0;
   if (noCaptureNeeded) {
     return { visionCandidates: [], level: decision.level, captured: false, captureInconsistent: false, visionAnalyzedNodeIds: new Set(), scale };
   }
@@ -86,10 +93,18 @@ export async function runPerceptionStep(nodes: readonly WireScreenNode[], deps: 
     };
   }
 
-  const regions = [
-    ...visionNodes.map((n) => ({ id: n.id, box: n.box as Box, kind: 'crop' as const })),
-    ...(decision.fullFrame ? [{ id: 'full-frame', box: [0, 0, deps.viewport.w, deps.viewport.h] as Box, kind: 'full' as const }] : []),
-  ];
+  // T-6.9: pixel-only sends ONE whole-viewport region at `kind: 'crop'` (not `'full'`) so it goes
+  // through `handlePerceive`'s real face+OCR loop — the `'full'` kind exists only for the
+  // screen-state label today and is never OCR'd or face-detected (see `worker.ts`'s
+  // `handlePerceive`), which would silently defeat "OCR the full frame." Reuses the literal id
+  // `'full-frame'` so the existing `regionId !== 'full-frame' → nodeId` mapping below already
+  // treats it as node-less, with no new special-casing needed there.
+  const regions = pixelOnly
+    ? [{ id: 'full-frame', box: [0, 0, deps.viewport.w, deps.viewport.h] as Box, kind: 'crop' as const }]
+    : [
+        ...visionNodes.map((n) => ({ id: n.id, box: n.box as Box, kind: 'crop' as const })),
+        ...(decision.fullFrame ? [{ id: 'full-frame', box: [0, 0, deps.viewport.w, deps.viewport.h] as Box, kind: 'full' as const }] : []),
+      ];
 
   const perceived = await deps.client.perceive(bitmap, regions, PERCEPTION_DEADLINE_MS, decision.fullFrame);
 
@@ -100,15 +115,27 @@ export async function runPerceptionStep(nodes: readonly WireScreenNode[], deps: 
   );
   const visionAnalyzedNodeIds = new Set(visionNodes.map((n) => n.id).filter((id) => !timedOutIds.has(id)));
 
-  const visionCandidates: Candidate[] = perceived.candidates.map((c) => ({
-    entity: c.entity,
-    box: c.box,
-    score: c.score,
-    channel: c.channel === 'text-ocr' ? 'text-ocr' : 'vision',
-    source: c.source ?? `vision:${c.entity.toLowerCase()}`,
-    nodeId: c.regionId && c.regionId !== 'full-frame' ? c.regionId : undefined,
-    value: c.value,
-  }));
+  const visionCandidates: Candidate[] = perceived.candidates.map((c) => {
+    const nodeId = c.regionId && c.regionId !== 'full-frame' ? c.regionId : undefined;
+    // An OCR candidate with no owning node (pixel-only's whole-viewport region, or any future
+    // caller in the same shape) needs SOME identity for fusion's `groupByOverlap` to key on —
+    // otherwise every such candidate collapses into one shared, identity-less group (`groupKey`
+    // falls back to `run:undefined`), losing per-line distinction entirely. The candidate's own
+    // box is already unique per detected line and shared across multiple entities matched within
+    // the same line (exactly the grouping a real DOM text run's `textRunId` would give it), so it
+    // doubles as a synthetic run id with no new worker-protocol field needed.
+    const textRunId = c.channel === 'text-ocr' && !nodeId ? `ocr-full-frame:${c.box.join(',')}` : undefined;
+    return {
+      entity: c.entity,
+      box: c.box,
+      score: c.score,
+      channel: c.channel === 'text-ocr' ? 'text-ocr' : 'vision',
+      source: c.source ?? `vision:${c.entity.toLowerCase()}`,
+      nodeId,
+      textRunId,
+      value: c.value,
+    };
+  });
 
   return {
     visionCandidates,

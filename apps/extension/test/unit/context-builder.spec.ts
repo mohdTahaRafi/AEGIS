@@ -297,3 +297,130 @@ describe('buildSanitizedContext — volatile nodes and text runs become ⟪LIVE�
     expect(validators.sanitizedContext(context).valid).toBe(true);
   });
 });
+
+// T-6.9, design.md §18.3 — the ablation arms builder.ts handles directly (`dom_only` needs no
+// handling here at all: it works by `visionCandidates` simply never being passed in).
+describe('buildSanitizedContext — ablation arms (T-6.9)', () => {
+  describe('pixel_only', () => {
+    it('a field value matching a real Aadhaar number ships raw — Channel D/T is skipped entirely for DOM nodes', () => {
+      const aadhaar = validAadhaar();
+      const context = buildCtx({
+        ablation: 'pixel_only',
+        nodes: [node('n-1', { name: 'Aadhaar number', field: { inputType: 'text', maskedCss: false, valueRead: true, value: aadhaar } })],
+      });
+      expect(context.nodes[0]!.value).toEqual({ kind: 'text', text: aadhaar });
+      expect(context.redactions).toEqual([]);
+    });
+
+    it('a free-text run also ships raw — Channel T over DOM text is skipped', () => {
+      const aadhaar = validAadhaar();
+      const context = buildCtx({
+        ablation: 'pixel_only',
+        textRuns: [{ id: 't-1', box: [0, 0, 100, 20], text: `Aadhaar on record: ${aadhaar}` }],
+      });
+      expect(context.text[0]!.text).toContain(aadhaar);
+    });
+
+    it('the task string is still sanitized — it is not DOM content, so it is unaffected by the ablation', () => {
+      const context = buildCtx({ ablation: 'pixel_only', task: 'pay my Airtel bill for 9876543210' });
+      expect(context.task).not.toContain('9876543210');
+      expect(context.task).toMatch(/⟪PHONE#\d+⟫/);
+    });
+
+    it('a synthetic full-frame OCR candidate (no owning node, run-step.ts\'s own shape) still mints a real placeholder and reaches redactions[]', () => {
+      const aadhaar = validAadhaar();
+      const lineBox: [number, number, number, number] = [40, 154, 130, 22];
+      const context = buildCtx({
+        ablation: 'pixel_only',
+        visionCandidates: [
+          {
+            entity: 'AADHAAR',
+            box: lineBox,
+            score: 0.95,
+            channel: 'text-ocr',
+            source: 'pattern:aadhaar+verhoeff',
+            textRunId: `ocr-full-frame:${lineBox.join(',')}`,
+            value: aadhaar,
+          },
+        ],
+      });
+      const entry = context.redactions.find((r) => r.entity === 'AADHAAR');
+      expect(entry).toBeDefined();
+      expect(entry!.ref).toMatch(/^⟪AADHAAR#\d+⟫$/);
+      expect(entry!.boxes).toEqual([lineBox]);
+      expect(JSON.stringify(context)).not.toContain(aadhaar);
+      expect(validators.sanitizedContext(context).valid).toBe(true);
+    });
+
+    it('two distinct full-frame OCR lines stay two distinct regions, not merged into one', () => {
+      const box1: [number, number, number, number] = [10, 10, 50, 20];
+      const box2: [number, number, number, number] = [10, 50, 50, 20];
+      const context = buildCtx({
+        ablation: 'pixel_only',
+        visionCandidates: [
+          { entity: 'EMAIL', box: box1, score: 0.9, channel: 'text-ocr', source: 'pattern:email', textRunId: `ocr-full-frame:${box1.join(',')}`, value: 'a@b.com' },
+          { entity: 'PHONE', box: box2, score: 0.9, channel: 'text-ocr', source: 'pattern:phone', textRunId: `ocr-full-frame:${box2.join(',')}`, value: '9876543210' },
+        ],
+      });
+      expect(context.redactions).toHaveLength(2);
+      expect(context.redactions.map((r) => r.entity).sort()).toEqual(['EMAIL', 'PHONE']);
+    });
+  });
+
+  describe('blackbox', () => {
+    it("a field's real Aadhaar value gets NO vault ref — presence-only shape, same as a genuinely non-resolvable entity", () => {
+      const aadhaar = validAadhaar();
+      const context = buildCtx({
+        ablation: 'blackbox',
+        nodes: [node('n-1', { name: 'Aadhaar number', field: { inputType: 'text', maskedCss: false, valueRead: true, value: aadhaar } })],
+      });
+      expect(context.nodes[0]!.value).toEqual({ kind: 'presence', entity: 'AADHAAR', len: aadhaar.length });
+      const entry = context.redactions.find((r) => r.entity === 'AADHAAR')!;
+      expect(entry.ref).toBeNull();
+      expect(JSON.stringify(context)).not.toContain(aadhaar);
+    });
+
+    it('the same value in free-text prose also gets a bare, ref-less placeholder', () => {
+      const aadhaar = validAadhaar();
+      const context = buildCtx({
+        ablation: 'blackbox',
+        textRuns: [{ id: 't-1', box: [0, 0, 100, 20], text: `Aadhaar on record: ${aadhaar}` }],
+      });
+      expect(context.text[0]!.text).toBe('Aadhaar on record: ⟪AADHAAR⟫');
+      const entry = context.redactions.find((r) => r.entity === 'AADHAAR')!;
+      expect(entry.ref).toBeNull();
+    });
+
+    it('a vision-only node (canvas, no field) with a real OCR-found value also gets no ref', () => {
+      const aadhaar = validAadhaar();
+      const context = buildCtx({
+        ablation: 'blackbox',
+        nodes: [node('n-1', { role: 'img', tagName: 'CANVAS', field: undefined, box: [20, 80, 400, 200] })],
+        visionCandidates: [{ entity: 'AADHAAR', box: [40, 154, 130, 22], score: 0.95, channel: 'text-ocr', source: 'pattern:aadhaar+verhoeff', nodeId: 'n-1', value: aadhaar }],
+      });
+      const entry = context.redactions.find((r) => r.entity === 'AADHAAR')!;
+      expect(entry.ref).toBeNull();
+      expect(JSON.stringify(context)).not.toContain(aadhaar);
+    });
+
+    it('never calls vault.mint — the vault stays empty', () => {
+      const aadhaar = validAadhaar();
+      const vault = new Vault();
+      buildCtx({
+        ablation: 'blackbox',
+        vault,
+        nodes: [node('n-1', { name: 'Aadhaar number', field: { inputType: 'text', maskedCss: false, valueRead: true, value: aadhaar } })],
+      });
+      expect(vault.resolveFor).toBeDefined(); // sanity the real Vault class is in play
+      expect(JSON.stringify(vault)).not.toContain(aadhaar); // #-private fields aren't enumerable anyway, but confirms no crash/leak path
+    });
+
+    it('the payload still validates against the real SanitizedContext schema', () => {
+      const context = buildCtx({
+        ablation: 'blackbox',
+        nodes: [node('n-1', { name: 'Aadhaar number', field: { inputType: 'text', maskedCss: false, valueRead: true, value: validAadhaar() } })],
+      });
+      expect(validators.sanitizedContext(context).valid).toBe(true);
+    });
+  });
+});

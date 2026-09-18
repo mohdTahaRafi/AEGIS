@@ -35,6 +35,7 @@ import { Vault } from './privacy/vault';
 import type { PerceptionClient } from './perception-client/client';
 import { GeometryDigestGuard } from './capture/digest';
 import { runPerceptionStep, type CaptureFn } from './perception-client/run-step';
+import type { AblationArm } from '../shared/ablation';
 import type { BudgetReasonCode } from '../shared/errors';
 import type { GraphMessage, WireScreenNode } from '../shared/messages';
 import type { Box } from '../shared/worker-protocol';
@@ -113,6 +114,12 @@ export interface SessionDeps {
    * harness-supplied list through to it. See docs/HISTORY.md's Phase 5 entry.
    */
   canaries?: readonly string[];
+  /** design.md §18.3, T-6.9 — "config switches in a debug build only." Absent (the production
+   * default, and every pre-T-6.9 caller/test) behaves exactly like `'fused'`. Set only by
+   * `entrypoints/sidepanel/main.tsx`'s debug-only branch (never in a release build — see
+   * `src/debug/ablations.ts`'s doc comment) or directly by the eval harness's own ablation
+   * runner, the same shape `canaries` above already uses. */
+  ablation?: AblationArm;
 }
 
 interface PendingGraph {
@@ -239,7 +246,9 @@ export class Session {
       if (this.hostileDynamicStepStreak > Session.HOSTILE_DYNAMIC_STEP_LIMIT) {
         return this.stop('HOSTILE_DYNAMIC');
       }
-      const imagePathDisabled = graphMessage.hostileDynamic;
+      // T-6.9: `dom_only` disables the image path exactly like hostile-dynamic mode does — "never
+      // attach images" (design.md §18.3) — no privacy-core change needed beyond this one check.
+      const imagePathDisabled = graphMessage.hostileDynamic || this.deps.ablation === 'dom_only';
 
       t = this.now();
       const viewport = { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio, scrollY: window.scrollY, docH: document.documentElement.scrollHeight };
@@ -250,6 +259,7 @@ export class Session {
             digestGuard: this.digestGuard,
             reobserveGeometry: async () => (await this.requestGraph()).nodes,
             viewport,
+            ablation: this.deps.ablation,
           })
         : null;
       this.controller.send({ type: 'perceived' });
@@ -275,6 +285,7 @@ export class Session {
         originKey: this.deps.guardOrigin,
         visionCandidates: perceptionResult?.visionCandidates,
         visionAnalyzedNodeIds: perceptionResult?.visionAnalyzedNodeIds,
+        ablation: this.deps.ablation,
       });
 
       // T-4.16/T-4.17: attach the composed image only once the final fused `redactions` are known
@@ -291,7 +302,7 @@ export class Session {
           nodeRequiresVision: (node) => node.role === 'img',
           legend: 'Grey = unanalysed. Black boxes are redacted (labelled with their placeholder or type). Everything else is shown as captured.',
           compose: async (regions, cleared, s) => {
-            const composed = await client.compose(regions, cleared, s);
+            const composed = await client.compose(regions, cleared, s, this.deps.ablation === 'blackbox');
             return composed;
           },
         });
@@ -304,7 +315,7 @@ export class Session {
           // least once this step, so the recompose is maximally conservative: only the (now
           // dilated) redaction boxes are drawn at all, nothing already-cleared is re-copied in.
           recompose: async (dilatedRegions) => {
-            const composed = await client.compose([...dilatedRegions], [], scale);
+            const composed = await client.compose([...dilatedRegions], [], scale, this.deps.ablation === 'blackbox');
             return composed.webp;
           },
         };

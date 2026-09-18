@@ -16,6 +16,7 @@ import { GuardBlockCard } from '../../src/ui/GuardBlockCard';
 import { PayloadViewer } from '../../src/ui/PayloadViewer';
 import { RedactionSummary } from '../../src/ui/RedactionSummary';
 import type { SanitizedContext } from '@aegis/protocol';
+import type { AblationArm } from '../../src/shared/ablation';
 
 // phase_2_spine.md §6.7's demo default; overridable at build time (design.md §13.5's "Server URL"
 // setting — a real settings UI is not built this phase, so this is the one place it lives).
@@ -216,6 +217,17 @@ function App() {
       setModelsLoadedMB(0);
     }
 
+    // design.md §18.3, T-6.9: the debug-only ablation switch. `import.meta.env.DEV` is Vite's own
+    // build-mode flag (WXT wraps Vite) — a plain `wxt build`/`pnpm build` sets it `false`, so this
+    // dynamic import (and `debug/ablations.ts` itself) never lands in a release bundle at all;
+    // `test/unit/ablation-build.spec.ts` asserts that against the real built output, not just this
+    // source line. Placed here, BEFORE the `newSession` forward-reference below, for the same
+    // no-`await`-between-forward-reference-and-assignment reason `perceptionClient.init()` above
+    // already has to be (see that block's own comment — a real race Phase 5 found and fixed).
+    const ablationArm: AblationArm | undefined = import.meta.env.DEV
+      ? await (await import('../../src/debug/ablations')).currentAblationArm(browser.storage.local)
+      : undefined;
+
     const port = connectToTab(browser.tabs, tab.id);
     // Forward reference: ContentPortClient needs its handlers now, Session needs the constructed
     // ContentPortClient — see test/unit/session.spec.ts's buildSession() for the same pattern.
@@ -242,6 +254,7 @@ function App() {
         }),
       perception: { client: perceptionClient, capture: captureVisibleTabAsBitmap },
       canaries,
+      ablation: ablationArm,
     });
 
     setSession(newSession);

@@ -20,6 +20,7 @@ import type { RecognizerContext } from '@aegis/recognizers';
 import { findAll } from '@aegis/recognizers';
 import type { Policy } from '@aegis/policy';
 import { isPresenceOnly } from '@aegis/policy';
+import type { AblationArm } from '../../../shared/ablation';
 import type { WireScreenNode, WireTextRun } from '../../../shared/messages';
 import { fuse } from '../fusion';
 import { runNerStub } from '../ner-stub';
@@ -66,6 +67,13 @@ export interface BuildContextInput {
    * `unexplained[].status`. Absent (not an empty set) means no capture happened this step at all,
    * same "vision never ran" case `visionCandidates`'s own doc comment describes. */
   visionAnalyzedNodeIds?: ReadonlySet<string>;
+  /** T-6.9 (design.md §18.3): absent (the release default) behaves exactly like `'fused'`.
+   * `'pixel_only'` skips Channel D/T over DOM-sourced nodes/text runs (relying entirely on the
+   * OCR-derived `visionCandidates` this step's `runPerceptionStep` call already produced for the
+   * whole viewport). `'blackbox'` forces every region's replacement to the bare, unresolvable
+   * `⟪ENTITY⟫` form — never a real vault ref — regardless of policy. `'dom_only'` needs no
+   * handling here at all: it works by `visionCandidates` simply never being passed in. */
+  ablation?: AblationArm;
 }
 
 function fieldContext(node: WireScreenNode): RecognizerContext {
@@ -122,7 +130,7 @@ function regionKey(region: SensitiveRegion): string {
   return region.nodeId ? `node:${region.nodeId}` : `run:${region.textRunId}:${region.span?.[0]}`;
 }
 
-function toNodeValue(node: WireScreenNode, region: SensitiveRegion | undefined, vault: Vault, policy: Policy, originKey: string, stepId: string): NodeValue | undefined {
+function toNodeValue(node: WireScreenNode, region: SensitiveRegion | undefined, vault: Vault, policy: Policy, originKey: string, stepId: string, ablation?: AblationArm): NodeValue | undefined {
   if (!node.field) return undefined;
 
   // T-6.7: a volatile field's value is replaced unconditionally, ahead of any region — no
@@ -131,6 +139,12 @@ function toNodeValue(node: WireScreenNode, region: SensitiveRegion | undefined, 
   if (node.state.volatile) return { kind: 'text', text: '⟪LIVE⟫' };
 
   if (region) {
+    // T-6.9: black-box "sends no refs" — the same `presence`-shaped value (no `ref` field at
+    // all) every genuinely non-resolvable entity already uses, just forced unconditionally
+    // instead of only for PASSWORD/OTP/etc. Never calls `mintForRegion`/`vault.mint` at all.
+    if (ablation === 'blackbox') {
+      return { kind: 'presence', entity: region.entity, len: region.value?.length ?? node.state.valueLen };
+    }
     const minted = mintForRegion(vault, policy, region, originKey, stepId);
     if (minted) {
       // Presence-only regions never had a value to measure (T-3.9) — report the field's own
@@ -158,9 +172,11 @@ function toNodeValue(node: WireScreenNode, region: SensitiveRegion | undefined, 
 
 /** Builds the `entity → replacement string` for one text run's matched spans. Presence-only
  * entities (a card number typed in plain prose, say) never get a ref — design.md §7.3's "or with
- * '⟪ENTITY⟫' for non-resolvable items" branch. */
-function replacementFor(region: SensitiveRegion, vault: Vault, policy: Policy, originKey: string, stepId: string): string {
-  if (region.presenceOnly || isPresenceOnly(policy, region.entity) || region.value === undefined) {
+ * '⟪ENTITY⟫' for non-resolvable items" branch. T-6.9's black-box arm forces every region down
+ * this same bare-label path unconditionally — "send no refs," regardless of policy or whether a
+ * real value exists to mint — never touching the vault at all in that arm. */
+function replacementFor(region: SensitiveRegion, vault: Vault, policy: Policy, originKey: string, stepId: string, ablation?: AblationArm): string {
+  if (ablation === 'blackbox' || region.presenceOnly || isPresenceOnly(policy, region.entity) || region.value === undefined) {
     return `⟪${region.entity}⟫`;
   }
   return vault.mint(region.entity, region.value, { originKey, stepId, class: region.class });
@@ -261,15 +277,26 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
   }));
   const escapedRuns = input.textRuns.map((r) => ({ ...r, text: r.volatile ? LIVE_TEXT : escapePlaceholderDelimiters(r.text) }));
 
+  // T-6.9 (design.md §18.3): the pixel-only ablation arm "ignores Channel D and DOM text" —
+  // every node/free-text-run candidate loop below is skipped for it (task/title still scan
+  // normally — they aren't DOM content, they're the user's own instruction and the page's title
+  // metadata). Skipping candidate generation, not the text itself, is deliberate: `sanitizeFreeText`
+  // still runs over every node name/text run below exactly as it always does, it just never finds
+  // a matching region to substitute, so the raw (escaped) DOM text ships through unredacted —
+  // this arm's whole point is to measure what relying on the OCR/pixel channel alone looks like.
+  const pixelOnly = input.ablation === 'pixel_only';
+
   // 2. Collect candidates: Channel D (already computed content-side) + Channel T over field
   // values and every free-text source. Volatile nodes are skipped entirely (see above).
   const candidates: Candidate[] = [];
-  for (const node of escapedNodes) {
-    if (node.state.volatile) continue;
-    const domCandidate = candidateFromDomSignal(node, node.field?.value);
-    if (domCandidate) candidates.push(domCandidate);
-    if (node.field?.valueRead && node.field.value) {
-      candidates.push(...candidatesFromNodeValue(node, node.field.value));
+  if (!pixelOnly) {
+    for (const node of escapedNodes) {
+      if (node.state.volatile) continue;
+      const domCandidate = candidateFromDomSignal(node, node.field?.value);
+      if (domCandidate) candidates.push(domCandidate);
+      if (node.field?.valueRead && node.field.value) {
+        candidates.push(...candidatesFromNodeValue(node, node.field.value));
+      }
     }
   }
 
@@ -291,6 +318,7 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
     { key: 'title', box: [0, 0, 0, 0] as [number, number, number, number], text: escapedTitle },
   ];
   for (const source of freeTextSources) {
+    if (pixelOnly && source.key !== 'task' && source.key !== 'title') continue;
     candidates.push(...candidatesFromTextRun(source.key, source.box, source.text));
   }
   if (input.visionCandidates) candidates.push(...input.visionCandidates);
@@ -302,12 +330,24 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
   // 4. Mint + substitute.
   const redactions: RedactionEntry[] = [];
 
+  // T-6.9: pixel-only's full-frame OCR candidates (`run-step.ts`'s synthetic
+  // `ocr-full-frame:<box>` textRunId) have neither a real node nor a real free-text run behind
+  // them — there is no DOM structure backing them by design, so neither the node loop below nor
+  // `sanitizeFreeText` (which only ever runs against a REAL `freeTextSources` entry) will ever
+  // reach them. This is their own, third and only path to `redactions[]`.
+  for (const region of regions) {
+    if (!region.textRunId?.startsWith('ocr-full-frame:')) continue;
+    const replacement = replacementFor(region, vault, policy, originKey, stepId, input.ablation);
+    const ref = replacement.startsWith('⟪') && /#\d+⟫$/.test(replacement) ? replacement : null;
+    redactions.push(toRedactionEntry(region, ref));
+  }
+
   function sanitizeFreeText(key: string, text: string): string {
     const regionsForKey = regions.filter((r) => r.textRunId === key);
     const replacements: SpanReplacement[] = regionsForKey
       .filter((r): r is SensitiveRegion & { span: [number, number] } => r.span !== undefined)
       .map((r) => {
-        const replacement = replacementFor(r, vault, policy, originKey, stepId);
+        const replacement = replacementFor(r, vault, policy, originKey, stepId, input.ablation);
         const ref = replacement.startsWith('⟪') && /#\d+⟫$/.test(replacement) ? replacement : null;
         redactions.push(toRedactionEntry(r, ref));
         return { span: r.span, entity: r.entity, replacement };
@@ -324,7 +364,7 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
 
   const nodes: SanitizedNode[] = escapedNodes.map((node) => {
     const region = regionsByKey.get(`node:${node.id}`);
-    const value = toNodeValue(node, region, vault, policy, originKey, stepId);
+    const value = toNodeValue(node, region, vault, policy, originKey, stepId, input.ablation);
     if (region) {
       // `toNodeValue` only mints through a `field` (a form field's own value) — a vision-only
       // node (canvas/img/video, T-6.5/T-6.6) has no field, so its region would otherwise be
@@ -336,7 +376,7 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
           ? value.ref
           : null
         : (() => {
-            const replacement = replacementFor(region, vault, policy, originKey, stepId);
+            const replacement = replacementFor(region, vault, policy, originKey, stepId, input.ablation);
             return replacement.startsWith('⟪') && /#\d+⟫$/.test(replacement) ? replacement : null;
           })();
       redactions.push(toRedactionEntry(region, ref));
