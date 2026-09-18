@@ -14,10 +14,11 @@ const modelsDir = path.join(__dirname, '..', 'public', 'models');
 const manifestPath = path.join(modelsDir, 'models.manifest.json');
 
 // GitHub serves LFS-tracked files as pointer text from raw.githubusercontent.com; the actual
-// bytes come from the media endpoint.
-function toMediaUrl(githubBlobUrl: string): string {
-  const m = githubBlobUrl.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/(.+)$/);
-  if (!m) throw new Error(`Unrecognised source URL shape: ${githubBlobUrl}`);
+// bytes come from the media endpoint. Any other host (e.g. modelscope.cn's `resolve/` URLs,
+// used by the Phase 6 OCR models) already serves real bytes directly — passed through unchanged.
+function toMediaUrl(sourceUrl: string): string {
+  const m = sourceUrl.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/(.+)$/);
+  if (!m) return sourceUrl;
   const [, owner, repo, rest] = m;
   return `https://media.githubusercontent.com/media/${owner}/${repo}/${rest}`;
 }

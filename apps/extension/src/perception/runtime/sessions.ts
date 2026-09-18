@@ -39,9 +39,26 @@ interface LoadedSession {
  * never creates an `ort.InferenceSession` directly — always through here, so verification can
  * never be accidentally skipped by a new call site (the same "structural, not conditional" shape
  * as Phase 3's protected-value rule). */
+async function fetchAndVerify(modelId: string, url: string, expectedSha256: string): Promise<ArrayBuffer> {
+  let bytes: ArrayBuffer;
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`fetch failed: ${response.status}`);
+    bytes = await response.arrayBuffer();
+  } catch (err) {
+    throw new ModelLoadError(modelId, err instanceof Error ? err.message : String(err));
+  }
+  const actualHash = await sha256Hex(bytes);
+  if (actualHash !== expectedSha256) {
+    throw new ModelLoadError(modelId, `sha256 mismatch: expected ${expectedSha256}, got ${actualHash}`);
+  }
+  return bytes;
+}
+
 export class ModelRegistry {
   private readonly sessions = new Map<string, LoadedSession>();
   private readonly specs = new Map<string, ModelSpec>();
+  private readonly dicts = new Map<string, string[]>();
 
   constructor(private readonly backend: Backend) {}
 
@@ -66,19 +83,7 @@ export class ModelRegistry {
     if (!spec) throw new ModelLoadError(modelId, 'not registered');
 
     const started = performance.now();
-    let bytes: ArrayBuffer;
-    try {
-      const response = await fetch(spec.url);
-      if (!response.ok) throw new Error(`fetch failed: ${response.status}`);
-      bytes = await response.arrayBuffer();
-    } catch (err) {
-      throw new ModelLoadError(modelId, err instanceof Error ? err.message : String(err));
-    }
-
-    const actualHash = await sha256Hex(bytes);
-    if (actualHash !== spec.sha256) {
-      throw new ModelLoadError(modelId, `sha256 mismatch: expected ${spec.sha256}, got ${actualHash}`);
-    }
+    const bytes = await fetchAndVerify(modelId, spec.url, spec.sha256);
 
     let session: ort.InferenceSession;
     try {
@@ -93,6 +98,31 @@ export class ModelRegistry {
     const loadMs = performance.now() - started;
     this.sessions.set(modelId, { spec, session, bytes: bytes.byteLength, loadMs, lastUsedAt: Date.now() });
     return session;
+  }
+
+  /** T-6.3's other half: an `ocr-rec` model is useless without its character dictionary (it can
+   * run inference but not turn the output into text) — verified and cached the same way an ONNX
+   * session is, through this file's one disclosed fetch exception, not a new one. Returns the
+   * dict's lines with blank/trailing-newline artifacts stripped (a dict file's own literal empty
+   * lines, if any, are real PaddleOCR vocabulary entries and must not be dropped here — see
+   * `ocr-rec.ts`'s `buildCtcVocabulary` doc comment). */
+  async getDict(modelId: string): Promise<string[]> {
+    const cached = this.dicts.get(modelId);
+    if (cached) return cached;
+
+    const spec = this.specs.get(modelId);
+    if (!spec) throw new ModelLoadError(modelId, 'not registered');
+    if (!spec.dictUrl || !spec.dictSha256) {
+      throw new ModelLoadError(modelId, 'no dict configured for this model');
+    }
+
+    const bytes = await fetchAndVerify(modelId, spec.dictUrl, spec.dictSha256);
+    const lines = new TextDecoder('utf-8')
+      .decode(bytes)
+      .split('\n')
+      .filter((line) => line.length > 0);
+    this.dicts.set(modelId, lines);
+    return lines;
   }
 
   /** T-4.11: evict a non-resident session that has been idle. Resident models (`spec.resident`)

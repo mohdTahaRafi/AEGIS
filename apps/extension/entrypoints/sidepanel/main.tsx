@@ -37,6 +37,38 @@ const FACE_MODEL_SPEC = {
   resident: true,
 };
 
+// Mirrors models.manifest.json's three OCR entries (T-6.3/T-6.4) — same hand-duplication pattern
+// and the same reason (public/ assets aren't part of the module graph). `resident: false`: OCR
+// lazy-loads on first use (the halo re-scan today; a future T-6.5/T-6.6 fusion integration would
+// be its other caller), per design.md §6.4's degradation ladder.
+const OCR_DET_MODEL_SPEC = {
+  id: 'ocr-det-ppocrv5-mobile',
+  role: 'ocr-det' as const,
+  url: '/models/ocr_det_ppocrv5_mobile.onnx',
+  sha256: '4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae',
+  resident: false,
+};
+const OCR_REC_EN_MODEL_SPEC = {
+  id: 'ocr-rec-ppocrv5-mobile-en',
+  role: 'ocr-rec' as const,
+  script: 'latin' as const,
+  url: '/models/ocr_rec_ppocrv5_mobile_en.onnx',
+  sha256: 'c3461add59bb4323ecba96a492ab75e06dda42467c9e3d0c18db5d1d21924be8',
+  dictUrl: '/models/ocr_rec_ppocrv5_mobile_en.dict.txt',
+  dictSha256: 'e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6',
+  resident: false,
+};
+const OCR_REC_DEVANAGARI_MODEL_SPEC = {
+  id: 'ocr-rec-ppocrv5-mobile-devanagari',
+  role: 'ocr-rec' as const,
+  script: 'devanagari' as const,
+  url: '/models/ocr_rec_ppocrv5_mobile_devanagari.onnx',
+  sha256: 'd6f0a906580e3fa6b324a318718f1f31f268b6ea8ef985f91c2012a37f52c91e',
+  dictUrl: '/models/ocr_rec_ppocrv5_mobile_devanagari.dict.txt',
+  dictSha256: '09c7440bfc5477e5c41052304b6b185aff8c4a5e8b2b4c23c1c706f6fe1ee9fc',
+  resident: false,
+};
+
 /** design.md §11.1 — the host's only reference to `perception/worker.ts`, via the `new
  * Worker(url, {type:'module'})` constructor rather than an import (the ESLint boundary rule
  * blocks `src/host/**` from importing `src/perception/**` by module path; a Worker URL is not a
@@ -168,7 +200,11 @@ function App() {
     // assignment is gone — see docs/HISTORY.md's Phase 5 entry.
     const perceptionClient = createPerceptionClient();
     try {
-      const ready = await perceptionClient.init('auto', [FACE_MODEL_SPEC], 'S');
+      const ready = await perceptionClient.init(
+        'auto',
+        [FACE_MODEL_SPEC, OCR_DET_MODEL_SPEC, OCR_REC_EN_MODEL_SPEC, OCR_REC_DEVANAGARI_MODEL_SPEC],
+        'S',
+      );
       setPerceptionBackend(ready.backend);
       setModelsLoadedMB(ready.loaded.reduce((sum, m) => sum + m.bytes, 0) / (1024 * 1024));
     } catch {

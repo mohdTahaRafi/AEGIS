@@ -13,19 +13,27 @@ import { selectBackend } from './runtime/backend';
 import { ModelLoadError, ModelRegistry } from './runtime/sessions';
 import { cropRegion } from './preprocess/crop';
 import { detectFaces } from './models/face';
+import { buildCtcVocabulary } from './models/ocr-rec';
 import { screenLabel } from './models/vit-encoder';
 import { PriorityQueue } from './schedule/queue';
 import { runWithDeadline } from './schedule/deadline';
 import { applyCropBudget } from './schedule/budget';
 import { compose, encodeWebp, type RedactionBoxSet } from './compose/compositor';
 import { recheckFacesOnComposedImage } from './rescan/face-recheck';
-import { checkHalosForText } from './rescan/halo';
+import { checkHalosForText, type OcrRescanModels } from './rescan/halo';
 
 ort.env.allowLocalModels = true;
 
 let registry: ModelRegistry | null = null;
 let backend: Backend = 'wasm';
 let faceModelId: string | null = null;
+// T-6.3's halo re-scan (`rescan/halo.ts`) always uses the Latin/English recognizer, regardless of
+// page script — it is a coarse, context-blind safety net (the same shape as the guard's own
+// `sweeps.ts` pattern resweep on the text side), not the primary per-region OCR path a future
+// T-6.5/T-6.6 fusion integration would script-route. A Devanagari halo miss is a disclosed gap,
+// not a silent one.
+let ocrDetModelId: string | null = null;
+let ocrRecEnModelId: string | null = null;
 
 // phase_4_vision.md §3.2: "The worker holds one capture at a time, and closes the bitmap once
 // compose/rescan for that capture have finished." `perceive` transfers the bitmap in and analyses
@@ -54,6 +62,11 @@ async function handleInit(msg: Extract<ToWorker, { t: 'init' }>): Promise<void> 
   // by a lazy first load. A load failure disables only the image path (T-4.2's AC) — logged via a
   // jobless `error` the host may surface, but `ready` still fires so the agent can proceed L0-only.
   faceModelId = msg.models.find((m) => m.role === 'face')?.id ?? null;
+  // OCR (T-6.3/T-6.4) is deliberately NOT warmed up here — design.md §6.4's degradation ladder
+  // ("Lazy load; evict large sessions (OCR, NER-L) after idle") only resident-loads the face
+  // detector and ViT encoder; OCR loads on its first real use (the halo re-scan, today).
+  ocrDetModelId = msg.models.find((m) => m.role === 'ocr-det')?.id ?? null;
+  ocrRecEnModelId = msg.models.find((m) => m.role === 'ocr-rec' && m.script === 'latin')?.id ?? null;
   if (faceModelId) {
     try {
       await registry.get(faceModelId);
@@ -136,6 +149,23 @@ async function handleCompose(msg: Extract<ToWorker, { t: 'compose' }>): Promise<
   post({ t: 'composed', jobId: msg.jobId, webp, coverage: output.coverage }, [webp]);
 }
 
+/** A load failure here (missing model, sha256 mismatch, OOM) disables only the halo re-scan's OCR
+ * half for this rescan call — same "fail the capability, not the agent" shape as `faceModelId`'s
+ * own catch above, not a new pattern. */
+async function loadOcrRescanModels(): Promise<OcrRescanModels | null> {
+  if (!registry || !ocrDetModelId || !ocrRecEnModelId) return null;
+  try {
+    const [detSession, recSession, vocabDict] = await Promise.all([
+      registry.get(ocrDetModelId),
+      registry.get(ocrRecEnModelId),
+      registry.getDict(ocrRecEnModelId),
+    ]);
+    return { detSession, recSession, vocabulary: buildCtcVocabulary(vocabDict) };
+  } catch {
+    return null;
+  }
+}
+
 async function handleRescan(msg: Extract<ToWorker, { t: 'rescan' }>): Promise<void> {
   const hits: Extract<FromWorker, { t: 'rescanned' }>['hits'] = [];
   const faceSession = faceModelId && registry ? await registry.get(faceModelId).catch(() => null) : null;
@@ -144,7 +174,8 @@ async function handleRescan(msg: Extract<ToWorker, { t: 'rescan' }>): Promise<vo
     for (const box of faceBoxes) hits.push({ entity: 'FACE', box, score: 1 });
   }
   const halos = msg.halos.length > 0 ? msg.halos : msg.redactionBoxes;
-  const textHits = await checkHalosForText(msg.image, halos);
+  const ocrModels = await loadOcrRescanModels();
+  const textHits = await checkHalosForText(ort, ocrModels, msg.image, halos);
   for (const box of textHits) hits.push({ entity: 'SECRET', box, score: 1 });
 
   post({ t: 'rescanned', jobId: msg.jobId, hits });

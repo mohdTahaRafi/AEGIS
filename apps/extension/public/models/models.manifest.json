@@ -14,6 +14,74 @@
       "preferredBackend": "auto",
       "resident": true,
       "notes": "Used for the Phase-0 go/no-go latency spike (T-0.10/T-0.11) and later as the resident face detector (F-C04). Fetched via scripts/fetch-models.ts, never bundled unverified. [Fixed in Phase 4, T-4.4] inputShape was recorded as [1,3,160,120] from an unverified assumption; real inference against the model shows a fixed [1,3,640,640] input (ORT rejects any other spatial size) with a 3-stride (8/16/32) anchor-free YOLOX-style head (cls/obj/bbox/kps outputs per stride), matching opencv_zoo's face_detection_yunet_2023mar. See `src/perception/models/face.ts`."
+    },
+    {
+      "id": "ocr-det-ppocrv5-mobile",
+      "role": "ocr-det",
+      "file": "ocr_det_ppocrv5_mobile.onnx",
+      "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae",
+      "bytes": 4819576,
+      "source": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv5/det/ch_PP-OCRv5_det_mobile.onnx",
+      "license": "Apache-2.0 (PaddleOCR / RapidAI RapidOCR ONNX export)",
+      "inputShape": [1, 3, "dynamic", "dynamic"],
+      "dtype": "float32",
+      "preferredBackend": "auto",
+      "resident": false,
+      "notes": "architecture.md §6.3's PP-OCRv5 mobile detector (T-6.3). Real ORT introspection (2026-09-18): input `x` is [N,3,H,W] with H/W dynamic (a DB/DBNet-style segmentation detector, NOT an anchor decoder like YuNet — design.md §6.4's 'detector on unexplained regions, long side ≤ 960px' controls the resize before inference, padded to a multiple of 32 as DBNet requires). Output `fetch_name_0` is a single-channel probability map at the same spatial resolution as the (possibly downsampled) input; text boxes come from thresholding + contour-finding + the DB unclip formula, not a direct box regression head. See `src/perception/models/ocr-det.ts`."
+    },
+    {
+      "id": "ocr-rec-ppocrv5-mobile-en",
+      "role": "ocr-rec",
+      "file": "ocr_rec_ppocrv5_mobile_en.onnx",
+      "sha256": "c3461add59bb4323ecba96a492ab75e06dda42467c9e3d0c18db5d1d21924be8",
+      "bytes": 7872351,
+      "source": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv5/rec/en_PP-OCRv5_rec_mobile.onnx",
+      "license": "Apache-2.0 (PaddleOCR / RapidAI RapidOCR ONNX export)",
+      "dict": "ocr_rec_ppocrv5_mobile_en.dict.txt",
+      "script": "latin",
+      "inputShape": [1, 3, 48, "dynamic"],
+      "dtype": "float32",
+      "preferredBackend": "auto",
+      "resident": false,
+      "notes": "architecture.md §6.3's Latin/English recognizer — smaller than the multilingual `ch_` variant, matching the doc's own 'measure' note (7.9MB here vs. the ~16MB multilingual figure architecture.md cites). Real ORT introspection (2026-09-18): output is [N, T, 438] (T dynamic) — a per-timestep class distribution over PaddleOCR's CTC vocabulary, verified exactly (see below). Input `x`'s ORT-reported shape is [N(dynamic), 3, '?', W(dynamic)] — the height dimension's own metadata is an unlabelled '?', not a number; height=48 (design.md §6.4's cited figure) was instead confirmed the way that matters more than metadata — a real successful end-to-end inference run: `test/browser/ocr-pipeline.spec.ts` renders the literal text 'HELLO WORLD' via a real `<canvas>` 2D context, runs it through the real bundled detector AND this recognizer at height=48, and gets back an EXACT decode match. Vocabulary size verified against PaddleOCR's own `rec_postprocess.py` (`CTCLabelDecode.add_special_char`: `['blank'] + dict_character`, where `dict_character` already has a trailing space appended when `use_space_char=True`): index 0 = CTC blank, indices 1-436 = `ocr_rec_ppocrv5_mobile_en.dict.txt`'s 436 lines in order, index 437 = space. 1+436+1=438, matching the real output dimension exactly — not assumed."
+    },
+    {
+      "id": "ocr-rec-ppocrv5-mobile-devanagari",
+      "role": "ocr-rec",
+      "file": "ocr_rec_ppocrv5_mobile_devanagari.onnx",
+      "sha256": "d6f0a906580e3fa6b324a318718f1f31f268b6ea8ef985f91c2012a37f52c91e",
+      "bytes": 7940361,
+      "source": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv5/rec/devanagari_PP-OCRv5_rec_mobile.onnx",
+      "license": "Apache-2.0 (PaddleOCR / RapidAI RapidOCR ONNX export)",
+      "dict": "ocr_rec_ppocrv5_mobile_devanagari.dict.txt",
+      "script": "devanagari",
+      "inputShape": [1, 3, 48, "dynamic"],
+      "dtype": "float32",
+      "preferredBackend": "auto",
+      "resident": false,
+      "notes": "design.md §6.4's script-routing recognizer: 'if the line's character set detection or page lang suggests Devanagari, use the Devanagari recognizer when bundled.' Real ORT introspection (2026-09-18): output is [N, T, 570], confirmed by an actual inference-session load, not inferred by pattern-matching from the English model. Vocabulary: index 0 = CTC blank, indices 1-568 = `ocr_rec_ppocrv5_mobile_devanagari.dict.txt`'s 568 lines in order, index 569 = space. 1+568+1=570, matching exactly. Height=48 (design.md §6.4's cited figure) confirmed correct by a real successful end-to-end inference run, not just metadata: `test/browser/ocr-pipeline.spec.ts` renders the real word 'आधार' (Aadhaar) via a real `<canvas>` 2D context and gets back an EXACT decode match at 99.9% confidence through the full detect→crop→recognize pipeline — the strongest verification this project's OCR work has, since (unlike face photographs) there is no licensing barrier to rendering real, known ground-truth text."
+    },
+    {
+      "id": "ocr-rec-ppocrv5-mobile-en-dict",
+      "role": "ocr-dict",
+      "file": "ocr_rec_ppocrv5_mobile_en.dict.txt",
+      "sha256": "e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6",
+      "bytes": 1416,
+      "source": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/paddle/PP-OCRv5/rec/en_PP-OCRv5_rec_mobile/ppocrv5_en_dict.txt",
+      "license": "Apache-2.0 (PaddleOCR / RapidAI RapidOCR)",
+      "resident": false,
+      "notes": "436 lines, one character per line, UTF-8. Paired with `ocr-rec-ppocrv5-mobile-en` via that entry's `dict` field. sha256 computed and pinned here directly (no published hash found for this specific file upstream, unlike the .onnx models) — verify against a fresh download if this file is ever suspected corrupted."
+    },
+    {
+      "id": "ocr-rec-ppocrv5-mobile-devanagari-dict",
+      "role": "ocr-dict",
+      "file": "ocr_rec_ppocrv5_mobile_devanagari.dict.txt",
+      "sha256": "09c7440bfc5477e5c41052304b6b185aff8c4a5e8b2b4c23c1c706f6fe1ee9fc",
+      "bytes": 1943,
+      "source": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/paddle/PP-OCRv5/rec/devanagari_PP-OCRv5_rec_mobile/ppocrv5_devanagari_dict.txt",
+      "license": "Apache-2.0 (PaddleOCR / RapidAI RapidOCR)",
+      "resident": false,
+      "notes": "568 lines, one character per line, UTF-8. Paired with `ocr-rec-ppocrv5-mobile-devanagari` via that entry's `dict` field. sha256 computed and pinned here directly (no published hash found for this specific file upstream)."
     }
   ]
 }

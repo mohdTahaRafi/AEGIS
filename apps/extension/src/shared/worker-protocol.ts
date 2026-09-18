@@ -20,10 +20,17 @@ export type Backend = 'webgpu' | 'wasm';
 
 export interface ModelSpec {
   id: string;
-  role: 'face' | 'vit' | 'masked-glyph' | 'ner';
+  role: 'face' | 'vit' | 'masked-glyph' | 'ner' | 'ocr-det' | 'ocr-rec';
   url: string;
   sha256: string;
   resident: boolean;
+  /** `role: 'ocr-rec'` only (T-6.3/T-6.4) — which script this recognizer decodes, and where to
+   * fetch+verify its CTC character dictionary. A recognizer without a matching dict is useless
+   * (it can run inference but can't turn the output into text), so this travels with the model
+   * spec rather than being a second, separately-tracked asset. */
+  script?: 'latin' | 'devanagari';
+  dictUrl?: string;
+  dictSha256?: string;
 }
 
 export interface ModelInfo {
