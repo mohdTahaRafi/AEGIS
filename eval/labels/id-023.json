@@ -1,5 +1,5 @@
 {
-  "screen_id": "id-017",
+  "screen_id": "id-023",
   "viewport": [
     1280,
     720
@@ -7,14 +7,14 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "UPI_VPA",
+      "entity": "VEHICLE_REG",
       "box": [
         220,
         120,
-        220,
+        160,
         22
       ],
-      "value_hash": "sha256:790f872a25e9c9b4ebb6e1ae8295df003b021a1c3c81b02c1ca49bdf1f40259e"
+      "value_hash": "sha256:b0df3bf221ec0a3f79e86e466d3f7a0cc974baa8e48dca70da889823ab705614"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYLM6DFGRYP2Q2UL73BQS7RH"
+      "canary_id": "CANARYNJEAZZ3SEPCME59CDKSVF2"
     }
   ],
   "tasks": []

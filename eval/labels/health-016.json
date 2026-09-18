@@ -1,5 +1,5 @@
 {
-  "screen_id": "health-011",
+  "screen_id": "health-016",
   "viewport": [
     1280,
     720
@@ -14,7 +14,7 @@
         200,
         22
       ],
-      "value_hash": "sha256:90ac93cc3467ed5115f0a58e409e892cef610ce9e7bb488a2cc85154ed5223be"
+      "value_hash": "sha256:acff30649d54ef9d65c8cc26d08e2e3441847978ca98126a9e9a9ff9b58c6ee3"
     },
     {
       "entity": "AADHAAR",
@@ -24,7 +24,7 @@
         160,
         22
       ],
-      "value_hash": "sha256:18fc5aba73d5f3e8e36d78d59f1bbc965ced0084a0d8dbb09fa192d883a240ba"
+      "value_hash": "sha256:b886cb2981ce79581e4a170af0f66dba2bb77f3708dd6e97cf92323d20bf165a"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -35,7 +35,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARY7Y5SRD3RBUZK886YQQYWJR"
+      "canary_id": "CANARYJHRQ3NX7BPET39GVFXYH4K"
     }
   ],
   "tasks": []

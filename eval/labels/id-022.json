@@ -1,5 +1,5 @@
 {
-  "screen_id": "id-017",
+  "screen_id": "id-022",
   "viewport": [
     1280,
     720
@@ -7,14 +7,14 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "UPI_VPA",
+      "entity": "IFSC",
       "box": [
         220,
         120,
-        220,
+        130,
         22
       ],
-      "value_hash": "sha256:790f872a25e9c9b4ebb6e1ae8295df003b021a1c3c81b02c1ca49bdf1f40259e"
+      "value_hash": "sha256:53f7f9999d169d25760a92c72bceb1557a68818cd675275a9027180476ef2786"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYLM6DFGRYP2Q2UL73BQS7RH"
+      "canary_id": "CANARY84CCH4KKSCK3DGU5KSRNNS"
     }
   ],
   "tasks": []

@@ -1,5 +1,5 @@
 {
-  "screen_id": "id-017",
+  "screen_id": "id-024",
   "viewport": [
     1280,
     720
@@ -11,10 +11,10 @@
       "box": [
         220,
         120,
-        220,
+        200,
         22
       ],
-      "value_hash": "sha256:790f872a25e9c9b4ebb6e1ae8295df003b021a1c3c81b02c1ca49bdf1f40259e"
+      "value_hash": "sha256:47fa53a26eca00c2d241d54e589e98cccdb683070c7d2cd51b63b4f67608e58e"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYLM6DFGRYP2Q2UL73BQS7RH"
+      "canary_id": "CANARYDTQC2WWSNMYFC9A9A9WLRA"
     }
   ],
   "tasks": []
