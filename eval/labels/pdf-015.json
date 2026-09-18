@@ -1,5 +1,5 @@
 {
-  "screen_id": "social-003",
+  "screen_id": "pdf-015",
   "viewport": [
     1280,
     720
@@ -9,22 +9,22 @@
     {
       "entity": "PERSON_NAME",
       "box": [
-        16,
         60,
+        140,
         200,
         22
       ],
-      "value_hash": "sha256:910d463fd5da2359e240d689cebf539a8b02111e85e0fb808db2b54fcedfc0d5"
+      "value_hash": "sha256:64314aee718b49f6191b519aa930ee53063019b76151c5973c30e5b196734635"
     },
     {
       "entity": "EMAIL",
       "box": [
-        16,
-        90,
-        240,
+        60,
+        170,
+        220,
         22
       ],
-      "value_hash": "sha256:5f11d4190874fd8370389febc37efaa2234cb2d2907cec9a0cc61021e8387554"
+      "value_hash": "sha256:fb6d300b6b6c3bbe0f28dd09e59a16ef33df5d5bd1fdd1f3a13c6f8ff1f8a783"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -35,7 +35,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARY5AD4EP2HWATH6Z3FE6PKCJ"
+      "canary_id": "CANARYNPQYG8PA4KG92R9V5XMQRN"
     }
   ],
   "tasks": []

@@ -1,5 +1,5 @@
 {
-  "screen_id": "social-003",
+  "screen_id": "social-011",
   "viewport": [
     1280,
     720
@@ -11,20 +11,20 @@
       "box": [
         16,
         60,
-        200,
+        260,
         22
       ],
-      "value_hash": "sha256:910d463fd5da2359e240d689cebf539a8b02111e85e0fb808db2b54fcedfc0d5"
+      "value_hash": "sha256:bd06a65da2da4687e8b70446b2278f0b1549819c863522c4d924503b02a852a3"
     },
     {
-      "entity": "EMAIL",
+      "entity": "PHONE",
       "box": [
         16,
         90,
-        240,
+        340,
         22
       ],
-      "value_hash": "sha256:5f11d4190874fd8370389febc37efaa2234cb2d2907cec9a0cc61021e8387554"
+      "value_hash": "sha256:2abcab6a8acdd0bdfe6678ec12cb5c0e990cf604ad5d77164c409ca07d8d53d0"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -35,7 +35,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARY5AD4EP2HWATH6Z3FE6PKCJ"
+      "canary_id": "CANARYLANZYFYVPA7A3FD5G27SZQ"
     }
   ],
   "tasks": []

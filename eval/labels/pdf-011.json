@@ -1,0 +1,42 @@
+{
+  "screen_id": "pdf-011",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "BANK_ACCOUNT",
+      "box": [
+        60,
+        140,
+        180,
+        22
+      ],
+      "value_hash": "sha256:5e72750c6844ab295d59ec17c01a34c25d789f7bff62d66dc4c164a8f20da27b"
+    },
+    {
+      "entity": "IFSC",
+      "box": [
+        60,
+        170,
+        130,
+        22
+      ],
+      "value_hash": "sha256:3780cbd3f303919987cb23d5137484ef1d506f1f8402f569ab51d8934c673077"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYCTA39SDWUQMF3YTNPG4BME"
+    }
+  ],
+  "tasks": []
+}

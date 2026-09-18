@@ -1,5 +1,5 @@
 {
-  "screen_id": "indic-011",
+  "screen_id": "indic-014",
   "viewport": [
     1280,
     720
@@ -11,10 +11,10 @@
       "box": [
         220,
         120,
-        120,
+        130,
         22
       ],
-      "value_hash": "sha256:9d5d7fd651c10e39f87e8d7cdd68cdfc05318032eeb4246b9447e78c5b07b61a"
+      "value_hash": "sha256:8d2b9cca7792f9e001b19572fa6bd52ea1be76b01610591f5eeffe4ff3080e42"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYMAR72MKUDHJNLK8BV224RD"
+      "canary_id": "CANARYQ58HW8BUL8NJR3FYQQLMFV"
     }
   ],
   "tasks": []

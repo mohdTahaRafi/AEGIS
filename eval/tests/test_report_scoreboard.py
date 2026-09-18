@@ -39,3 +39,23 @@ def test_scoreboard_never_omits_leak_count_section() -> None:
 
     lines = render_leak_count(None)
     assert any("Leak count" in line for line in lines)
+
+
+def test_score_and_write_scoreboard_reports_the_actual_split_it_was_run_against(tmp_path) -> None:
+    """Regression test for a real bug found via a genuine held-out run (T-5.10, 2026-09-18):
+    `runner/main.py`'s `score_and_write_scoreboard` used to hardcode `split="dev"` when building
+    its `Provenance`, so a `--split heldout` run's own rich-scoreboard.md always printed
+    `**split:** dev` regardless — a report-metadata bug, not a scoring bug (metric2/metric3/leak
+    count were computed correctly against the real held-out payloads; only the displayed label was
+    wrong). No existing test caught it because `test_write_scoreboard_*` above call `write_scoreboard`
+    directly with a hand-built `Provenance`, never through `score_and_write_scoreboard`'s own wiring
+    from the run's actual `split` argument."""
+    from aegis_eval.runner.main import score_and_write_scoreboard
+
+    out_path = score_and_write_scoreboard(
+        ledger_exports={}, run_dir=tmp_path, date="2026-01-01",
+        hardware="test-machine", browser_version="128.0", split="heldout",
+    )
+    text = out_path.read_text()
+    assert "**split:** heldout" in text
+    assert "**split:** dev" not in text

@@ -1,5 +1,5 @@
 {
-  "screen_id": "indic-007",
+  "screen_id": "social-009",
   "viewport": [
     1280,
     720
@@ -7,24 +7,24 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "PERSON_NAME",
+      "entity": "USERNAME",
       "box": [
         220,
         120,
         200,
-        24
+        22
       ],
-      "value_hash": "sha256:f62f5293202362ed979eec33540afa0d5542c14221c34eda337345bede685045"
+      "value_hash": "sha256:413808565e45c1007f9c6d6934d7bcfc26b35a1c3ea2d07705c5a6ceff30935f"
     },
     {
-      "entity": "PHONE",
+      "entity": "PERSON_NAME",
       "box": [
         220,
         160,
-        160,
-        24
+        200,
+        22
       ],
-      "value_hash": "sha256:0fdb7cec8f94deba5ab8ce2d5a8c44eefe2688e502cbefe3945c3d96969148c4"
+      "value_hash": "sha256:bda634ab2fe0d0f739ad14a1d3fd7b81a66ea943592bf1ab8c21d8a10a8ab264"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -35,7 +35,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARY5VW2G3WZ42T9SH5H2RXSEY"
+      "canary_id": "CANARY8J3DQCHVEZHQDSPXV3UX64"
     }
   ],
   "tasks": []

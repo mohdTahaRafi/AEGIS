@@ -12,19 +12,34 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import sync_playwright
 
-CORPUS_DEV = Path(__file__).resolve().parents[1] / "corpus" / "dev"
+CORPUS_ROOT = Path(__file__).resolve().parents[1] / "corpus"
+CORPUS_DEV = CORPUS_ROOT / "dev"
+CORPUS_HELDOUT = CORPUS_ROOT / "heldout"
 LABELS_DIR = Path(__file__).resolve().parents[1] / "labels"
 
-def _all_dev_screen_ids() -> list[str]:
-    if not CORPUS_DEV.exists():
-        return []
-    return sorted(p.name for p in CORPUS_DEV.iterdir() if p.is_dir())
+
+def _screen_dir(screen_id: str) -> Path:
+    """A screen_id's corpus directory lives under whichever split
+    `generate_fixtures.py`'s `is_heldout()` assigned it to — check both rather than assuming dev,
+    the same way `corpus/labels.py`'s own validator does."""
+    dev_path = CORPUS_DEV / screen_id
+    return dev_path if dev_path.exists() else CORPUS_HELDOUT / screen_id
 
 
-# Every dev fixture with a real DOM-addressable value element. Every `canvas-*` fixture is
-# excluded — its value is drawn on a <canvas>, which has no DOM box to measure; its label box is
-# documented as an approximation in its own notes field for exactly this reason.
-SAMPLE_SCREEN_IDS = [s for s in _all_dev_screen_ids() if not s.startswith("canvas-")]
+def _all_screen_ids() -> list[str]:
+    ids = []
+    for root in (CORPUS_DEV, CORPUS_HELDOUT):
+        if root.exists():
+            ids.extend(p.name for p in root.iterdir() if p.is_dir())
+    return sorted(ids)
+
+
+# Every fixture (dev AND held-out — this checks rendered-box correctness, not detection results,
+# so there is no held-out-discipline reason to skip it) with a real DOM-addressable value element.
+# Every `canvas-*` fixture is excluded — its value is drawn on a <canvas>, which has no DOM box to
+# measure; its label box is documented as an approximation in its own notes field for exactly this
+# reason.
+SAMPLE_SCREEN_IDS = [s for s in _all_screen_ids() if not s.startswith("canvas-")]
 
 
 def _label_boxes(screen_id: str) -> list[tuple[str, list[int]]]:
@@ -37,7 +52,7 @@ def _label_boxes(screen_id: str) -> list[tuple[str, list[int]]]:
 
 @pytest.mark.parametrize("screen_id", SAMPLE_SCREEN_IDS)
 def test_label_boxes_match_real_rendered_positions(screen_id: str) -> None:
-    page_path = CORPUS_DEV / screen_id / "page" / "index.html"
+    page_path = _screen_dir(screen_id) / "page" / "index.html"
     if not page_path.exists():
         pytest.skip(f"{screen_id} fixture not generated yet")
 

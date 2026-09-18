@@ -1,5 +1,5 @@
 {
-  "screen_id": "indic-011",
+  "screen_id": "social-012",
   "viewport": [
     1280,
     720
@@ -7,14 +7,14 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "PAN",
+      "entity": "EMAIL",
       "box": [
-        220,
-        120,
-        120,
+        16,
+        60,
+        300,
         22
       ],
-      "value_hash": "sha256:9d5d7fd651c10e39f87e8d7cdd68cdfc05318032eeb4246b9447e78c5b07b61a"
+      "value_hash": "sha256:db20c41f14e3197bbd9645a08bf0a1b1d99d1ffb7b6961d8d54333c7670bdea7"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYMAR72MKUDHJNLK8BV224RD"
+      "canary_id": "CANARY76AAK3PUWKV9QAGJWGAXX2"
     }
   ],
   "tasks": []

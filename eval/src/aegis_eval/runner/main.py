@@ -67,7 +67,7 @@ def _load_label(screen_id: str) -> dict | None:
         return json.load(f)
 
 
-def score_and_write_scoreboard(ledger_exports: dict[str, list[dict]], run_dir, date: str, hardware: str, browser_version: str):
+def score_and_write_scoreboard(ledger_exports: dict[str, list[dict]], run_dir, date: str, hardware: str, browser_version: str, split: str):
     """Real scoring against the real corpus (T-5.2…T-5.9, T-5.12's leak-count half). Metrics 1, 4
     and 5 stay `None` here — they need a live model (OQ-13) and reference hardware (OQ-16), neither
     of which exists in this environment; see `docs/planning/phase_5_measurement.md` §16a. Metrics 2
@@ -116,7 +116,7 @@ def score_and_write_scoreboard(ledger_exports: dict[str, list[dict]], run_dir, d
         (s["policyVersion"] for steps in ledger_exports.values() for s in steps if s.get("policyVersion")), None
     )
     provenance = Provenance(
-        date=date, split="dev", hardware=hardware, browser="chromium", browser_version=browser_version,
+        date=date, split=split, hardware=hardware, browser="chromium", browser_version=browser_version,
         backend=None, policy_version=policy_version, model_versions="mock (OQ-13 — no live model in this environment)",
     )
     out_path = run_dir / "rich-scoreboard.md"
@@ -203,7 +203,7 @@ def run(
 
     csv_path = write_csv(rows, run_dir)
     md_path = write_markdown(rows, run_dir, split=split, audit_lines=[audit_line] if audit_line else None)
-    scoreboard_path = score_and_write_scoreboard(ledger_exports, run_dir, date, hardware, browser_version)
+    scoreboard_path = score_and_write_scoreboard(ledger_exports, run_dir, date, hardware, browser_version, split)
 
     print(f"[aegis-eval] {len(rows)}/{len(screen_ids)} fixtures processed")
     print(f"[aegis-eval] report: {md_path}")
