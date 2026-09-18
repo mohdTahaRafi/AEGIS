@@ -11,10 +11,13 @@
 #     pull, and `--download-dir` points at the mount so vLLM never tries to reach the Hub;
 #   - Caddy uses Caddyfile.offline (a self-signed internal cert) instead of automatic HTTPS.
 #
-# DISCLOSED, NOT SILENTLY ASSUMED: not run against real Docker in this environment (no `docker`
-# CLI here, same gap as ../docker-compose.yml since Phase 2) and AC-10 explicitly requires
-# verification "with the machine's network physically disconnected," which this sandbox cannot do
-# even if Docker were installed. Written to the real, intended interface.
+# DISCLOSED, NOT SILENTLY ASSUMED: this exact topology (Caddy + gateway + vLLM) has not been run
+# in this environment — no `docker` CLI here (`podman` is real and working, verified against the
+# simpler ../docker-compose.replay.yml topology instead, see docs/HISTORY.md's 2026-09-18 T-5.13
+# entry) and no GPU for vLLM to serve on even if the multi-GB image/weights were pulled. AC-10's
+# "network physically disconnected" is also unverified as literally worded — `--network=none`
+# (kernel-level isolation) was used as a stronger-in-practice substitute for the topology that WAS
+# tested. Written to the real, intended interface.
 
 services:
   caddy:

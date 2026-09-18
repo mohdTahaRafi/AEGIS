@@ -29,6 +29,29 @@ class ResourceSample:
     cpu_samples_pct: list[float] = field(default_factory=list)
 
 
+def merge_samples(samples: list[ResourceSample]) -> ResourceSample | None:
+    """Phase 5, T-5.5: pools every per-fixture `ResourceSample`'s raw series into one overall
+    task-level sample, rather than averaging the per-fixture aggregates (which would understate
+    the true peak and distort any percentile computed downstream — `scorers/metric4.py`'s CPU p95
+    needs the real pooled distribution, not a mean of maxima)."""
+    if not samples:
+        return None
+    rss_pool = [v for s in samples for v in s.rss_samples_mb]
+    cpu_pool = [v for s in samples for v in s.cpu_samples_pct]
+    if not rss_pool:
+        return None
+    return ResourceSample(
+        peak_rss_mb=max(rss_pool),
+        mean_rss_mb=sum(rss_pool) / len(rss_pool),
+        peak_cpu_pct=max(cpu_pool) if cpu_pool else 0.0,
+        mean_cpu_pct=sum(cpu_pool) / len(cpu_pool) if cpu_pool else 0.0,
+        n_samples=len(rss_pool),
+        n_processes=max((s.n_processes for s in samples), default=0),
+        rss_samples_mb=rss_pool,
+        cpu_samples_pct=cpu_pool,
+    )
+
+
 def find_browser_root_pid(extension_dir_marker: str) -> int | None:
     """Finds the Chromium root process by its `--load-extension=` argument rather than reaching
     into Playwright's private internals (a persistent context's Python object doesn't expose the
