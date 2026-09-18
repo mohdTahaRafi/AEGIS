@@ -1,0 +1,12 @@
+{
+  "category": "gov",
+  "group": "faces",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "A passport photo-page scan: the whole page as ID_DOCUMENT, plus the embedded photo as a separate FACE region."
+}

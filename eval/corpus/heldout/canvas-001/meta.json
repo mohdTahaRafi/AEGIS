@@ -1,0 +1,12 @@
+{
+  "category": "canvas_app",
+  "group": "canvas",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Canvas-rendered text \u2014 the DOM has no accessible representation of this value; only Channel V / OCR (Phase 6) can see it. Box is an approximation of the drawn text's on-canvas position for corpus purposes; exact glyph metrics were not measured, since no OCR exists yet to consume this fixture."
+}
