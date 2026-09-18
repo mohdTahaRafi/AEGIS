@@ -1,5 +1,5 @@
 {
-  "screen_id": "hardneg-012",
+  "screen_id": "hardneg-015",
   "viewport": [
     1280,
     720
@@ -9,12 +9,12 @@
     {
       "entity": "NONE",
       "box": [
-        16,
-        60,
+        220,
         120,
-        20
+        180,
+        22
       ],
-      "note": "age and birth year as plain prose, not a DOB field \u2014 must not be flagged as DOB"
+      "note": "already-masked account display (8 digits hidden) \u2014 no full value present to leak"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYHQDP5P4EW6WBUW2J6K5LTF"
+      "canary_id": "CANARYKRL6TDYT5TU8APSHELQ2P6"
     }
   ],
   "tasks": []

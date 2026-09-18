@@ -1,5 +1,5 @@
 {
-  "screen_id": "health-002",
+  "screen_id": "health-008",
   "viewport": [
     1280,
     720
@@ -11,20 +11,20 @@
       "box": [
         16,
         60,
-        240,
-        22
+        220,
+        20
       ],
-      "value_hash": "sha256:55503b518ff229700dc150a68d55c86d4d38f1c3f32dd5b27d53501712aa83d5"
+      "value_hash": "sha256:9562bc199200b2ee31769f737a0cca942c7db58b4fc07c61aa614c79296298f6"
     },
     {
-      "entity": "PERSON_NAME",
+      "entity": "PHONE",
       "box": [
         16,
         90,
-        240,
-        22
+        400,
+        20
       ],
-      "value_hash": "sha256:e1a252034e1d6eedc971f14cda6a3435aec95b69bf5e9d9feb396892ad1c9504"
+      "value_hash": "sha256:c59efdbccbd76242967ad672e92bee8ad972319ea15b15394ba1db9be4f09bf0"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -35,7 +35,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYJ4ZFKTKEYXQVF6PTZ45SAN"
+      "canary_id": "CANARYW2LB3U9U9VSH94XQ598EKV"
     }
   ],
   "tasks": []
