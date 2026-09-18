@@ -66,7 +66,7 @@ function buildSession(
 function graphResponder(sent: unknown, emit: (m: unknown) => void): void {
   const msg = sent as { type: string; actionId?: string };
   if (msg.type === 'extract') {
-    emit({ type: 'graph', frame: 'f-0', nodes: [NODE], removed: [], textRuns: [], privacyEpoch: 0, reason: 'initial' });
+    emit({ type: 'graph', frame: 'f-0', nodes: [NODE], removed: [], textRuns: [], privacyEpoch: 0, reason: 'initial', hostileDynamic: false });
   }
   if (msg.type === 'dispatch-action') {
     emit({ type: 'action-result', actionId: msg.actionId, ok: true });
@@ -158,6 +158,7 @@ describe('Session — canary check (design.md §7.6 step 6, T-5.8, phase_5_measu
         textRuns: [{ id: 't-1', box: [0, 0, 10, 10], text: SHORT_CANARY }],
         privacyEpoch: 0,
         reason: 'initial',
+        hostileDynamic: false,
       });
     }
   }
@@ -181,5 +182,58 @@ describe('Session — canary check (design.md §7.6 step 6, T-5.8, phase_5_measu
 
     expect(events.some((e) => e.type === 'guard_blocked')).toBe(false);
     expect(session.getState()).toBe('DONE');
+  });
+});
+
+// design.md §5.5, T-6.7 — "a mutation storm disables the image path and eventually stops with an
+// explanation." The image-path-disabled half is exercised structurally (perceptionResult stays
+// null exactly as it does with no `deps.perception` at all — see `run-step.ts`); this suite covers
+// the observable half: the graceful stop after a sustained streak, and NOT stopping on a single
+// hostile-dynamic reading.
+describe('Session — hostile-dynamic mode (design.md §5.5, T-6.7)', () => {
+  function hostileDynamicResponder(sent: unknown, emit: (m: unknown) => void): void {
+    const msg = sent as { type: string; actionId?: string };
+    if (msg.type === 'extract') {
+      emit({ type: 'graph', frame: 'f-0', nodes: [NODE], removed: [], textRuns: [], privacyEpoch: 0, reason: 'initial', hostileDynamic: true });
+    }
+    if (msg.type === 'dispatch-action') {
+      emit({ type: 'action-result', actionId: msg.actionId, ok: true });
+      emit({ type: 'settled', actionId: msg.actionId });
+    }
+  }
+
+  it('stops with HOSTILE_DYNAMIC after a sustained streak of hostile-dynamic steps, never reaching DONE', async () => {
+    const sendToGateway = vi.fn().mockResolvedValue({ step_id: 's-x', actions: [{ op: 'click', node: 'n-1' }] });
+    const { session, events } = buildSession(sendToGateway, hostileDynamicResponder);
+
+    await session.start('click sign in');
+
+    expect(session.getState()).toBe('STOPPED');
+    expect(events).toContainEqual({ type: 'stopped', reason: 'HOSTILE_DYNAMIC' });
+  });
+
+  it('a single hostile-dynamic reading does not stop the agent — a brief storm gets a chance to settle', async () => {
+    let extractCount = 0;
+    const respond = (sent: unknown, emit: (m: unknown) => void) => {
+      const msg = sent as { type: string; actionId?: string };
+      if (msg.type === 'extract') {
+        extractCount += 1;
+        emit({ type: 'graph', frame: 'f-0', nodes: [NODE], removed: [], textRuns: [], privacyEpoch: 0, reason: 'initial', hostileDynamic: extractCount === 1 });
+      }
+      if (msg.type === 'dispatch-action') {
+        emit({ type: 'action-result', actionId: msg.actionId, ok: true });
+        emit({ type: 'settled', actionId: msg.actionId });
+      }
+    };
+    const sendToGateway = vi
+      .fn()
+      .mockResolvedValueOnce({ step_id: 's-1', actions: [{ op: 'click', node: 'n-1' }] })
+      .mockResolvedValueOnce({ step_id: 's-2', actions: [{ op: 'done' }] });
+    const { session, events } = buildSession(sendToGateway, respond);
+
+    await session.start('click sign in');
+
+    expect(session.getState()).toBe('DONE');
+    expect(events.some((e) => e.type === 'stopped')).toBe(false);
   });
 });

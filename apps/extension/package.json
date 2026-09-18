@@ -28,6 +28,7 @@
     "@vitest/browser-playwright": "5.0.1",
     "@webgpu/types": "^0.1.72",
     "jsdom": "^30.0.1",
+    "pdfjs-dist": "^6.3.289",
     "playwright": "^1.63.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",

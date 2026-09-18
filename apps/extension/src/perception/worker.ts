@@ -19,6 +19,7 @@ import { PriorityQueue } from './schedule/queue';
 import { runWithDeadline } from './schedule/deadline';
 import { applyCropBudget } from './schedule/budget';
 import { compose, encodeWebp, type RedactionBoxSet } from './compose/compositor';
+import { detectTextEntitiesInRegion } from './detect/text-region';
 import { recheckFacesOnComposedImage } from './rescan/face-recheck';
 import { checkHalosForText, type OcrRescanModels } from './rescan/halo';
 
@@ -27,10 +28,11 @@ ort.env.allowLocalModels = true;
 let registry: ModelRegistry | null = null;
 let backend: Backend = 'wasm';
 let faceModelId: string | null = null;
-// T-6.3's halo re-scan (`rescan/halo.ts`) always uses the Latin/English recognizer, regardless of
-// page script — it is a coarse, context-blind safety net (the same shape as the guard's own
-// `sweeps.ts` pattern resweep on the text side), not the primary per-region OCR path a future
-// T-6.5/T-6.6 fusion integration would script-route. A Devanagari halo miss is a disclosed gap,
+// T-6.3's halo re-scan (`rescan/halo.ts`) and T-6.5/T-6.6's detection-side pass (`detect/
+// text-region.ts`, wired into `handlePerceive` below) both always use the Latin/English
+// recognizer, regardless of page script — script routing (T-6.4's `script-route.ts`) is unused by
+// either caller, since it would need the page's `lang` threaded into the `perceive`/`rescan`
+// messages, which neither currently carries. A Devanagari miss on either path is a disclosed gap,
 // not a silent one.
 let ocrDetModelId: string | null = null;
 let ocrRecEnModelId: string | null = null;
@@ -92,30 +94,54 @@ async function handlePerceive(msg: Extract<ToWorker, { t: 'perceive' }>): Promis
   const { admitted, dropped } = applyCropBudget(cropRegions, backend);
   for (const d of dropped) timedOut.push(d.box);
 
-  const faceStart = performance.now();
   const faceSession = faceModelId && registry ? await registry.get(faceModelId).catch(() => null) : null;
-  if (faceSession) {
+  // T-6.5/T-6.6: OCR detection-side pass, finding NEW PII in a region the DOM never explained —
+  // as opposed to `handleRescan`'s halo check, which only re-verifies pixels already decided to
+  // be redacted. Loaded lazily, same as the halo path (design.md §6.4's degradation ladder never
+  // resident-loads OCR); skipped entirely when there are no crop regions to look at.
+  const ocrModels = admitted.length > 0 ? await loadOcrRescanModels() : null;
+
+  let faceTimeMs = 0;
+  let ocrTimeMs = 0;
+  if (faceSession || ocrModels) {
+    // Both capabilities run inside ONE per-region job (`kind: 'face'`, the queue's own top
+    // priority) rather than two separately-queued jobs at 'face'/'ocr' priority — they already
+    // share the same crop and the same per-region deadline slot, and design.md §11.4's
+    // face > OCR ordering is about which capability gets dropped first under load (the ladder's
+    // `no-ocr` rung, still unwired — see docs/HISTORY.md), not about interleaving within a region.
     const queue = new PriorityQueue<(typeof admitted)[number]>();
     for (const region of admitted) queue.enqueue({ id: region.id, kind: 'face', payload: region });
 
-    const { completed, timedOut: faceTimedOut } = await runWithDeadline(
+    const { completed, timedOut: regionTimedOut } = await runWithDeadline(
       queue,
       async (job) => {
         const crop = cropRegion(msg.bitmap, job.payload.box);
-        return detectFaces(faceSession, ort, crop, job.payload.box);
+
+        const faceStart = performance.now();
+        const faces = faceSession ? await detectFaces(faceSession, ort, crop, job.payload.box) : [];
+        faceTimeMs += performance.now() - faceStart;
+
+        const ocrStart = performance.now();
+        const ocrHits = ocrModels ? await detectTextEntitiesInRegion(ort, ocrModels, crop, job.payload.id, job.payload.box) : [];
+        ocrTimeMs += performance.now() - ocrStart;
+
+        return { faces, ocrHits };
       },
       msg.deadlineMs,
     );
     for (const { job, result } of completed) {
-      for (const face of result) candidates.push({ entity: 'FACE', box: face.box, score: face.score, regionId: job.payload.id });
+      for (const face of result.faces) candidates.push({ entity: 'FACE', box: face.box, score: face.score, regionId: job.payload.id, channel: 'vision' });
+      candidates.push(...result.ocrHits);
     }
-    for (const job of faceTimedOut) timedOut.push(job.payload.box);
+    for (const job of regionTimedOut) timedOut.push(job.payload.box);
   } else {
-    // No face session — every region that would have been screened stays `timedOut`, not
-    // silently cleared (the compositor's clearance rule then leaves it grey, per T-4.2's AC).
+    // Neither capability available — every region that would have been screened stays
+    // `timedOut`, not silently cleared (the compositor's clearance rule then leaves it grey, per
+    // T-4.2's AC).
     for (const region of admitted) timedOut.push(region.box);
   }
-  timings.face = performance.now() - faceStart;
+  timings.face = faceTimeMs;
+  timings.ocr = ocrTimeMs;
 
   // design.md §4.3: the ViT encoder also embeds a low-res thumbnail of the full viewport on
   // EVERY capture, for the screen-state label — real call shape, disclosed no-op today (see

@@ -133,6 +133,12 @@ export class Session {
   private allSeenNodes = new Map<string, WireScreenNode>();
   private history: { step_id: string; actions: { op: string }[]; outcome: string }[] = [];
   private readonly digestGuard: GeometryDigestGuard;
+  // design.md §5.5, T-6.7: consecutive steps observed under hostile-dynamic mode. A single step
+  // disables the image path (see the perception gate below) but does not itself stop the agent —
+  // "eventually stops" (phase_6_tier2_parity.md §7's AC) means giving a brief mutation storm a
+  // chance to settle before giving up, not stopping on the very first hostile-dynamic reading.
+  private hostileDynamicStepStreak = 0;
+  private static readonly HOSTILE_DYNAMIC_STEP_LIMIT = 3;
 
   constructor(private readonly deps: SessionDeps) {
     this.now = deps.now ?? (() => Date.now());
@@ -224,9 +230,20 @@ export class Session {
       const graphMessage = await this.requestGraph();
       timings.observe = this.now() - t;
 
+      // design.md §5.5, T-6.7: "a mutation storm disables the image path and eventually stops
+      // with an explanation." Checked before perception so a hostile-dynamic step never even
+      // attempts a capture (this step's `perceptionResult` becomes `null`, exactly the shape a
+      // step with no `deps.perception` already produces — the rest of the pipeline needs no
+      // hostile-dynamic-specific branch beyond that).
+      this.hostileDynamicStepStreak = graphMessage.hostileDynamic ? this.hostileDynamicStepStreak + 1 : 0;
+      if (this.hostileDynamicStepStreak > Session.HOSTILE_DYNAMIC_STEP_LIMIT) {
+        return this.stop('HOSTILE_DYNAMIC');
+      }
+      const imagePathDisabled = graphMessage.hostileDynamic;
+
       t = this.now();
       const viewport = { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio, scrollY: window.scrollY, docH: document.documentElement.scrollHeight };
-      const perceptionResult = this.deps.perception
+      const perceptionResult = this.deps.perception && !imagePathDisabled
         ? await runPerceptionStep(graphMessage.nodes, {
             client: this.deps.perception.client,
             capture: this.deps.perception.capture,
@@ -257,6 +274,7 @@ export class Session {
         policy: this.policy,
         originKey: this.deps.guardOrigin,
         visionCandidates: perceptionResult?.visionCandidates,
+        visionAnalyzedNodeIds: perceptionResult?.visionAnalyzedNodeIds,
       });
 
       // T-4.16/T-4.17: attach the composed image only once the final fused `redactions` are known

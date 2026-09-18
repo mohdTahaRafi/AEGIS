@@ -53,6 +53,19 @@ export interface Candidate {
   box: Box;
   score: number;
   regionId?: string;
+  /** Set only by the OCR detection-side pass (T-6.5/T-6.6) so the host can tell it apart from a
+   * face candidate on the same message — absent means `'vision'`, the pre-existing default every
+   * other producer (face, rescan) still relies on. */
+  channel?: 'vision' | 'text-ocr';
+  /** OCR-derived candidates only: the recognizer's own match source (e.g.
+   * `"pattern:aadhaar+verhoeff"`), carried through so the host's audit trail (`Candidate.source`,
+   * design.md §3.2) doesn't collapse to a generic `vision:<entity>` label for text found on the
+   * pixel channel. */
+  source?: string;
+  /** OCR-derived candidates only: the decoded text the match came from, so the host can mint a
+   * real vault placeholder for it exactly as it does for DOM-sourced text (`Candidate.value`,
+   * `host/privacy/types.ts`). */
+  value?: string;
 }
 
 export interface Coverage {

@@ -20,6 +20,7 @@ import { extractTextRuns } from './detect/spans';
 import { DeltaTracker } from './observe/delta';
 import { EpochTracker } from './observe/epochs';
 import { startObserving, type ScreenGraphObserverHandle } from './observe/observers';
+import { HostileDynamicTracker, VolatilityTracker } from './observe/volatility';
 import type { ExtractedGraph, RawScreenNode } from './screen-graph/extractor';
 import { extractScreenGraph } from './screen-graph/extractor';
 import { createFrameIdGenerator, extractChildFrames, installFrameHandshakeResponder } from './screen-graph/frames';
@@ -45,16 +46,37 @@ export class TopFrameSession {
   private readonly deltaTracker = new DeltaTracker();
   private readonly resolutionRegistry = new NodeResolutionRegistry();
   private readonly nextFrameId = createFrameIdGenerator();
+  private readonly volatilityTracker = new VolatilityTracker();
+  private readonly hostileDynamicTracker = new HostileDynamicTracker();
   private observerHandle: ScreenGraphObserverHandle | null = null;
+  // design.md §5.5: hostile-dynamic mode caps "observation cadence" — without this, a mutation
+  // storm would trigger a full `sendGraph` (a real DOM walk) on every qualifying batch, which is
+  // itself expensive work a hostile page could use to burn CPU indefinitely. Only applies while
+  // hostile-dynamic is active; a normal page's `onChange` still fires uncapped, same as before.
+  private static readonly HOSTILE_CADENCE_CAP_MS = 500;
+  private lastAutoSendAt = 0;
 
   constructor(private readonly port: PortLike) {}
+
+  private readonly isVolatile = (el: Element): boolean => this.volatilityTracker.isVolatile(el, Date.now());
 
   start(): void {
     this.port.onMessage.addListener(this.onMessage);
     this.port.onDisconnect.addListener(this.teardown);
-    this.observerHandle = startObserving(document.body, this.containerResolver, this.epochTracker, () => {
-      void this.sendGraph('after_action');
-    });
+    this.observerHandle = startObserving(
+      document.body,
+      this.containerResolver,
+      this.epochTracker,
+      () => {
+        const now = Date.now();
+        if (this.hostileDynamicTracker.isHostileDynamic(now) && now - this.lastAutoSendAt < TopFrameSession.HOSTILE_CADENCE_CAP_MS) {
+          return;
+        }
+        this.lastAutoSendAt = now;
+        void this.sendGraph('after_action');
+      },
+      { volatilityTracker: this.volatilityTracker, hostileDynamicTracker: this.hostileDynamicTracker },
+    );
     this.send({ type: 'ready', frame: 'f-0' });
     void this.sendGraph('initial');
   }
@@ -94,11 +116,12 @@ export class TopFrameSession {
   /** Own frame plus every reachable same-origin child, merged — the shape `NodeResolutionRegistry`
    * and delta computation both need. */
   private async extractMerged(): Promise<{ graph: ExtractedGraph; wireNodes: WireScreenNode[] }> {
-    const own = extractScreenGraph(this.identity, this.containerResolver, { frame: 'f-0' });
+    const own = extractScreenGraph(this.identity, this.containerResolver, { frame: 'f-0', isVolatile: this.isVolatile });
     const children = await extractChildFrames(document.body, {
       identity: this.identity,
       containerResolver: this.containerResolver,
       nextFrameId: this.nextFrameId,
+      isVolatile: this.isVolatile,
     });
     const nodes = [...own.nodes, ...children.nodes];
     const elements = new Map(own.elements);
@@ -110,11 +133,15 @@ export class TopFrameSession {
     const { graph, wireNodes } = await this.extractMerged();
     this.resolutionRegistry.observe(graph, this.containerResolver);
     const delta = this.deltaTracker.compute(wireNodes, this.epochTracker.privacyEpoch);
-    const textRuns = extractTextRuns(document.body, {
-      width: window.innerWidth,
-      height: window.innerHeight,
-      verticalMarginPx: window.innerHeight,
-    });
+    const textRuns = extractTextRuns(
+      document.body,
+      {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        verticalMarginPx: window.innerHeight,
+      },
+      this.isVolatile,
+    );
     this.send({
       type: 'graph',
       frame: 'f-0',
@@ -123,6 +150,7 @@ export class TopFrameSession {
       textRuns,
       privacyEpoch: this.epochTracker.privacyEpoch,
       reason,
+      hostileDynamic: this.hostileDynamicTracker.isHostileDynamic(Date.now()),
     });
   }
 
@@ -133,7 +161,7 @@ export class TopFrameSession {
     // Pre-flight, then dispatch, with no `await` between them (design.md §5.9 — a TOCTOU gap on a
     // live, possibly hostile page is exactly the bug the "synchronous, immediately before
     // dispatch" rule exists to prevent).
-    const preflight = runPreflight(action, this.resolutionRegistry, index, this.containerResolver);
+    const preflight = runPreflight(action, this.resolutionRegistry, index, this.containerResolver, this.isVolatile);
     if (!preflight.ok) {
       log({ code: 'preflight_failed', detail: preflight.reason });
       this.send({ type: 'action-result', actionId, ok: false, reason: preflight.reason });

@@ -9,7 +9,10 @@ export type BudgetReasonCode =
   | 'SETTLE_TIMEOUT'
   | 'SERVER_TIMEOUT'
   | 'WALL_CLOCK_EXCEEDED'
-  | 'BUDGET_EXHAUSTED';
+  | 'BUDGET_EXHAUSTED'
+  /** design.md §5.5, T-6.7: sustained hostile-dynamic mode — the agent "stops with an explanation
+   * if it cannot act safely," the same graceful-stop shape as every other budget exhaustion. */
+  | 'HOSTILE_DYNAMIC';
 
 export type HardDenialReasonCode = 'PROTECTED_FIELD_READ' | 'CAPTCHA_SOLVE' | 'EXTENSION_UI_TARGET';
 

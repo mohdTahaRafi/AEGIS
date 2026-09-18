@@ -22,7 +22,9 @@ export interface RawScreenNodeState {
   hasValue: boolean;
   valueLen: number;
   occluded: boolean;
-  /** Always false until T-2.13's mutation-rate tracking exists. */
+  /** T-6.7: real, from `VolatilityTracker.isVolatile()` — the caller passes a resolved predicate
+   * into `extractScreenGraph`'s options (see `ExtractOptions.isVolatile`). Defaults to always
+   * `false` when no predicate is supplied (every pre-T-6.7 caller/test is unaffected). */
   volatile: boolean;
 }
 
@@ -59,6 +61,9 @@ export interface RawScreenNode {
   textRuns: string[];
   /** design.md §6.1's Channel D signal (T-3.8), or `undefined` if no row matches. */
   domSignal?: ChannelDSignal;
+  /** The element's real tag — see `WireScreenNode.tagName`'s doc comment (T-6.5/6.6) for why this
+   * travels alongside the `role: 'img'` overload rather than replacing it. */
+  tagName: string;
 }
 
 export interface ExtractedGraph {
@@ -76,6 +81,9 @@ export interface ExtractOptions {
   /** Defaults to `f-0` until T-2.14 (child-frame sub-graphs) exists. */
   frame?: string;
   viewport?: ViewportExtent;
+  /** T-6.7: bound to a live `VolatilityTracker.isVolatile(el, now)`. Defaults to "never
+   * volatile" — every pre-T-6.7 caller/test is unaffected. */
+  isVolatile?: (el: Element) => boolean;
 }
 
 function computeHasValue(el: Element): boolean {
@@ -90,7 +98,7 @@ function computeValueLen(el: Element): number {
   return 0;
 }
 
-function computeState(el: Element, occluded: boolean): RawScreenNodeState {
+function computeState(el: Element, occluded: boolean, isVolatile: (el: Element) => boolean): RawScreenNodeState {
   const state: RawScreenNodeState = {
     focused: document.activeElement === el,
     disabled: (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement || el instanceof HTMLButtonElement) && el.disabled,
@@ -99,7 +107,7 @@ function computeState(el: Element, occluded: boolean): RawScreenNodeState {
     hasValue: computeHasValue(el),
     valueLen: computeValueLen(el),
     occluded,
-    volatile: false,
+    volatile: isVolatile(el),
   };
   if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')) {
     state.checked = el.checked;
@@ -170,6 +178,7 @@ export function extractScreenGraph(
   const root = options.root ?? document.body;
   const frame = options.frame ?? 'f-0';
   const viewport = options.viewport ?? defaultViewport();
+  const isVolatile = options.isVolatile ?? (() => false);
 
   const candidates = collectAllElements(root).filter(isCandidateNode);
   const boxes = readBoxesInOnePass(candidates);
@@ -213,12 +222,13 @@ export function extractScreenGraph(
       name: p.name,
       box: boxFromRect(p.box),
       z: computeStackingRank(p.el, p.box),
-      state: computeState(p.el, p.occluded),
+      state: computeState(p.el, p.occluded, isVolatile),
       affordances: computeAffordances(p.el, p.role),
       field: computeField(p.el),
       container: containerResolver.resolve(p.el),
       textRuns: [],
       domSignal: classifyChannelD(p.el, p.name),
+      tagName: p.el.tagName,
     };
   });
 

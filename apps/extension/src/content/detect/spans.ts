@@ -12,6 +12,12 @@ export interface TextRun {
   id: string;
   box: Box;
   text: string;
+  /** T-6.7: true when this run's own element is mutating fast enough to be marked volatile
+   * (design.md §5.5) — a clock/counter `<span>` is exactly this case, and is a `TextRun`, not a
+   * graph node (no interactive role/affordance), so `WireScreenNodeState.volatile` alone can't
+   * cover it. Absent/`false` when no volatility predicate is supplied — every pre-T-6.7
+   * caller/test is unaffected. */
+  volatile?: boolean;
 }
 
 const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'INPUT', 'TEXTAREA', 'SELECT']);
@@ -47,8 +53,9 @@ function isLeafTextContainer(el: Element): boolean {
 }
 
 /** Collects one `TextRun` per leaf text-bearing element under `root`, visible and not inside a
- * form control (field values are handled by the node graph, not here). */
-export function extractTextRuns(root: ParentNode, viewport: ViewportExtent): TextRun[] {
+ * form control (field values are handled by the node graph, not here). `isVolatile` (T-6.7)
+ * defaults to "never volatile" — every pre-T-6.7 caller/test is unaffected. */
+export function extractTextRuns(root: ParentNode, viewport: ViewportExtent, isVolatile: (el: Element) => boolean = () => false): TextRun[] {
   const runs: TextRun[] = [];
   const walker = document.createTreeWalker(root as Node, NodeFilter.SHOW_ELEMENT);
   let node = walker.currentNode as Element | null;
@@ -56,7 +63,7 @@ export function extractTextRuns(root: ParentNode, viewport: ViewportExtent): Tex
     if (node.nodeType === Node.ELEMENT_NODE && isLeafTextContainer(node)) {
       const box = node.getBoundingClientRect();
       if (isVisible(node, box, viewport)) {
-        runs.push({ id: idFor(node), box: boxFromRect(box), text: directText(node) });
+        runs.push({ id: idFor(node), box: boxFromRect(box), text: directText(node), volatile: isVolatile(node) || undefined });
       }
     }
     node = walker.nextNode() as Element | null;

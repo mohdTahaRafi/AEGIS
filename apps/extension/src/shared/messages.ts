@@ -25,6 +25,8 @@ export interface WireTextRun {
   id: string;
   box: [number, number, number, number];
   text: string;
+  /** T-6.7 — see `content/detect/spans.ts`'s `TextRun.volatile` doc comment. */
+  volatile?: boolean;
 }
 
 export interface WireScreenNodeState {
@@ -68,6 +70,12 @@ export interface WireScreenNode {
   container: string;
   textRuns: string[];
   domSignal?: WireChannelDSignal;
+  /** The element's real tag (`CANVAS`/`VIDEO`/`IMG`/...), carried alongside `role` because
+   * `computeRole` deliberately overloads `role: 'img'` for CANVAS and VIDEO too (T-4.x's vision
+   * routing) — the host needs the real tag to report `unexplained[].reason` correctly (T-6.5/6.6).
+   * Optional: synthetic nodes built directly by tests never set it, and callers must treat its
+   * absence the same as an unknown/other element kind. */
+  tagName?: string;
 }
 
 export type PreflightFailureReason =
@@ -77,7 +85,8 @@ export type PreflightFailureReason =
   | 'HIT_TEST_FAILED'
   | 'DISABLED'
   | 'CONTAINER_MISMATCH'
-  | 'LEASE_EXPIRED';
+  | 'LEASE_EXPIRED'
+  | 'NODE_VOLATILE';
 
 export interface WireActionExpect {
   role?: string;
@@ -109,6 +118,10 @@ export interface GraphMessage {
   textRuns: WireTextRun[];
   privacyEpoch: number;
   reason: 'initial' | 'after_action' | 'requested' | 'reconcile';
+  /** T-6.7 (design.md §5.5): "more than ~20 semantic changes/s sustained for 2s" — see
+   * `content/observe/volatility.ts`'s `HostileDynamicTracker`. Drives the host's image-path
+   * disable + eventual stop-with-explanation (`host/session.ts`). */
+  hostileDynamic: boolean;
 }
 
 export interface ActionResultMessage {
@@ -181,7 +194,8 @@ export function isContentToHostMessage(value: unknown): value is ContentToHostMe
       Array.isArray(value.nodes) &&
       Array.isArray(value.removed) &&
       Array.isArray(value.textRuns) &&
-      typeof value.privacyEpoch === 'number'
+      typeof value.privacyEpoch === 'number' &&
+      typeof value.hostileDynamic === 'boolean'
     );
   }
   if (value.type === 'action-result') {

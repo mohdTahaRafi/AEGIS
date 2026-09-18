@@ -132,6 +132,12 @@ export interface FrameExtractionDeps {
   nextFrameId: () => string;
   /** Test hook only — production callers use the default. */
   handshakeTimeoutMs?: number;
+  /** T-6.7: threaded through for consistency with the top frame's own `extractScreenGraph` call —
+   * a no-op today, since `startObserving` only observes the top document's body, not a child
+   * iframe's (a pre-existing scoping limit, not new to this task; see this file's own doc comment
+   * on cross-origin frames becoming "unexplained regions" for the same reason: no observation
+   * inside them at all today). */
+  isVolatile?: (el: Element) => boolean;
 }
 
 /**
@@ -167,6 +173,7 @@ export async function extractChildFrames(root: ParentNode, deps: FrameExtraction
     const childGraph = extractScreenGraph(deps.identity, deps.containerResolver, {
       root: contentDocument.body,
       frame: frameId,
+      isVolatile: deps.isVolatile,
     });
     for (const node of childGraph.nodes) {
       nodes.push(translateNode(node, iframeBox));

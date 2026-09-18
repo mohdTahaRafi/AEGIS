@@ -175,3 +175,125 @@ describe('buildSanitizedContext — redactions[] legend (T-3.20)', () => {
     expect(entry.sources.length).toBeGreaterThan(0);
   });
 });
+
+// T-6.5/T-6.6, FR-12 — `unexplained[]` unpacks `computeRole`'s `role: 'img'` overload (CANVAS/
+// VIDEO/IMG all route to vision, content/screen-graph/roles.ts) back into the schema's real
+// reason enum via the tag name carried alongside it, and reports every vision-only node
+// regardless of whether vision actually found anything there this step.
+describe('buildSanitizedContext — unexplained[] (T-6.5/T-6.6, FR-12)', () => {
+  function canvasNode(id: string, overrides: Partial<WireScreenNode> = {}): WireScreenNode {
+    return node(id, { role: 'img', tagName: 'CANVAS', field: undefined, box: [20, 80, 400, 200], ...overrides });
+  }
+
+  it('a canvas node with no capture this step is reported grey', () => {
+    const context = buildCtx({ nodes: [canvasNode('n-1')] });
+    expect(context.unexplained).toEqual([{ box: [20, 80, 400, 200], reason: 'canvas', status: 'grey' }]);
+  });
+
+  it('a canvas node whose vision analysis completed this step is reported analysed', () => {
+    const context = buildCtx({ nodes: [canvasNode('n-1')], visionAnalyzedNodeIds: new Set(['n-1']) });
+    expect(context.unexplained).toEqual([{ box: [20, 80, 400, 200], reason: 'canvas', status: 'analysed' }]);
+  });
+
+  it('a timed-out node (absent from visionAnalyzedNodeIds even though a capture happened) stays grey', () => {
+    const context = buildCtx({
+      nodes: [canvasNode('n-1'), canvasNode('n-2', { box: [0, 0, 50, 50] })],
+      visionAnalyzedNodeIds: new Set(['n-1']),
+    });
+    const n2 = context.unexplained.find((u) => u.box[0] === 0)!;
+    expect(n2.status).toBe('grey');
+  });
+
+  it.each([
+    ['VIDEO', 'video'],
+    ['IMG', 'img'],
+    [undefined, 'other'],
+  ] as const)('a %s-tagged vision node reports reason %s', (tagName, reason) => {
+    const context = buildCtx({ nodes: [canvasNode('n-1', { tagName })] });
+    expect(context.unexplained[0]!.reason).toBe(reason);
+  });
+
+  it('an ordinary textbox (role !== img) is never reported as unexplained', () => {
+    const context = buildCtx({ nodes: [node('n-1')] });
+    expect(context.unexplained).toEqual([]);
+  });
+});
+
+// T-6.5/T-6.6 — the detection-side OCR pass (`perception/detect/text-region.ts`) hands the host
+// `channel: 'text-ocr'` candidates through the exact same wire shape faces already use
+// (`visionCandidates`); this checks the host side of that contract on its own, without a real
+// ONNX session — the real det+rec pipeline itself is covered by
+// `test/browser/ocr-detection.spec.ts`.
+describe('buildSanitizedContext — OCR-sourced vision candidates (T-6.5/T-6.6)', () => {
+  it('an OCR candidate on a canvas node mints a real placeholder, not raw digits, even though the node has no field', () => {
+    const aadhaar = validAadhaar();
+    const context = buildCtx({
+      nodes: [node('n-1', { role: 'img', tagName: 'CANVAS', field: undefined, box: [20, 80, 400, 200] })],
+      visionCandidates: [
+        {
+          entity: 'AADHAAR',
+          box: [40, 154, 130, 22],
+          score: 0.95,
+          channel: 'text-ocr',
+          source: 'pattern:aadhaar+verhoeff',
+          nodeId: 'n-1',
+          value: aadhaar,
+        },
+      ],
+    });
+
+    const entry = context.redactions.find((r) => r.entity === 'AADHAAR')!;
+    expect(entry).toBeDefined();
+    expect(entry.ref).toMatch(/^⟪AADHAAR#\d+⟫$/);
+    expect(entry.boxes).toEqual([[40, 154, 130, 22]]);
+    expect(JSON.stringify(context)).not.toContain(aadhaar);
+    expect(validators.sanitizedContext(context).valid).toBe(true);
+  });
+});
+
+// T-6.7, design.md §5.5 — a volatile node's/run's text becomes the literal `⟪LIVE⟫`, and no
+// Channel D/T candidate (hence no vault mint) is ever generated for its real, transient content.
+describe('buildSanitizedContext — volatile nodes and text runs become ⟪LIVE⟫ (T-6.7)', () => {
+  function volatileNode(id: string, overrides: Partial<WireScreenNode> = {}): WireScreenNode {
+    return node(id, {
+      name: 'Live counter',
+      field: { inputType: 'text', maskedCss: false, valueRead: true, value: '00:00:42' },
+      state: { focused: false, disabled: false, readonly: false, required: false, hasValue: true, valueLen: 8, occluded: false, volatile: true },
+      ...overrides,
+    });
+  }
+
+  it("a volatile field's name and value both become the literal ⟪LIVE⟫, not its real content", () => {
+    const context = buildCtx({ nodes: [volatileNode('n-1')] });
+    expect(context.nodes[0]!.name).toBe('⟪LIVE⟫');
+    expect(context.nodes[0]!.value).toEqual({ kind: 'text', text: '⟪LIVE⟫' });
+    expect(JSON.stringify(context)).not.toContain('00:00:42');
+  });
+
+  it('a volatile node generates no redaction entry — no candidate was ever formed for it', () => {
+    const aadhaar = validAadhaar();
+    const context = buildCtx({ nodes: [volatileNode('n-1', { field: { inputType: 'text', maskedCss: false, valueRead: true, value: aadhaar } })] });
+    expect(context.redactions).toEqual([]);
+    expect(JSON.stringify(context)).not.toContain(aadhaar);
+  });
+
+  it('a non-volatile node is completely unaffected', () => {
+    const context = buildCtx({ nodes: [node('n-1', { name: 'Search' })] });
+    expect(context.nodes[0]!.name).toBe('Search');
+  });
+
+  it('a volatile free-text run becomes ⟪LIVE⟫ and is not scanned for PII', () => {
+    const aadhaar = validAadhaar();
+    const context = buildCtx({
+      nodes: [],
+      textRuns: [{ id: 't-1', box: [0, 0, 100, 20], text: `Aadhaar: ${aadhaar}`, volatile: true }],
+    });
+    expect(context.text[0]!.text).toBe('⟪LIVE⟫');
+    expect(context.redactions).toEqual([]);
+  });
+
+  it('the payload still validates against the real SanitizedContext schema', () => {
+    const context = buildCtx({ nodes: [volatileNode('n-1')] });
+    expect(validators.sanitizedContext(context).valid).toBe(true);
+  });
+});

@@ -105,6 +105,7 @@ export function runPreflight(
   registry: NodeResolutionRegistry,
   index: ScreenGraphIndex,
   containerResolver: ContainerResolver,
+  isVolatile: (el: Element) => boolean = () => false,
 ): PreflightResult {
   if (action.op === 'click_point') {
     // No node id to resolve — the host already showed the user this point (design.md §5.9).
@@ -124,6 +125,12 @@ export function runPreflight(
 
   const element = registry.resolve(action.node, index);
   if (!element) return { ok: false, reason: 'NODE_UNRESOLVED' };
+
+  // design.md §5.5: "cannot be a plan target without a fresh observation." Checked against the
+  // element's LIVE state, right here, immediately before dispatch — the same "no TOCTOU gap"
+  // reasoning this file's own top comment gives for running facets synchronously right before
+  // dispatch, not against a possibly-stale plan-time snapshot.
+  if (isVolatile(element)) return { ok: false, reason: 'NODE_VOLATILE' };
 
   const expectFailure = checkExpect(element, action.expect);
   if (expectFailure) return { ok: false, reason: expectFailure };

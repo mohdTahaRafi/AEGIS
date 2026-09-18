@@ -104,9 +104,10 @@ export async function runPerceptionStep(nodes: readonly WireScreenNode[], deps: 
     entity: c.entity,
     box: c.box,
     score: c.score,
-    channel: 'vision',
-    source: `vision:${c.entity.toLowerCase()}`,
+    channel: c.channel === 'text-ocr' ? 'text-ocr' : 'vision',
+    source: c.source ?? `vision:${c.entity.toLowerCase()}`,
     nodeId: c.regionId && c.regionId !== 'full-frame' ? c.regionId : undefined,
+    value: c.value,
   }));
 
   return {

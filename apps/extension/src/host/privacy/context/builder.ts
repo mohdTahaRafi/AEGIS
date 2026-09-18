@@ -6,12 +6,14 @@
 // into the returned `SanitizedContext` — every string that could carry one goes through
 // `escapePlaceholderDelimiters` → detection → `mintForRegion`/substitution first.
 //
-// [A] No vision channel this phase (Phase 4): `unexplained` stays `[]`, `coverage` stays
-// `{cleared:1, redacted:n, unanalysed:0}` (phase_3_privacy_core.md §16). [A] NER (design.md §6.3)
-// is not a real pretrained model in this environment — see `perception/models/pii-ner.ts`'s doc
-// comment for why, and `docs/CURRENT_BUILD.md` for the disclosed gap. Channel T (deterministic
-// recognizers) is real and is what this builder relies on for the milestone demo's Aadhaar/email
-// detections.
+// `unexplained[]` (T-6.5/T-6.6) reports every vision-only node (canvas/img/video) regardless of
+// whether vision found anything there — `computeUnexplained` below. `coverage.unanalysed` stays
+// 0 (phase_3_privacy_core.md §16's forward dependency): it's still an approximation from
+// nodes/runs that produced a redaction, not the real compositor's pixel-area measurement.
+// [A] NER (design.md §6.3) is not a real pretrained model in this environment — see
+// `perception/models/pii-ner.ts`'s doc comment for why, and `docs/CURRENT_BUILD.md` for the
+// disclosed gap. Channel T (deterministic recognizers) is real and is what this builder relies on
+// for the milestone demo's Aadhaar/email detections.
 
 import type { SanitizedContext } from '@aegis/protocol';
 import type { RecognizerContext } from '@aegis/recognizers';
@@ -55,10 +57,15 @@ export interface BuildContextInput {
   /** Phase 4: Channel V candidates (faces, etc.) already detected by a prior `perceive` call this
    * step, in the same viewport-pixel coordinate space as `nodes[].box`. Merged into fusion
    * alongside Channel D/T exactly like any other candidate — fusion has no notion of "vision
-   * candidates are special," only `channel: 'vision'`. Absent (not `[]`) is the normal case for a
-   * step that never captured a frame at all — kept optional so every Phase 3 caller/test is
-   * unaffected. */
+   * candidates are special," only `channel: 'vision'`/`'text-ocr'`. Absent (not `[]`) is the
+   * normal case for a step that never captured a frame at all — kept optional so every Phase 3
+   * caller/test is unaffected. */
   visionCandidates?: Candidate[];
+  /** T-6.5/T-6.6: node ids whose vision analysis actually completed this step (not `timedOut`),
+   * from the same `perceive` call `visionCandidates` came from — used only to set
+   * `unexplained[].status`. Absent (not an empty set) means no capture happened this step at all,
+   * same "vision never ran" case `visionCandidates`'s own doc comment describes. */
+  visionAnalyzedNodeIds?: ReadonlySet<string>;
 }
 
 function fieldContext(node: WireScreenNode): RecognizerContext {
@@ -117,6 +124,11 @@ function regionKey(region: SensitiveRegion): string {
 
 function toNodeValue(node: WireScreenNode, region: SensitiveRegion | undefined, vault: Vault, policy: Policy, originKey: string, stepId: string): NodeValue | undefined {
   if (!node.field) return undefined;
+
+  // T-6.7: a volatile field's value is replaced unconditionally, ahead of any region — no
+  // candidates were even generated for it (see the escaping step above), so `region` is always
+  // undefined here anyway, but this stays the explicit first check rather than relying on that.
+  if (node.state.volatile) return { kind: 'text', text: '⟪LIVE⟫' };
 
   if (region) {
     const minted = mintForRegion(vault, policy, region, originKey, stepId);
@@ -194,23 +206,66 @@ function truncate(text: string, maxLength: number): string {
   return text.length > maxLength ? text.slice(0, maxLength) : text;
 }
 
+type UnexplainedReason = SanitizedContext['unexplained'][number]['reason'];
+
+/** `computeRole` (content/screen-graph/roles.ts) overloads `role: 'img'` for CANVAS/VIDEO as well
+ * as real IMG (T-4.x's vision routing) — this is the one place that overload gets unpacked back
+ * into the schema's real reason enum, using the tag name carried alongside it (T-6.5/T-6.6).
+ * `'other'` covers a synthetic/test node with no `tagName` and any future implicit-role addition
+ * this switch doesn't yet know about — never a thrown error over an unrecognised element kind. */
+function unexplainedReason(tagName: string | undefined): UnexplainedReason {
+  switch (tagName) {
+    case 'CANVAS':
+      return 'canvas';
+    case 'VIDEO':
+      return 'video';
+    case 'IMG':
+      return 'img';
+    default:
+      return 'other';
+  }
+}
+
+/** FR-12 (design.md §4.3's `unexplained[]`): every node whose content is opaque to the DOM
+ * (`role === 'img'`, the same predicate `structural-coverage.ts`/`run-step.ts` use) is reported
+ * here regardless of whether vision found anything in it — `status` is what tells the server
+ * whether that box is actually pixels-it-can-trust (`'analysed'`) or still just grey
+ * (`'grey'`, either because this step never captured a frame, or because this node's own crop
+ * timed out — `visionAnalyzedNodeIds` already excludes timed-out nodes, see `run-step.ts`). */
+function computeUnexplained(nodes: readonly { id: string; role: string; box: [number, number, number, number]; tagName?: string }[], visionAnalyzedNodeIds: ReadonlySet<string> | undefined): SanitizedContext['unexplained'] {
+  return nodes
+    .filter((n) => n.role === 'img')
+    .map((n) => ({
+      box: n.box,
+      reason: unexplainedReason(n.tagName),
+      status: visionAnalyzedNodeIds?.has(n.id) ? ('analysed' as const) : ('grey' as const),
+    }));
+}
+
 export function buildSanitizedContext(input: BuildContextInput): SanitizedContext {
   const { vault, policy, originKey, stepId } = input;
 
   // 1. Escape forged placeholder delimiters BEFORE anything is scanned or substituted (T-3.16).
+  // T-6.7 (design.md §5.5): a volatile node's text is replaced by the literal `⟪LIVE⟫` instead —
+  // deliberately NOT escaped (escaping is for page-controlled text that might forge a delimiter;
+  // this string IS one, on purpose, the same bare-`⟪ENTITY⟫` shape presence-only entities already
+  // use) — and skips Channel D/T entirely below: a value that might be different by the time it's
+  // read is not worth detecting or minting a vault entry for.
+  const LIVE_TEXT = '⟪LIVE⟫';
   const escapedTask = escapePlaceholderDelimiters(input.task);
   const escapedTitle = escapePlaceholderDelimiters(input.pageTitle);
   const escapedNodes = input.nodes.map((n) => ({
     ...n,
-    name: escapePlaceholderDelimiters(n.name),
+    name: n.state.volatile ? LIVE_TEXT : escapePlaceholderDelimiters(n.name),
     field: n.field?.value !== undefined ? { ...n.field, value: escapePlaceholderDelimiters(n.field.value) } : n.field,
   }));
-  const escapedRuns = input.textRuns.map((r) => ({ ...r, text: escapePlaceholderDelimiters(r.text) }));
+  const escapedRuns = input.textRuns.map((r) => ({ ...r, text: r.volatile ? LIVE_TEXT : escapePlaceholderDelimiters(r.text) }));
 
   // 2. Collect candidates: Channel D (already computed content-side) + Channel T over field
-  // values and every free-text source.
+  // values and every free-text source. Volatile nodes are skipped entirely (see above).
   const candidates: Candidate[] = [];
   for (const node of escapedNodes) {
+    if (node.state.volatile) continue;
     const domCandidate = candidateFromDomSignal(node, node.field?.value);
     if (domCandidate) candidates.push(domCandidate);
     if (node.field?.valueRead && node.field.value) {
@@ -226,8 +281,8 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
   // showed a doubled redaction count). `sanitizeFreeText`'s original purpose — an ANCESTOR
   // landmark's name-computation fallback concatenating DESCENDANT text beyond any single run — is
   // untouched by this: only an EXACT (box, text) duplicate of an already-included run is skipped.
-  const runBoxTextKeys = new Set(escapedRuns.map((r) => `${r.box.join(',')} ${r.text}`));
-  const dedupedNodeNames = escapedNodes.filter((n) => !runBoxTextKeys.has(`${n.box.join(',')} ${n.name}`));
+  const runBoxTextKeys = new Set(escapedRuns.map((r) => `${r.box.join(',')} ${r.text}`));
+  const dedupedNodeNames = escapedNodes.filter((n) => !runBoxTextKeys.has(`${n.box.join(',')} ${n.name}`));
 
   const freeTextSources: FreeTextSource[] = [
     ...escapedRuns.map((r) => ({ key: `run:${r.id}`, box: r.box, text: r.text })),
@@ -264,17 +319,29 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
   // matching run's already-substituted text instead of calling `sanitizeFreeText` a second time
   // with no candidates behind it — which would ship that node's name completely unsanitized.
   const runSubstitutionByBoxText = new Map(
-    escapedRuns.map((r) => [`${r.box.join(',')} ${r.text}`, sanitizeFreeText(`run:${r.id}`, r.text)]),
+    escapedRuns.map((r) => [`${r.box.join(',')} ${r.text}`, sanitizeFreeText(`run:${r.id}`, r.text)]),
   );
 
   const nodes: SanitizedNode[] = escapedNodes.map((node) => {
     const region = regionsByKey.get(`node:${node.id}`);
     const value = toNodeValue(node, region, vault, policy, originKey, stepId);
     if (region) {
-      const ref = value && 'ref' in value ? value.ref : null;
+      // `toNodeValue` only mints through a `field` (a form field's own value) — a vision-only
+      // node (canvas/img/video, T-6.5/T-6.6) has no field, so its region would otherwise be
+      // recorded with `ref: null` and the compositor would draw an unlabelled box instead of the
+      // typed placeholder design.md §7's milestone demo describes (`⟪AADHAAR#7⟫`). Mint directly
+      // from the region here, the same call `sanitizeFreeText` makes for a free-text match.
+      const ref = node.field
+        ? value && 'ref' in value
+          ? value.ref
+          : null
+        : (() => {
+            const replacement = replacementFor(region, vault, policy, originKey, stepId);
+            return replacement.startsWith('⟪') && /#\d+⟫$/.test(replacement) ? replacement : null;
+          })();
       redactions.push(toRedactionEntry(region, ref));
     }
-    const duplicateOfRun = runSubstitutionByBoxText.get(`${node.box.join(',')} ${node.name}`);
+    const duplicateOfRun = runSubstitutionByBoxText.get(`${node.box.join(',')} ${node.name}`);
     const sanitizedName = duplicateOfRun ?? sanitizeFreeText(`name:${node.id}`, node.name);
     return {
       id: node.id,
@@ -307,7 +374,7 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
   const textRunEntries = escapedRuns.map((run) => ({
     id: run.id,
     box: run.box,
-    text: runSubstitutionByBoxText.get(`${run.box.join(',')} ${run.text}`)!,
+    text: runSubstitutionByBoxText.get(`${run.box.join(',')} ${run.text}`)!,
   }));
 
   const sanitizedTask = sanitizeFreeText('task', escapedTask);
@@ -333,7 +400,7 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
     removed: input.removed.length > 0 ? input.removed : undefined,
     text: textRunEntries,
     redactions,
-    unexplained: [],
+    unexplained: computeUnexplained(escapedNodes, input.visionAnalyzedNodeIds),
     // [A] Phase 4 forward dependency (phase_3_privacy_core.md §16): everything is structural, so
     // `unanalysed` stays 0; `redacted` is an approximation (fraction of nodes+runs that produced a
     // redaction) until the real compositor computes it from actual pixel area.

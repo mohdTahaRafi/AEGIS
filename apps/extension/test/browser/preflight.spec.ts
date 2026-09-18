@@ -94,4 +94,19 @@ describe('runPreflight (design.md §5.9/§5.2 AC)', () => {
     const action: WireAction = { op: 'click', node: originalId };
     expect(runPreflight(action, registry, secondIndex, containerResolver).ok).toBe(true);
   });
+
+  it('rejects NODE_VOLATILE for a target the live isVolatile predicate flags (T-6.7, design.md §5.5)', () => {
+    const { graph, index, registry, containerResolver } = setup('<button>Submit</button>');
+    const node = graph.nodes.find((n) => n.name === 'Submit')!;
+    const action: WireAction = { op: 'click', node: node.id };
+    const result = runPreflight(action, registry, index, containerResolver, () => true);
+    expect(result).toEqual({ ok: false, reason: 'NODE_VOLATILE' });
+  });
+
+  it('a scroll action (no resolved node id) is never subject to the volatile check', () => {
+    const { index, registry, containerResolver } = setup('<div></div>');
+    const action: WireAction = { op: 'scroll', direction: 'down' };
+    const result = runPreflight(action, registry, index, containerResolver, () => true);
+    expect(result.ok).toBe(true);
+  });
 });
