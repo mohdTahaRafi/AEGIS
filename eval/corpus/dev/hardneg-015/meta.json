@@ -1,5 +1,5 @@
 {
-  "category": "docs",
+  "category": "banking",
   "group": "hardneg",
   "script": "latin",
   "viewport": [
@@ -8,5 +8,5 @@
   ],
   "source": "hand-built",
   "licence": "synthetic \u2014 no real data",
-  "notes": "Hard negative: 10-digit number, phone-length-shaped but not a valid mobile prefix."
+  "notes": "Hard negative: pre-masked bank account display, not a full account number."
 }

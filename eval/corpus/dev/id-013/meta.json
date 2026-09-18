@@ -1,0 +1,12 @@
+{
+  "category": "banking",
+  "group": "identifiers",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "GSTIN-shaped with a deliberately wrong check character \u2014 moved here from hardneg after a real harness run showed this is NOT a hard negative: gstin.ts/design.md's own 0.40 invalid-checksum score keeps it in the unverified-but-redacted band."
+}

@@ -14,7 +14,7 @@
         180,
         22
       ],
-      "value_hash": "sha256:d789d657898cc63930e23adb3764e01469e97df168dfd1a67beef0cd800db015",
+      "value_hash": "sha256:052a0652ed095f44c7cf920141c84a0c36385b35c2bd41a0d4498ec4906d8487",
       "note": "disclosed gap: no dedicated BANK_ACCOUNT pattern recognizer yet \u2014 expected FN"
     },
     {

@@ -8,5 +8,5 @@
   ],
   "source": "hand-built",
   "licence": "synthetic \u2014 no real data",
-  "notes": "Hard negative: long token shape but low entropy (single repeated digit), below secret.ts's 3.5 threshold."
+  "notes": "Hard negative: 10-digit number, phone-length-shaped but not a valid mobile prefix."
 }
