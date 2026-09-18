@@ -1,5 +1,5 @@
 {
-  "screen_id": "faces-004",
+  "screen_id": "faces-013",
   "viewport": [
     1280,
     720
@@ -7,12 +7,12 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "QR_CODE",
+      "entity": "SIGNATURE",
       "box": [
         220,
         120,
-        120,
-        120
+        140,
+        60
       ]
     },
     {
@@ -24,7 +24,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARY49MZNYBQYWGZGSD6GBYWJN"
+      "canary_id": "CANARYZDVVE5UM73XDJEE5UPTSDB"
     }
   ],
   "tasks": []
