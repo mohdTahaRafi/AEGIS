@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Analytics Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #fff; color: #111; }
+  .field-label { position: absolute; font-size: 13px; color: #333; }
+  .field-value { position: absolute; font-size: 14px; font-weight: 600; }
+  .heading { position: absolute; top: 16px; left: 16px; font-size: 20px; font-weight: 700; }
+  .box { position: absolute; border: 1px solid #ccc; background: #f7f7f7; }
+</style>
+</head>
+<body>
+<div class="heading">Analytics Dashboard</div><canvas id="cv2" width="400" height="200" style="position:absolute;left:20px;top:80px;border:1px solid #ccc;"></canvas>
+<script>
+  const c2 = document.getElementById('cv2');
+  const ctx2 = c2.getContext('2d');
+  ctx2.font = '16px sans-serif';
+  ctx2.fillStyle = '#111';
+  ctx2.fillText('PAN on file:', 20, 60);
+  ctx2.font = 'bold 16px sans-serif';
+  ctx2.fillText('TJHLL6812E', 20, 90);
+</script>
+<div id="canary-41" style="position:absolute;left:16px;top:680px;font-size:10px;color:#fff;">CANARYUEJ2GDFM82LA5X849224HA</div>
+</body>
+</html>
