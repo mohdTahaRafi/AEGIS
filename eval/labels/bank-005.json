@@ -1,5 +1,5 @@
 {
-  "screen_id": "bank-001",
+  "screen_id": "bank-005",
   "viewport": [
     1280,
     720
@@ -14,28 +14,18 @@
         180,
         22
       ],
-      "value_hash": "sha256:0f99e9583d2ad2239d8f051488b93faf4017615d299e96fe585e957b338729d8",
+      "value_hash": "sha256:d789d657898cc63930e23adb3764e01469e97df168dfd1a67beef0cd800db015",
       "note": "disclosed gap: no dedicated BANK_ACCOUNT pattern recognizer yet \u2014 expected FN"
     },
     {
-      "entity": "IFSC",
+      "entity": "PAN",
       "box": [
         220,
         160,
-        130,
+        120,
         22
       ],
-      "value_hash": "sha256:4ebf65d768d2f45214546d93b5a7e16e16f5bf83632977a3ccfb7bbf15c45998"
-    },
-    {
-      "entity": "PHONE",
-      "box": [
-        220,
-        200,
-        160,
-        22
-      ],
-      "value_hash": "sha256:f37cd143d789af24dbf117e205b3a44e3c7da19b9c73d1e8fb5d5d8ad0b97c1a"
+      "value_hash": "sha256:2c05a11c3c627b9160d3d1a11ecb0ac59356a8eff905522ffde9434d878be3d3"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -46,7 +36,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYJKDWNGA4W59FJ4S59PPPWZ"
+      "canary_id": "CANARYQGMRK2DY8LSZMKY9SDG23P"
     }
   ],
   "tasks": []

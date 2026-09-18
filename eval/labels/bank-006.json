@@ -1,0 +1,42 @@
+{
+  "screen_id": "bank-006",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "NONE",
+      "box": [
+        220,
+        120,
+        190,
+        22
+      ],
+      "note": "already-masked card display (12 digits hidden) \u2014 no full card number present to leak"
+    },
+    {
+      "entity": "IFSC",
+      "box": [
+        220,
+        160,
+        130,
+        22
+      ],
+      "value_hash": "sha256:9bffe67274f7920944ad230cf25cca3720fa4a25815fdd4fc896a980183e110b"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARY9HXJ28YBA7AWVNGX3WUJA9"
+    }
+  ],
+  "tasks": []
+}
