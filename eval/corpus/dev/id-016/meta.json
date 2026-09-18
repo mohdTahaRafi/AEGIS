@@ -1,0 +1,12 @@
+{
+  "category": "gov",
+  "group": "identifiers",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Fictitious vehicle registration, real state RTO code."
+}
