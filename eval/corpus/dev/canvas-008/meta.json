@@ -1,0 +1,12 @@
+{
+  "category": "canvas_app",
+  "group": "canvas",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Canvas-rendered phone number in a poster-maker-style app \u2014 DOM has no accessible text."
+}

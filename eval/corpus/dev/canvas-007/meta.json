@@ -8,5 +8,5 @@
   ],
   "source": "hand-built",
   "licence": "synthetic \u2014 no real data",
-  "notes": "Canvas-rendered signature stroke in a signature-pad-style app \u2014 DOM has no accessible representation."
+  "notes": "Canvas-rendered PAN in a whiteboard-style app \u2014 DOM has no accessible text."
 }
