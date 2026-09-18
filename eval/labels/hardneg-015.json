@@ -14,7 +14,7 @@
         180,
         22
       ],
-      "note": "already-masked account display (8 digits hidden) \u2014 no full value present to leak"
+      "note": "already-masked account display ('Ending in NNNN') \u2014 no full value present to leak"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",

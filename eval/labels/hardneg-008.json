@@ -7,14 +7,15 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "NONE",
+      "entity": "AADHAAR",
       "box": [
         220,
         120,
         160,
         22
       ],
-      "note": "already-masked display (8 digits hidden) \u2014 no full value present to leak"
+      "value_hash": "sha256:df38e383e768893f2d5405bf7d0a9911d8cc9871870994328ac3d87851b8aff9",
+      "note": "masked display \u2014 design.md \u00a76.2's dedicated Masked Aadhaar case (0.70, partial), a genuine positive, not a hard negative"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",

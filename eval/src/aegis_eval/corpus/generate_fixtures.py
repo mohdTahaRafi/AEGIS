@@ -438,16 +438,25 @@ def build_hardneg(rng: random.Random) -> list[Fixture]:
         )
     )
 
-    # hardneg-008: masked/partial Aadhaar-like display that should not be treated as a full value
+    # hardneg-008: [Corrected, corpus growth pass] originally built as a hard negative on the
+    # assumption that an already-masked "XXXX XXXX 1234"-style display shouldn't be treated as
+    # sensitive. It should: design.md §6.2's own table has a dedicated "Masked Aadhaar" row
+    # (`XXXX XXXX 1234`-style, no validator, 0.70, "entity AADHAAR, partial") — a deliberate
+    # recognized case, not an oversight to guard against. `aadhaar.ts`'s `MASKED_AADHAAR_RE`
+    # correctly flags it; this fixture's `entity: NONE` ground truth was wrong since Phase 1,
+    # surfaced for real only now because this pass finally checked metric 3's per-fixture
+    # over-redaction detail instead of just its aggregate rate. Kept the screen_id (renumbering
+    # every fixture after it is a larger, unrelated risk for no real benefit) but corrected the
+    # entity and moved its semantic group to `identifiers`, matching what it actually is.
     masked = "XXXX XXXX " + "".join(str(rng.randint(0, 9)) for _ in range(4))
     box = (220, 120, 160, 22)
     fixtures.append(
         Fixture(
-            "hardneg-008", "gov", "hardneg", "Account Summary",
+            "hardneg-008", "gov", "identifiers", "Account Summary",
             '<div class="heading">Account Summary</div>'
             + field_html("Aadhaar on file (masked)", masked, box, "masked_aadhaar"),
-            [LabelItem("NONE", box, note="already-masked display (8 digits hidden) — no full value present to leak")],
-            notes="Hard negative: pre-masked display, not a full identifier.",
+            [LabelItem("AADHAAR", box, sha256_hash(masked), note="masked display — design.md §6.2's dedicated Masked Aadhaar case (0.70, partial), a genuine positive, not a hard negative")],
+            notes="A masked Aadhaar display, correctly detected via aadhaar.ts's dedicated MASKED_AADHAAR_RE — a genuine positive, not a hard negative (see the correction note above).",
         )
     )
 
@@ -1811,14 +1820,19 @@ def build_hardneg_extra2(rng: random.Random) -> list[Fixture]:
         )
     )
 
-    masked_account = "XXXXXXXX" + "".join(str(rng.randint(0, 9)) for _ in range(4))
+    # "XXXX XXXX 1234"-shaped masking deliberately avoided here: aadhaar.ts's MASKED_AADHAAR_RE
+    # matches that exact shape regardless of what it's actually masking (see hardneg-008's
+    # correction above, and this fixture's own first draft, which hit the identical collision in
+    # the real harness run). "Ending in NNNN" phrasing has no digit-masking shape to collide with
+    # — also a more realistic real-world bank-statement convention than literal X's.
+    masked_account = "Ending in " + "".join(str(rng.randint(0, 9)) for _ in range(4))
     box4 = (220, 120, 180, 22)
     fixtures.append(
         Fixture(
             "hardneg-015", "banking", "hardneg", "Statement Summary",
             '<div class="heading">Statement Summary</div>'
-            + field_html("Account (masked)", masked_account, box4, "masked_account"),
-            [LabelItem("NONE", box4, note="already-masked account display (8 digits hidden) — no full value present to leak")],
+            + field_html("Account", masked_account, box4, "masked_account"),
+            [LabelItem("NONE", box4, note="already-masked account display ('Ending in NNNN') — no full value present to leak")],
             notes="Hard negative: pre-masked bank account display, not a full account number.",
         )
     )
