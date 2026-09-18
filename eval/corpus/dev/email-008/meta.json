@@ -1,6 +1,6 @@
 {
-  "category": "banking",
-  "group": "faces",
+  "category": "email",
+  "group": "email",
   "script": "latin",
   "viewport": [
     1280,
@@ -8,5 +8,5 @@
   ],
   "source": "hand-built",
   "licence": "synthetic \u2014 no real data",
-  "notes": "Placeholder signature graphic."
+  "notes": "Invoice-notification email: billed-to email and customer name."
 }

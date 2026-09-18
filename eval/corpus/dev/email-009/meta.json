@@ -1,6 +1,6 @@
 {
-  "category": "gov",
-  "group": "faces",
+  "category": "email",
+  "group": "email",
   "script": "latin",
   "viewport": [
     1280,
@@ -8,5 +8,5 @@
   ],
   "source": "hand-built",
   "licence": "synthetic \u2014 no real data",
-  "notes": "A KYC liveness-check flow: a live selfie region next to a held-up ID document."
+  "notes": "Calendar-invite email: organizer email and dial-in number."
 }
