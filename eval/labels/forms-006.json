@@ -1,5 +1,5 @@
 {
-  "screen_id": "forms-001",
+  "screen_id": "forms-006",
   "viewport": [
     1280,
     720
@@ -7,21 +7,21 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "USERNAME",
+      "entity": "EMAIL",
       "box": [
         220,
         120,
         220,
         28
       ],
-      "value_hash": "sha256:bb821e4fa9aa8feb5b6f8e1dfba99f914f3bd24ed64e25c1ea2e5d41b29fbbfb"
+      "value_hash": "sha256:2f688d7ab620faae93763a6c9bd8cbbef847eda68327a1ca68a44639e0182d16"
     },
     {
-      "entity": "PASSWORD",
+      "entity": "OTP",
       "box": [
         220,
         160,
-        220,
+        120,
         28
       ]
     },
@@ -34,10 +34,8 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYF2PQ5HRB3BKQXRESA8NLTU"
+      "canary_id": "CANARY3QDTMBCUJRLPTEHXGYRHLB"
     }
   ],
-  "tasks": [
-    "task-login-submit-01"
-  ]
+  "tasks": []
 }
