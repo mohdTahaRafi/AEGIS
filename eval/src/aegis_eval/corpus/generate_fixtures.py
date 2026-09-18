@@ -307,9 +307,18 @@ def build_hardneg(rng: random.Random) -> list[Fixture]:
     )
 
     # hardneg-003: PAN-shaped catalogue product code
-    letters = "".join(rng.choices("ABCDEFGHIJKLMNPQRSTUVWXYZ", k=5))
+    # [Fixed, Phase 5 continued] Same bug class as id-003 (see its comment above): the real PAN
+    # format's constrained "holder type" code is the 4th character of the 10-char string, not the
+    # last one. This generator put its deliberately-invalid 'X' at the END instead, leaving the
+    # real holder-type position (letters[3]) a uniformly-random letter — ~40% of the time (any of
+    # ABCFGHJLPT) that made the "hard negative" a structurally VALID PAN, which the client's
+    # correct recognizer then (correctly, by its own rules) flagged as PAN, scored as a false
+    # positive against the ground truth's `entity: NONE`. Found the same way as id-003: the
+    # independent auditor / real harness run, not by inspection.
+    pan_prefix3 = "".join(rng.choices("ABCDEFGHIJKLMNPQRSTUVWXYZ", k=3))
+    pan_letter5 = rng.choice("ABCDEFGHIJKLMNPQRSTUVWXYZ")
     digits = "".join(str(rng.randint(0, 9)) for _ in range(4))
-    product_code = letters + digits + "X"  # 'X' is not in the real PAN holder-type set
+    product_code = pan_prefix3 + "X" + pan_letter5 + digits  # 'X' is not in the real PAN holder-type set
     box = (220, 120, 120, 22)
     fixtures.append(
         Fixture(
