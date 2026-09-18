@@ -1,5 +1,5 @@
 {
-  "screen_id": "hardneg-007",
+  "screen_id": "hardneg-010",
   "viewport": [
     1280,
     720
@@ -11,10 +11,10 @@
       "box": [
         220,
         120,
-        150,
+        190,
         22
       ],
-      "note": "vehicle-registration-shaped rack code with an invalid (non-real) state code \u2014 must not be flagged as VEHICLE_REG"
+      "note": "already-masked display (12 digits hidden) \u2014 no full card number present to leak"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARY8GMADXL6PWRV5DVR2QZK2Q"
+      "canary_id": "CANARY6XQE47LUQJTDBPUDZLDNFP"
     }
   ],
   "tasks": []
