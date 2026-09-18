@@ -1,5 +1,5 @@
 {
-  "screen_id": "pdf-004",
+  "screen_id": "pdf-006",
   "viewport": [
     1280,
     720
@@ -7,24 +7,24 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "PAN",
+      "entity": "AADHAAR",
       "box": [
         120,
         180,
-        120,
+        160,
         22
       ],
-      "value_hash": "sha256:acfe1d8e76a0182ad3b101495df2011f498b7ff984defc495087b8e8c575b4c5"
+      "value_hash": "sha256:a58748af45258132d3cb6738d6fe5ed8a69c6be6bef22387d28b451ae79a320d"
     },
     {
-      "entity": "ADDRESS",
+      "entity": "PAN",
       "box": [
         120,
         210,
-        300,
+        120,
         22
       ],
-      "value_hash": "sha256:9e950132cd95008d2e5ac0742549a84fc2d1afb0bdc26e383f4217c9640c0784"
+      "value_hash": "sha256:3e9f03146257f0a6db50d42e53571afdcc55b2c574d58eb417563234054fe3c2"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -35,7 +35,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYEE4P8RK545E7JDX39X6H39"
+      "canary_id": "CANARYBRXJ8E9PP7FQK95NMB883H"
     }
   ],
   "tasks": []
