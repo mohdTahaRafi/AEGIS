@@ -1,0 +1,12 @@
+{
+  "category": "gov",
+  "group": "gov",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Address-update form with a real <label for> on the PIN field \u2014 first PIN_CODE fixture in the corpus (context-required per design.md \u00a76.2)."
+}
