@@ -1,5 +1,5 @@
 {
-  "screen_id": "id-006",
+  "screen_id": "id-012",
   "viewport": [
     1280,
     720
@@ -7,14 +7,14 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "UPI_VPA",
+      "entity": "GSTIN",
       "box": [
         220,
         120,
-        180,
+        170,
         22
       ],
-      "value_hash": "sha256:95097468b7012b5f19282a01e812fb0d2a6ac6e8ce18f004792403e20638b6cb"
+      "value_hash": "sha256:82c1db69beb6eaaa9cdc49c099f08a7e066ec0b378707691748ac14cec1c6fcb"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYR6A3J7ZL9AEFM9MVNFZEVF"
+      "canary_id": "CANARYDRS5D8WB2C597AMH6KHGLJ"
     }
   ],
   "tasks": []

@@ -1,5 +1,5 @@
 {
-  "screen_id": "id-006",
+  "screen_id": "id-009",
   "viewport": [
     1280,
     720
@@ -7,14 +7,14 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "UPI_VPA",
+      "entity": "AADHAAR",
       "box": [
         220,
         120,
-        180,
+        160,
         22
       ],
-      "value_hash": "sha256:95097468b7012b5f19282a01e812fb0d2a6ac6e8ce18f004792403e20638b6cb"
+      "value_hash": "sha256:6085fe18bc2f661912921076646319a0238664e6caee976d77fce46b88501a4d"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYR6A3J7ZL9AEFM9MVNFZEVF"
+      "canary_id": "CANARY44KBRERHZA4PNKD3JV6CFP"
     }
   ],
   "tasks": []
