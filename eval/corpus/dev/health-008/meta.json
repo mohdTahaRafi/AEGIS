@@ -1,0 +1,12 @@
+{
+  "category": "health",
+  "group": "health",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "A telemedicine chat transcript with a patient name and phone number in prose."
+}
