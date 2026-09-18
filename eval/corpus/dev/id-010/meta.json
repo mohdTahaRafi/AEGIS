@@ -1,0 +1,12 @@
+{
+  "category": "email",
+  "group": "identifiers",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "An E.164-like international phone number (+65), not an Indian mobile \u2014 exercises `phone.ts`'s separate `INTL_RE` path."
+}
