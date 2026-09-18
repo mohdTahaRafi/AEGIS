@@ -8,5 +8,5 @@
   ],
   "source": "hand-built",
   "licence": "synthetic \u2014 no real data",
-  "notes": "Passport status page: PASSPORT with label context (the corpus's first genuine PASSPORT positive), DOB with label context."
+  "notes": "Passport status page: PASSPORT via a real <label for>-associated <input> \u2014 the corpus's first genuine PASSPORT positive that can actually be detected (a plain field_html() div has no programmatic label association, so a context-required recognizer like PASSPORT's would always score below threshold regardless of visual proximity \u2014 see docs/HISTORY.md's DOB findings for why); DOB stays a field_html() div deliberately, to keep matching forms-004/hardneg-005's known, accepted no-context DOB gap rather than silently fixing it here too."
 }

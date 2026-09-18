@@ -130,6 +130,26 @@ def field_html(label: str, value: str, box: tuple[int, int, int, int], value_id:
     )
 
 
+def field_html_input(label: str, value: str, box: tuple[int, int, int, int], value_id: str) -> str:
+    """Like `field_html`, but a real `<label for>`-associated `<input>` instead of two unrelated
+    `<div>`s. This is what actually gives Channel T's context-required recognizers (DOB, PASSPORT,
+    PIN_CODE — `packages/recognizers/src/context/boost.ts`'s `scoreByContext` entities) a real
+    `RecognizerContext.label` to match against: `builder.ts`'s `candidatesFromNodeValue` only
+    builds context from an actual form field's own name/label/autocomplete
+    (`fieldContext(node)`), never from a free-text run's nearby-but-unassociated sibling text
+    (`candidatesFromTextRun` never builds a context at all — see docs/HISTORY.md's DOB findings).
+    A `field_html()` div, however visually adjacent to its label, can never be a genuine positive
+    for one of these entities; use this helper instead when a fixture is meant to actually
+    exercise real detection rather than illustrate the disclosed no-context gap on purpose (as
+    `forms-004`/`hardneg-005`'s DOB fixtures deliberately do)."""
+    x, y, w, h = box
+    return (
+        f'<label for="{value_id}" class="field-label" style="left:{x}px;top:{y - 18}px;">{label}</label>'
+        f'<input id="{value_id}" type="text" value="{value}" class="field-value" '
+        f'style="position:absolute;left:{x}px;top:{y}px;width:{w}px;height:{h}px;">'
+    )
+
+
 def canary(rng: random.Random) -> str:
     return "CANARY" + "".join(rng.choices("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", k=22))
 
@@ -1341,13 +1361,21 @@ def build_gov_extra(rng: random.Random) -> list[Fixture]:
         Fixture(
             "gov-004", "gov", "gov", "Passport Application Status",
             '<div class="heading">Passport Application Status</div>'
-            + field_html("Passport number", passport, passport_box, "passport")
+            + field_html_input("Passport number", passport, passport_box, "passport")
             + field_html("Date of birth", dob2, dob2_box, "dob"),
             [
                 LabelItem("PASSPORT", passport_box, sha256_hash(passport)),
                 LabelItem("DOB", dob2_box, sha256_hash(dob2)),
             ],
-            notes="Passport status page: PASSPORT with label context (the corpus's first genuine PASSPORT positive), DOB with label context.",
+            notes=(
+                "Passport status page: PASSPORT via a real <label for>-associated <input> — the "
+                "corpus's first genuine PASSPORT positive that can actually be detected (a plain "
+                "field_html() div has no programmatic label association, so a context-required "
+                "recognizer like PASSPORT's would always score below threshold regardless of "
+                "visual proximity — see docs/HISTORY.md's DOB findings for why); DOB stays a "
+                "field_html() div deliberately, to keep matching forms-004/hardneg-005's known, "
+                "accepted no-context DOB gap rather than silently fixing it here too."
+            ),
         )
     )
 
