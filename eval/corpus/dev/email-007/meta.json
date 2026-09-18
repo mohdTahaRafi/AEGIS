@@ -8,5 +8,5 @@
   ],
   "source": "hand-built",
   "licence": "synthetic \u2014 no real data",
-  "notes": "UPI-VPA-shaped (name@handle) but followed by a real TLD dot \u2014 upi.ts's own rule means this is EMAIL, never UPI_VPA."
+  "notes": "A password-reset email containing a high-entropy reset token in the URL \u2014 a real-world SECRET shape (a bearer-style token), bumping SECRET's n."
 }

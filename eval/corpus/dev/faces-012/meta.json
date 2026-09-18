@@ -1,6 +1,6 @@
 {
-  "category": "email",
-  "group": "email",
+  "category": "gov",
+  "group": "faces",
   "script": "latin",
   "viewport": [
     1280,
@@ -8,5 +8,5 @@
   ],
   "source": "hand-built",
   "licence": "synthetic \u2014 no real data",
-  "notes": "A password-reset confirmation notice with the recipient email."
+  "notes": "Driving licence scan region, placeholder graphic."
 }
