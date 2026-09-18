@@ -1,5 +1,5 @@
 {
-  "screen_id": "hardneg-013",
+  "screen_id": "id-016",
   "viewport": [
     1280,
     720
@@ -7,14 +7,14 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "NONE",
+      "entity": "VEHICLE_REG",
       "box": [
         220,
         120,
-        220,
+        160,
         22
       ],
-      "note": "a 24+ character token below the Shannon-entropy threshold \u2014 must not be flagged as SECRET"
+      "value_hash": "sha256:e928882e0be43ac6da5ba1ab28a12b543d71de491edc5dbc02bd044c6d9d830b"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARY8PEMRVDSZ5ACUFC74PUSSV"
+      "canary_id": "CANARYCUC6DL98AQS4T9WZLJYHW2"
     }
   ],
   "tasks": []

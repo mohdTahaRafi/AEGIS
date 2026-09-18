@@ -1,5 +1,5 @@
 {
-  "screen_id": "hardneg-013",
+  "screen_id": "hardneg-018",
   "viewport": [
     1280,
     720
@@ -11,10 +11,10 @@
       "box": [
         220,
         120,
-        220,
+        260,
         22
       ],
-      "note": "a 24+ character token below the Shannon-entropy threshold \u2014 must not be flagged as SECRET"
+      "note": "24-digit tracking number: below secret.ts's entropy floor (digits-only max entropy ~3.32 < 3.5) and outside every digit-pattern recognizer's valid length range \u2014 must pass through."
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARY8PEMRVDSZ5ACUFC74PUSSV"
+      "canary_id": "CANARYFQFYJV98JJ4KWASQ2TPQ83"
     }
   ],
   "tasks": []
