@@ -123,3 +123,4 @@ uv run aegis-eval run --split dev    # evaluation harness
 - Policy is **data**, not code: thresholds and classes live in versioned JSON.
 - Logs use a closed vocabulary (numbers, enums, versions). Never log page text, node names or values.
 - Comments only where the *why* is non-obvious. No narration of what the code does.
+- dont do commit by your dont even ask you dint have to add dommit msg or anything and dont add like  coorther my your self  it should be check and commit  and ppush my me only dont ask for commit 
