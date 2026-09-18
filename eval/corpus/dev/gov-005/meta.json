@@ -1,0 +1,12 @@
+{
+  "category": "gov",
+  "group": "gov",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Vehicle insurance renewal: VEHICLE_REG with a real state code (the corpus's first genuine VEHICLE_REG positive), owner name."
+}

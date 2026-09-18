@@ -8,5 +8,5 @@
   ],
   "source": "hand-built",
   "licence": "synthetic \u2014 no real data",
-  "notes": "Hard negative: vehicle-reg-shaped, correct shape, but an invalid state-code prefix."
+  "notes": "Hard negative: real PIN-code shape and context, but LOW class by design."
 }

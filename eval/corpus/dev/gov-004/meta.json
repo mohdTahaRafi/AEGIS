@@ -1,0 +1,12 @@
+{
+  "category": "gov",
+  "group": "gov",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Passport status page: PASSPORT with label context (the corpus's first genuine PASSPORT positive), DOB with label context."
+}
