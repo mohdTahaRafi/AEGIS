@@ -1,0 +1,12 @@
+{
+  "category": "gov",
+  "group": "gov",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Voter ID registration: applicant name and address (ADDRESS \u2014 disclosed Channel-L gap)."
+}

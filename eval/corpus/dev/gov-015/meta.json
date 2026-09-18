@@ -8,5 +8,5 @@
   ],
   "source": "hand-built",
   "licence": "synthetic \u2014 no real data",
-  "notes": "Income-tax e-filing portal: PAN with label context, email."
+  "notes": "Driving licence renewal: name and DOB via real `<label for>`-associated inputs \u2014 second genuine DOB positive."
 }
