@@ -1,0 +1,12 @@
+{
+  "category": "gov",
+  "group": "identifiers",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "A masked Aadhaar display, correctly detected via aadhaar.ts's dedicated MASKED_AADHAAR_RE \u2014 a genuine positive, not a hard negative (see the correction note above)."
+}
