@@ -3087,6 +3087,134 @@ def build_indic_extra3(rng: random.Random) -> list[Fixture]:
     return fixtures
 
 
+def build_coverage_extra(rng: random.Random) -> list[Fixture]:
+    """Three entities had zero fixtures anywhere in the corpus despite each having a real,
+    implemented Channel T recognizer (`packages/recognizers/src/patterns/{card,pin,secret}.ts`) —
+    found by counting label items per entity across `generate_all()`'s own output, the same way
+    the BANK_ACCOUNT gap (no recognizer at all — a *different*, already-disclosed gap) was found.
+    Zero fixtures means zero measured data points: we would not actually know if CARD_EXPIRY,
+    PIN_CODE or SECRET detection works at all. This pass closes that.  Also bumps VEHICLE_REG and
+    UPI_VPA (2 each — too few for recall to mean anything) to 3."""
+    fixtures = []
+
+    # forms-011: CARD_EXPIRY — channel-d.ts's own autocomplete="cc-exp" rule, score 1.0.
+    expiry_box = (220, 120, 80, 28)
+    expiry_value = f"{rng.randint(1, 12):02d}/{rng.randint(26, 31)}"
+    fixtures.append(
+        Fixture(
+            "forms-011", "banking", "forms", "Update Card",
+            '<div class="heading">Update Card</div>'
+            + f'<div class="field-label" style="left:220px;top:102px;">Expiry</div>'
+              f'<input id="cc-exp" autocomplete="cc-exp" type="text" value="{expiry_value}" '
+              f'style="position:absolute;left:{expiry_box[0]}px;top:{expiry_box[1]}px;'
+              f'width:{expiry_box[2]}px;height:{expiry_box[3]}px;">',
+            [LabelItem("CARD_EXPIRY", expiry_box, sha256_hash(expiry_value))],
+            notes="Card expiry field via autocomplete=cc-exp (valueRead=true per channel-d.ts, unlike CARD_NUMBER/CVV) — first CARD_EXPIRY fixture in the corpus.",
+        )
+    )
+
+    # gov-012: PIN_CODE — pin.ts requires ADDRESS_LEXICON context ('pin code'/'postal code'/etc.)
+    # to score above its no-context floor; field_html_input gives it a real <label for> context.
+    pin_value = str(rng.randint(1, 9)) + "".join(str(rng.randint(0, 9)) for _ in range(5))
+    addr_box = (220, 120, 260, 22)
+    pin_box = (220, 160, 100, 22)
+    address_line = "".join(rng.choices("0123456789", k=2)) + " MG Road"
+    fixtures.append(
+        Fixture(
+            "gov-012", "gov", "gov", "Update Address",
+            '<div class="heading">Update Address</div>'
+            + field_html_input("Street address", address_line, addr_box, "address")
+            + field_html_input("PIN code", pin_value, pin_box, "pincode"),
+            [
+                LabelItem("ADDRESS", addr_box, sha256_hash(address_line.lower())),
+                LabelItem("PIN_CODE", pin_box, sha256_hash(pin_value)),
+            ],
+            notes="Address-update form with a real <label for> on the PIN field — first PIN_CODE fixture in the corpus (context-required per design.md §6.2).",
+        )
+    )
+
+    # freetext-008/009: SECRET — secret.ts is a real, context-free Channel T pattern (known-prefix
+    # API keys, JWT shape, PEM headers, generic high-entropy fallback), never exercised before.
+    api_key = "sk-" + "".join(rng.choices("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", k=32))
+    box3 = (220, 120, 380, 22)
+    fixtures.append(
+        Fixture(
+            "freetext-008", "docs", "freetext", "Internal Wiki — API Access",
+            '<div class="heading">Internal Wiki — API Access</div>'
+            + field_html("API key", api_key, box3, "apikey"),
+            [LabelItem("SECRET", box3, sha256_hash(api_key))],
+            notes="A known-prefix API key (sk-...) in free text — secret.ts's KNOWN_PREFIX_RE, score 0.9, first SECRET fixture in the corpus.",
+        )
+    )
+
+    jwt_header = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+    jwt_payload = "".join(rng.choices("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", k=24))
+    jwt_sig = "".join(rng.choices("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-", k=32))
+    jwt = f"{jwt_header}.{jwt_payload}.{jwt_sig}"
+    box4 = (220, 120, 900, 22)
+    fixtures.append(
+        Fixture(
+            "freetext-009", "docs", "freetext", "Internal Wiki — Session Debug",
+            '<div class="heading">Internal Wiki — Session Debug</div>'
+            + field_html("Session token", jwt, box4, "jwt"),
+            [LabelItem("SECRET", box4, sha256_hash(jwt))],
+            notes="A JWT-shaped token in free text — secret.ts's JWT_RE, score 0.9.",
+        )
+    )
+
+    # hardneg-018: a long *unbroken* digit-only run is a safe SECRET hard negative on two counts —
+    # secret.ts's entropy threshold (3.5 bits/char) is mathematically unreachable for a digits-only
+    # alphabet (max possible entropy log2(10) ≈ 3.32 bits/char), and (per the CARD_NUMBER/AADHAAR
+    # collision fix earlier this pass series) an unbroken digit run has no internal `\b` word
+    # boundary for `aadhaar.ts`/`card.ts`/`phone.ts` to anchor a sub-match to — only its own start
+    # and end are boundaries, and at length 24 that whole span is outside every one of those
+    # recognizers' own valid length ranges (12, 13-19, 10). Safe by construction, not by luck.
+    tracking_number = "".join(str(rng.randint(0, 9)) for _ in range(24))
+    box5 = (220, 120, 260, 22)
+    fixtures.append(
+        Fixture(
+            "hardneg-018", "docs", "hardneg", "Order Tracking",
+            '<div class="heading">Order Tracking</div>'
+            + field_html("Tracking number", tracking_number, box5, "tracking"),
+            [LabelItem("NONE", box5, note="24-digit tracking number: below secret.ts's entropy floor (digits-only max entropy ~3.32 < 3.5) and outside every digit-pattern recognizer's valid length range — must pass through.")],
+            notes="Long digit-only tracking number — hard negative for SECRET's generic high-entropy fallback and every digit-shaped recognizer at once.",
+        )
+    )
+
+    # id-016: VEHICLE_REG — bumping n=2 to n=3 (too few to trust a recall figure at n=2).
+    state = rng.choice(["KA", "MH", "DL", "TN", "GJ"])
+    district = f"{rng.randint(1, 99):02d}"
+    series = "".join(rng.choices("ABCDEFGHJKLMNPQRSTUVWXYZ", k=2))
+    plate_digits = f"{rng.randint(1, 9999):04d}"
+    plate = f"{state} {district} {series} {plate_digits}"
+    box6 = (220, 120, 160, 22)
+    fixtures.append(
+        Fixture(
+            "id-016", "gov", "identifiers", "Vehicle Insurance Renewal",
+            '<div class="heading">Vehicle Insurance Renewal</div>'
+            + field_html("Registration number", plate, box6, "vehicle"),
+            [LabelItem("VEHICLE_REG", box6, sha256_hash(plate.replace(" ", "")))],
+            notes="Fictitious vehicle registration, real state RTO code.",
+        )
+    )
+
+    # id-017: UPI_VPA — bumping n=2 to n=3, using a known PSP handle (upi.ts's KNOWN_HANDLES).
+    handle_name = "".join(rng.choices("abcdefghijklmnopqrstuvwxyz", k=7))
+    vpa = f"{handle_name}@oksbi"
+    box7 = (220, 120, 220, 22)
+    fixtures.append(
+        Fixture(
+            "id-017", "banking", "identifiers", "Split Bill Request",
+            '<div class="heading">Split Bill Request</div>'
+            + field_html("Pay to UPI ID", vpa, box7, "vpa"),
+            [LabelItem("UPI_VPA", box7, sha256_hash(vpa.lower()))],
+            notes="UPI VPA with a known PSP handle (oksbi) — upi.ts's KNOWN_HANDLES, score 0.9.",
+        )
+    )
+
+    return fixtures
+
+
 def plant_canaries(fixtures: list[Fixture], rng: random.Random) -> None:
     """Every fixture gets ≥1 unique high-entropy canary appended as a hidden marker (design.md
     §18.1). It never overlaps a labelled PII box, so it never interferes with metric scoring —
@@ -3146,6 +3274,7 @@ def generate_all(seed: int = 20260917) -> list[Fixture]:
     fixtures += build_forms_extra2(rng)
     fixtures += build_faces_extra3(rng)
     fixtures += build_indic_extra3(rng)
+    fixtures += build_coverage_extra(rng)
     plant_canaries(fixtures, rng)
     return fixtures
 
