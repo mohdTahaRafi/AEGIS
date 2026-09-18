@@ -1,0 +1,12 @@
+{
+  "category": "banking",
+  "group": "identifiers",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "CVV field \u2014 presence only, bumping CARD_CVV's n beyond 1."
+}

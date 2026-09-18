@@ -1,6 +1,6 @@
 {
-  "category": "health",
-  "group": "health",
+  "category": "gov",
+  "group": "identifiers",
   "script": "latin",
   "viewport": [
     1280,
@@ -8,5 +8,5 @@
   ],
   "source": "hand-built",
   "licence": "synthetic \u2014 no real data",
-  "notes": "Telemedicine video-call self-preview tile."
+  "notes": "Fictitious PAN, structurally valid."
 }

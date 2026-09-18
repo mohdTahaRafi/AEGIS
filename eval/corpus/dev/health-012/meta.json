@@ -1,0 +1,12 @@
+{
+  "category": "health",
+  "group": "health",
+  "script": "latin",
+  "viewport": [
+    1280,
+    720
+  ],
+  "source": "hand-built",
+  "licence": "synthetic \u2014 no real data",
+  "notes": "Lab report portal: name and DOB, no `<label for>` association (same disclosed no-context DOB gap as forms-004)."
+}

@@ -1,5 +1,5 @@
 {
-  "category": "gov",
+  "category": "banking",
   "group": "identifiers",
   "script": "latin",
   "viewport": [
@@ -8,5 +8,5 @@
   ],
   "source": "hand-built",
   "licence": "synthetic \u2014 no real data",
-  "notes": "Fictitious Aadhaar, valid Verhoeff checksum, grouped 4-4-4."
+  "notes": "Fictitious card number, valid Luhn checksum, Visa-range IIN."
 }
