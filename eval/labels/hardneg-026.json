@@ -1,5 +1,5 @@
 {
-  "screen_id": "hardneg-006",
+  "screen_id": "hardneg-026",
   "viewport": [
     1280,
     720
@@ -11,10 +11,10 @@
       "box": [
         220,
         120,
-        100,
+        150,
         22
       ],
-      "note": "6-digit ticket number with no address context \u2014 must not be flagged as a PIN code"
+      "note": "10-digit order number starting 1-5 \u2014 phone.ts's INDIAN_MOBILE_RE requires a 6-9 first digit, so this cannot match as PHONE."
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYZ389JP53A2QK9VG689XSC6"
+      "canary_id": "CANARYMJ75UY99QPG29SZ95UZTSN"
     }
   ],
   "tasks": []

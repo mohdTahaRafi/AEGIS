@@ -1,5 +1,5 @@
 {
-  "screen_id": "hardneg-006",
+  "screen_id": "hardneg-023",
   "viewport": [
     1280,
     720
@@ -11,10 +11,10 @@
       "box": [
         220,
         120,
-        100,
+        160,
         22
       ],
-      "note": "6-digit ticket number with no address context \u2014 must not be flagged as a PIN code"
+      "note": "12-digit Aadhaar-shaped example ID with a deliberately wrong Verhoeff check digit \u2014 aadhaar.ts scores invalid, no-context at 0.1, below the redaction floor."
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYZ389JP53A2QK9VG689XSC6"
+      "canary_id": "CANARYLBPDAC6NFVJWRN4QJTJ3JK"
     }
   ],
   "tasks": []

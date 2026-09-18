@@ -1,5 +1,5 @@
 {
-  "screen_id": "hardneg-006",
+  "screen_id": "hardneg-020",
   "viewport": [
     1280,
     720
@@ -11,10 +11,10 @@
       "box": [
         220,
         120,
-        100,
+        130,
         22
       ],
-      "note": "6-digit ticket number with no address context \u2014 must not be flagged as a PIN code"
+      "note": "IFSC-shaped bin code with '1' (not the required literal '0') at position 5 \u2014 ifsc.ts's IFSC_RE cannot match it at all."
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYZ389JP53A2QK9VG689XSC6"
+      "canary_id": "CANARYCW2NNYKY7E4Z66J4DAAFVP"
     }
   ],
   "tasks": []

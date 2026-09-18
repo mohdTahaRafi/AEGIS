@@ -1,5 +1,5 @@
 {
-  "screen_id": "hardneg-006",
+  "screen_id": "hardneg-019",
   "viewport": [
     1280,
     720
@@ -11,10 +11,10 @@
       "box": [
         220,
         120,
-        100,
+        130,
         22
       ],
-      "note": "6-digit ticket number with no address context \u2014 must not be flagged as a PIN code"
+      "note": "PAN-shaped SKU (5 letters, 4 digits, 1 letter) whose 4th letter is NOT a real holder-type code \u2014 pan.ts's HOLDER_TYPES check correctly rejects it."
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYZ389JP53A2QK9VG689XSC6"
+      "canary_id": "CANARYY9MN7HEP35CV79NL687JQC"
     }
   ],
   "tasks": []
