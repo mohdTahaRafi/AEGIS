@@ -1,0 +1,42 @@
+{
+  "screen_id": "email-008",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "EMAIL",
+      "box": [
+        220,
+        120,
+        260,
+        22
+      ],
+      "value_hash": "sha256:09fb8117ef6883aec251b05bd81b3243fbb873494f02496c533c31e5c0d531bd"
+    },
+    {
+      "entity": "PERSON_NAME",
+      "box": [
+        220,
+        160,
+        200,
+        22
+      ],
+      "value_hash": "sha256:579625c05ae0f2174ef04c7f5492b5430e124c5b6163fed437f943b38edf12fb"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARYZXQSUCVR6HSD7PPEYY7L39"
+    }
+  ],
+  "tasks": []
+}

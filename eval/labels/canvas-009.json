@@ -1,5 +1,5 @@
 {
-  "screen_id": "canvas-002",
+  "screen_id": "canvas-009",
   "viewport": [
     1280,
     720
@@ -7,14 +7,14 @@
   "dpr": 1,
   "items": [
     {
-      "entity": "UPI_VPA",
+      "entity": "EMAIL",
       "box": [
         40,
         154,
-        160,
+        260,
         22
       ],
-      "value_hash": "sha256:b819c35efd912eab5f82f1ba958c5b3d7b6415b78350d6536f58bac95f910a3c"
+      "value_hash": "sha256:a43db5332dcea3f87bc05d2dda16cb850fad0cf4be88d761dc999172a078f9aa"
     },
     {
       "entity": "UNKNOWN_SENSITIVE",
@@ -25,7 +25,7 @@
         16
       ],
       "canary": true,
-      "canary_id": "CANARYYU6GLC64Y97M8VZXXS9VJG"
+      "canary_id": "CANARYVGDGSPAFEXAJZPL4N4PMGL"
     }
   ],
   "tasks": []
