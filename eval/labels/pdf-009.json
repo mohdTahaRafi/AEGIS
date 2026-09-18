@@ -1,0 +1,43 @@
+{
+  "screen_id": "pdf-009",
+  "viewport": [
+    1280,
+    720
+  ],
+  "dpr": 1,
+  "items": [
+    {
+      "entity": "PAN",
+      "box": [
+        120,
+        180,
+        120,
+        22
+      ],
+      "value_hash": "sha256:86616947d0581067d6e59510f410e4e73bc1c8e2bec7fb6fedf4eef468393931"
+    },
+    {
+      "entity": "BANK_ACCOUNT",
+      "box": [
+        120,
+        210,
+        200,
+        22
+      ],
+      "value_hash": "sha256:ccd76fd6bc0f99cca4f1008c7201959be6808c78d88de474a7cb3a975029fd93",
+      "note": "disclosed gap: no dedicated BANK_ACCOUNT pattern recognizer yet \u2014 expected FN"
+    },
+    {
+      "entity": "UNKNOWN_SENSITIVE",
+      "box": [
+        16,
+        680,
+        260,
+        16
+      ],
+      "canary": true,
+      "canary_id": "CANARY9QBTVRNGNNDARN686XMYM3"
+    }
+  ],
+  "tasks": []
+}
