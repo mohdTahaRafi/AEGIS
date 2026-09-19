@@ -172,7 +172,19 @@ async function handleCompose(msg: Extract<ToWorker, { t: 'compose' }>): Promise<
     unlabelled: msg.unlabelled,
   });
   const webp = await encodeWebp(output.canvas);
-  closeCurrentCapture();
+  // T-6.10: NOT closed here. This file's own `currentCapture` doc comment already says the
+  // bitmap is meant to survive until "compose/rescan for that capture have finished" — plural,
+  // because `image-rescan.ts`'s halo re-check can call `compose` a SECOND time (`recompose`, via
+  // this same handler) against the very same capture when it finds a residual leak the first
+  // composite missed, and that second call needs `currentCapture` to still be alive. Closing here
+  // unconditionally broke exactly that path — found by driving a real fixture end to end for the
+  // first time (T-6.9/T-6.10's ablation runner) once `captureVisibleTab` could finally succeed at
+  // all (see fixture_server.py): the halo rescan found a real hit, `recompose` fired a second
+  // `compose` request, and it arrived to find `currentCapture` already null. `handlePerceive`'s
+  // own `closeCurrentCapture()` at the top of the NEXT capture cycle is what actually reclaims
+  // this one now — the same place that already handled "a previous capture whose compose was
+  // never called at all" (the L0 case), just widened to also cover "compose happened but a
+  // possible recompose hadn't yet."
   post({ t: 'composed', jobId: msg.jobId, webp, coverage: output.coverage }, [webp]);
 }
 

@@ -20,11 +20,27 @@ export default defineConfig({
   // Manifest V3 on both browsers (architecture.md §10.3). WXT's `sidepanel` entrypoint maps
   // itself to Chrome `side_panel` / Firefox `sidebar_action`; no manual wiring needed.
   manifestVersion: 3,
-  manifest: ({ browser }) => ({
+  manifest: ({ browser, mode }) => ({
     name: 'AEGIS',
     description: 'Privacy-preserving browser agent with on-device visual perception',
     permissions: ['scripting', 'tabs', 'storage'],
     optional_host_permissions: ['<all_urls>'],
+    // T-6.10: the eval harness's fixture server (eval/src/aegis_eval/runner/fixture_server.py)
+    // serves real corpus pages over http://127.0.0.1 so `captureVisibleTab` has a grantable
+    // origin at all (`file://` pages can never get it — see that module's own doc comment).
+    // `ensureHostPermission`'s normal path is `permissions.request()`, a UI prompt with no way
+    // for headless Playwright automation to click "Allow" — confirmed by reproduction, not
+    // assumed: it hangs forever waiting on a gesture that never comes. Declaring a host permission
+    // as REQUIRED (not optional) makes Chrome auto-grant it at unpacked-extension load time with
+    // no prompt, so `permissions.contains` short-circuits before `.request()` is ever reached —
+    // but `captureVisibleTab` itself additionally requires `<all_urls>` or `activeTab`
+    // specifically (a narrower `http://127.0.0.1/*` origin match satisfies `permissions.contains`
+    // but still throws "Either the '<all_urls>' or 'activeTab' permission is required" from
+    // `captureVisibleTab` — confirmed by reproduction), so this reuses the SAME pattern already
+    // declared as optional above, just required for non-production builds. Scoped to
+    // non-production builds only, the same way T-6.9's ablation switch is — this never ships in
+    // the release manifest, which keeps `<all_urls>` strictly optional/user-granted.
+    ...(mode !== 'production' ? { host_permissions: ['<all_urls>'] } : {}),
     content_security_policy: {
       extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'",
     },

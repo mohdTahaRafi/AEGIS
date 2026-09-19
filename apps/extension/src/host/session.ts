@@ -257,7 +257,25 @@ export class Session {
             client: this.deps.perception.client,
             capture: this.deps.perception.capture,
             digestGuard: this.digestGuard,
-            reobserveGeometry: async () => (await this.requestGraph()).nodes,
+            // T-6.10: `requestGraph()`'s resolved `GraphMessage.nodes` is a DELTA (only nodes
+            // new/changed since the last extraction — `onGraph` above folds it into
+            // `allSeenNodes`, which is exactly why that accumulator exists), not a full snapshot.
+            // Using the delta directly here made every post-capture digest recheck compare this
+            // step's full initial node set against an near-always-empty delta (nothing on the
+            // page changes between the capture and the recheck in the overwhelmingly common
+            // case), which made `computeGeometryDigest` mismatch on essentially every real
+            // capture and `digestGuard.check` discard it before `client.perceive()` was ever
+            // called — silently defeating the whole vision path project-wide. Found by driving a
+            // real fixture end to end (T-6.9/T-6.10's ablation runner) once the file://→
+            // captureVisibleTab permission blocker (see fixture_server.py) was fixed and capture
+            // could finally succeed for the first time; masked until then because a null capture
+            // already short-circuited before this check ever ran. `computeGeometryDigest` sorts
+            // before hashing, so `allSeenNodes`' Map-insertion order doesn't need to match the
+            // original snapshot's order for a true "nothing changed" case to digest equal.
+            reobserveGeometry: async () => {
+              await this.requestGraph();
+              return [...this.allSeenNodes.values()];
+            },
             viewport,
             ablation: this.deps.ablation,
           })
