@@ -15,6 +15,7 @@ import { ConfirmAction } from '../../src/ui/ConfirmAction';
 import { GuardBlockCard } from '../../src/ui/GuardBlockCard';
 import { PayloadViewer } from '../../src/ui/PayloadViewer';
 import { RedactionSummary } from '../../src/ui/RedactionSummary';
+import { UnredactPanel } from '../../src/ui/UnredactPanel';
 import { Settings } from '../../src/ui/Settings';
 import type { SanitizedContext } from '@aegis/protocol';
 import type { EntityType } from '@aegis/recognizers';
@@ -359,6 +360,7 @@ function App() {
         {lastPayload && (
           <>
             <RedactionSummary redactions={lastPayload.redactions} coverage={lastPayload.coverage} />
+            <UnredactPanel redactions={lastPayload.redactions} onUnredact={(ref, reason) => session?.unredact(ref, reason)} />
             {settings.showRawPayload && <PayloadViewer payload={lastPayload} />}
           </>
         )}

@@ -424,3 +424,82 @@ describe('buildSanitizedContext — ablation arms (T-6.9)', () => {
     });
   });
 });
+
+// T-6.12 (FR-36, design.md §7.1 step 9) — the session un-redact de-escalation path. `unredactedRefs`
+// mirrors how `Session.unredact` actually reaches the builder: the ref a PRIOR step already minted
+// for a value, found again by re-minting the SAME value into the SAME `Vault` (deterministic per
+// (entity, normalizedValue, originKey) — the real mechanism, not a shortcut for the test).
+describe('buildSanitizedContext — session un-redact (T-6.12, FR-36)', () => {
+  it('a field value whose ref was previously un-redacted is sent as raw text, not a placeholder', () => {
+    const aadhaar = validAadhaar();
+    const vault = new Vault();
+    const ref = vault.mint('AADHAAR', aadhaar, { originKey: 'origin:test', stepId: 's-0', class: 'CRITICAL' });
+
+    const context = buildCtx({
+      vault,
+      unredactedRefs: new Set([ref]),
+      nodes: [node('n-1', { name: 'Aadhaar number', field: { inputType: 'text', maskedCss: false, valueRead: true, value: aadhaar } })],
+    });
+
+    const value = context.nodes[0]!.value as { kind: string; text?: string };
+    expect(value.kind).toBe('text');
+    expect(value.text).toBe(aadhaar);
+    expect(context.redactions.some((r) => r.ref === ref)).toBe(false);
+  });
+
+  it('a free-text occurrence of the same un-redacted value is also sent raw, with no redaction entry', () => {
+    const aadhaar = validAadhaar();
+    const vault = new Vault();
+    const ref = vault.mint('AADHAAR', aadhaar, { originKey: 'origin:test', stepId: 's-0', class: 'CRITICAL' });
+
+    const context = buildCtx({
+      vault,
+      unredactedRefs: new Set([ref]),
+      textRuns: [{ id: 't-1', box: [0, 0, 100, 20], text: `Aadhaar on record: ${aadhaar}` }],
+    });
+
+    expect(context.text[0]!.text).toBe(`Aadhaar on record: ${aadhaar}`);
+    expect(context.redactions.some((r) => r.ref === ref)).toBe(false);
+  });
+
+  it('a DIFFERENT ref for the same entity type is unaffected — un-redact is per-value, not per-entity-type', () => {
+    const aadhaar1 = validAadhaar();
+    const aadhaar2 = ('9' + '87654321012').slice(0, 11) + verhoeffGenerate(('9' + '87654321012').slice(0, 11));
+    const vault = new Vault();
+    const ref1 = vault.mint('AADHAAR', aadhaar1, { originKey: 'origin:test', stepId: 's-0', class: 'CRITICAL' });
+
+    const context = buildCtx({
+      vault,
+      unredactedRefs: new Set([ref1]),
+      nodes: [node('n-1', { name: 'Aadhaar number', field: { inputType: 'text', maskedCss: false, valueRead: true, value: aadhaar2 } })],
+    });
+
+    const value = context.nodes[0]!.value as { kind: string; ref?: string };
+    expect(value.kind).toBe('placeholder');
+    expect(value.ref).not.toBe(ref1);
+    expect(context.redactions.some((r) => r.entity === 'AADHAAR')).toBe(true);
+  });
+
+  it('the de-escalated payload still validates against the real SanitizedContext schema', () => {
+    const aadhaar = validAadhaar();
+    const vault = new Vault();
+    const ref = vault.mint('AADHAAR', aadhaar, { originKey: 'origin:test', stepId: 's-0', class: 'CRITICAL' });
+
+    const context = buildCtx({
+      vault,
+      unredactedRefs: new Set([ref]),
+      nodes: [node('n-1', { name: 'Aadhaar number', field: { inputType: 'text', maskedCss: false, valueRead: true, value: aadhaar } })],
+    });
+
+    expect(validators.sanitizedContext(context).valid).toBe(true);
+  });
+
+  it('with no unredactedRefs given at all, behaviour is identical to before this feature existed', () => {
+    const aadhaar = validAadhaar();
+    const context = buildCtx({
+      nodes: [node('n-1', { name: 'Aadhaar number', field: { inputType: 'text', maskedCss: false, valueRead: true, value: aadhaar } })],
+    });
+    const value = context.nodes[0]!.value as { kind: string };
+    expect(value.kind).toBe('placeholder');
+  });
+});

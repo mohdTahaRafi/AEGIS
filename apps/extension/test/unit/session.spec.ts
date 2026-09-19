@@ -263,3 +263,88 @@ describe('Session — dom_only ablation arm (T-6.9)', () => {
     expect(events.some((e) => e.type === 'stopped')).toBe(false);
   });
 });
+
+// T-6.12 (FR-36, design.md §7.1 step 9) — session un-redact, the only de-escalation path besides
+// a versioned policy allow-rule. Exercised through the real `Session.start()`/`getLedger()` path,
+// not by reaching into private state — `unredactedRefs` is a private field precisely so nothing
+// outside this class can touch it except through the audited `unredact()` method.
+const EMAIL_NODE: WireScreenNode = {
+  id: 'n-2',
+  frame: 'f-0',
+  role: 'textbox',
+  name: 'Contact email',
+  box: [0, 0, 100, 30],
+  z: 0,
+  state: { focused: false, disabled: false, readonly: false, required: false, hasValue: true, valueLen: 17, occluded: false, volatile: false },
+  affordances: ['type'],
+  field: { inputType: 'email', maskedCss: false, valueRead: true, value: 'user@example.com' },
+  container: 'root',
+  textRuns: [],
+};
+
+function emailGraphResponder(sent: unknown, emit: (m: unknown) => void): void {
+  const msg = sent as { type: string; actionId?: string };
+  if (msg.type === 'extract') {
+    emit({ type: 'graph', frame: 'f-0', nodes: [EMAIL_NODE], removed: [], textRuns: [], privacyEpoch: 0, reason: 'initial', hostileDynamic: false });
+  }
+  if (msg.type === 'dispatch-action') {
+    emit({ type: 'action-result', actionId: msg.actionId, ok: true });
+    emit({ type: 'settled', actionId: msg.actionId });
+  }
+}
+
+describe('Session — un-redact (T-6.12, FR-36)', () => {
+  it('an unknown ref is refused: returns false and records nothing in the ledger', async () => {
+    const sendToGateway = vi.fn().mockResolvedValue({ step_id: 's-1', actions: [{ op: 'done' }] });
+    const { session } = buildSession(sendToGateway, emailGraphResponder);
+    await session.start('report contact info');
+
+    expect(session.unredact('⟪EMAIL#999⟫', 'not real')).toBe(false);
+    expect(session.getLedger().unredactEvents()).toHaveLength(0);
+  });
+
+  it('un-redacting a real minted ref records an audited ledger event with the reason', async () => {
+    const sendToGateway = vi.fn().mockResolvedValue({ step_id: 's-1', actions: [{ op: 'done' }] });
+    const { session } = buildSession(sendToGateway, emailGraphResponder);
+    await session.start('report contact info');
+
+    const value = session.getLedger().latest()!.payload.nodes[0]!.value as { kind: string; ref?: string };
+    expect(value.kind).toBe('placeholder');
+    const ref = value.ref!;
+
+    expect(session.unredact(ref, 'user asked to share their own email')).toBe(true);
+    const events = session.getLedger().unredactEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ ref, entity: 'EMAIL', reason: 'user asked to share their own email' });
+  });
+
+  it('a subsequent step sends the same value as raw text, not a placeholder, once un-redacted', async () => {
+    let session!: Session;
+    let stepCount = 0;
+    // The un-redact call has to land BETWEEN step 1 (which mints the ref) and step 2 (which
+    // should see it de-escalated) — `session.start()` runs the whole task to completion, so
+    // there's no external hook mid-task except this mock itself, which the step loop already
+    // calls once per step, strictly after that step's own ledger entry is recorded (guard runs
+    // before the server round trip — see session.ts's step loop order).
+    const sendToGateway = vi.fn().mockImplementation(async () => {
+      stepCount += 1;
+      if (stepCount === 1) {
+        const firstValue = session.getLedger().latest()!.payload.nodes[0]!.value as { kind: string; ref?: string };
+        session.unredact(firstValue.ref!, 'confirmed by user');
+        return { step_id: 's-1', actions: [{ op: 'wait', ms: 1 }] };
+      }
+      return { step_id: 's-2', actions: [{ op: 'done' }] };
+    });
+    ({ session } = buildSession(sendToGateway, emailGraphResponder));
+    await session.start('report contact info');
+
+    // The FIRST step was already sent as a placeholder (un-redact can only affect FUTURE steps,
+    // never rewrite a payload already sent — design.md's own fail-closed framing for irreversible
+    // network sends). The SECOND step is where the de-escalation actually shows.
+    const firstValue = session.getLedger().all()[0]!.payload.nodes[0]!.value as { kind: string };
+    expect(firstValue.kind).toBe('placeholder');
+    const secondValue = session.getLedger().all()[1]!.payload.nodes[0]!.value as { kind: string; text?: string };
+    expect(secondValue.kind).toBe('text');
+    expect(secondValue.text).toBe('user@example.com');
+  });
+});

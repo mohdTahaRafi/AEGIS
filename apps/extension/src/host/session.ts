@@ -146,6 +146,10 @@ export class Session {
   // chance to settle before giving up, not stopping on the very first hostile-dynamic reading.
   private hostileDynamicStepStreak = 0;
   private static readonly HOSTILE_DYNAMIC_STEP_LIMIT = 3;
+  // T-6.12 (FR-36): in-memory only, never persisted anywhere — a fresh `Session` (one per task,
+  // per `main.tsx`'s own per-task perception-worker lifetime comment) starts with an empty set,
+  // which is exactly "it expires with the session" (phase_6_tier2_parity.md's AC).
+  private readonly unredactedRefs = new Set<string>();
 
   constructor(private readonly deps: SessionDeps) {
     this.now = deps.now ?? (() => Date.now());
@@ -160,6 +164,31 @@ export class Session {
 
   getState(): ReturnType<Controller['getState']> {
     return this.controller.getState();
+  }
+
+  /** T-6.12 (FR-36, design.md §7.1 step 9): "The user shall be able to un-redact a specific
+   * region for the session" — the only de-escalation path besides a versioned policy allow-rule.
+   * Takes the placeholder REF the user is already looking at (from a step's own
+   * `SanitizedContext.redactions[]`/rendered payload), not a raw value — this class never hands a
+   * caller a raw value to pass back in. `vault.has(ref)` is the only validation: a ref this
+   * session never minted can't be un-redacted (there is nothing to de-escalate), and a
+   * presence-only entity was never minted with a value-bearing ref to begin with, so it can never
+   * satisfy this check either — no separate presence-only guard needed here.
+   *
+   * Returns `false` (and records nothing) for an unknown ref rather than throwing — the caller
+   * (a UI button click) has no meaningful recovery beyond "don't claim it worked." */
+  unredact(ref: string, reason: string): boolean {
+    if (!this.vault.has(ref)) return false;
+    this.unredactedRefs.add(ref);
+    const description = this.vault.describe(ref);
+    this.ledger.recordUnredact({
+      ref,
+      entity: description?.entity ?? 'UNKNOWN_SENSITIVE',
+      reason,
+      stepId: this.ledger.latest()?.stepId ?? '',
+      ts: this.now(),
+    });
+    return true;
   }
 
   /** Called by whatever owns the underlying `ContentPortClient`'s handler wiring — see
@@ -304,6 +333,7 @@ export class Session {
         visionCandidates: perceptionResult?.visionCandidates,
         visionAnalyzedNodeIds: perceptionResult?.visionAnalyzedNodeIds,
         ablation: this.deps.ablation,
+        unredactedRefs: this.unredactedRefs,
       });
 
       // T-4.16/T-4.17: attach the composed image only once the final fused `redactions` are known

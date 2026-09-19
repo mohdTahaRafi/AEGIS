@@ -74,6 +74,12 @@ export interface BuildContextInput {
    * `⟪ENTITY⟫` form — never a real vault ref — regardless of policy. `'dom_only'` needs no
    * handling here at all: it works by `visionCandidates` simply never being passed in. */
   ablation?: AblationArm;
+  /** T-6.12 (FR-36, design.md §7.1 step 9): the session's own user-un-redacted refs — the ONLY
+   * de-escalation path besides a versioned policy allow-rule. A ref only ever lands here after
+   * `Session.unredact()` has already minted it once and recorded the action in the ledger; this
+   * function trusts that gate rather than re-deriving it, since it has no ledger/audit access of
+   * its own. Absent (not an empty set) behaves exactly as before this feature existed. */
+  unredactedRefs?: ReadonlySet<string>;
 }
 
 function fieldContext(node: WireScreenNode): RecognizerContext {
@@ -130,7 +136,16 @@ function regionKey(region: SensitiveRegion): string {
   return region.nodeId ? `node:${region.nodeId}` : `run:${region.textRunId}:${region.span?.[0]}`;
 }
 
-function toNodeValue(node: WireScreenNode, region: SensitiveRegion | undefined, vault: Vault, policy: Policy, originKey: string, stepId: string, ablation?: AblationArm): NodeValue | undefined {
+function toNodeValue(
+  node: WireScreenNode,
+  region: SensitiveRegion | undefined,
+  vault: Vault,
+  policy: Policy,
+  originKey: string,
+  stepId: string,
+  ablation?: AblationArm,
+  unredactedRefs?: ReadonlySet<string>,
+): NodeValue | undefined {
   if (!node.field) return undefined;
 
   // T-6.7: a volatile field's value is replaced unconditionally, ahead of any region — no
@@ -145,12 +160,18 @@ function toNodeValue(node: WireScreenNode, region: SensitiveRegion | undefined, 
     if (ablation === 'blackbox') {
       return { kind: 'presence', entity: region.entity, len: region.value?.length ?? node.state.valueLen };
     }
-    const minted = mintForRegion(vault, policy, region, originKey, stepId);
+    const minted = mintForRegion(vault, policy, region, originKey, stepId, unredactedRefs);
     if (minted) {
       // Presence-only regions never had a value to measure (T-3.9) — report the field's own
       // observed length (from `computeState`'s `.value.length` read, never the string) instead.
       if (minted.kind === 'presence' && minted.len === 0) {
         return { ...minted, len: node.state.valueLen };
+      }
+      // T-6.12: an un-redacted region's raw text still needs the same delimiter-escaping every
+      // other plain-text path applies (line below, `node.field.value`'s own branch) — `mint.ts`
+      // hands back the raw `region.value` unescaped, since it has no reason to know this rule.
+      if (minted.kind === 'text') {
+        return { kind: 'text', text: escapePlaceholderDelimiters(minted.text) };
       }
       return minted as NodeValue;
     }
@@ -175,11 +196,29 @@ function toNodeValue(node: WireScreenNode, region: SensitiveRegion | undefined, 
  * '⟪ENTITY⟫' for non-resolvable items" branch. T-6.9's black-box arm forces every region down
  * this same bare-label path unconditionally — "send no refs," regardless of policy or whether a
  * real value exists to mint — never touching the vault at all in that arm. */
-function replacementFor(region: SensitiveRegion, vault: Vault, policy: Policy, originKey: string, stepId: string, ablation?: AblationArm): string {
+interface Replacement {
+  text: string;
+  /** T-6.12: true when this region's ref was previously un-redacted for this session — `text` is
+   * the raw value, not a ref, and the caller must not add a `redactions[]` legend entry for it
+   * (the whole point of un-redacting is that the server no longer sees this as redacted at all). */
+  unredacted: boolean;
+}
+
+function replacementFor(
+  region: SensitiveRegion,
+  vault: Vault,
+  policy: Policy,
+  originKey: string,
+  stepId: string,
+  ablation?: AblationArm,
+  unredactedRefs?: ReadonlySet<string>,
+): Replacement {
   if (ablation === 'blackbox' || region.presenceOnly || isPresenceOnly(policy, region.entity) || region.value === undefined) {
-    return `⟪${region.entity}⟫`;
+    return { text: `⟪${region.entity}⟫`, unredacted: false };
   }
-  return vault.mint(region.entity, region.value, { originKey, stepId, class: region.class });
+  const ref = vault.mint(region.entity, region.value, { originKey, stepId, class: region.class });
+  if (unredactedRefs?.has(ref)) return { text: region.value, unredacted: true };
+  return { text: ref, unredacted: false };
 }
 
 function toRedactionEntry(region: SensitiveRegion, ref: string | null): RedactionEntry {
@@ -337,9 +376,11 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
   // reach them. This is their own, third and only path to `redactions[]`.
   for (const region of regions) {
     if (!region.textRunId?.startsWith('ocr-full-frame:')) continue;
-    const replacement = replacementFor(region, vault, policy, originKey, stepId, input.ablation);
-    const ref = replacement.startsWith('⟪') && /#\d+⟫$/.test(replacement) ? replacement : null;
-    redactions.push(toRedactionEntry(region, ref));
+    const replacement = replacementFor(region, vault, policy, originKey, stepId, input.ablation, input.unredactedRefs);
+    if (!replacement.unredacted) {
+      const ref = replacement.text.startsWith('⟪') && /#\d+⟫$/.test(replacement.text) ? replacement.text : null;
+      redactions.push(toRedactionEntry(region, ref));
+    }
   }
 
   function sanitizeFreeText(key: string, text: string): string {
@@ -347,10 +388,12 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
     const replacements: SpanReplacement[] = regionsForKey
       .filter((r): r is SensitiveRegion & { span: [number, number] } => r.span !== undefined)
       .map((r) => {
-        const replacement = replacementFor(r, vault, policy, originKey, stepId, input.ablation);
-        const ref = replacement.startsWith('⟪') && /#\d+⟫$/.test(replacement) ? replacement : null;
-        redactions.push(toRedactionEntry(r, ref));
-        return { span: r.span, entity: r.entity, replacement };
+        const replacement = replacementFor(r, vault, policy, originKey, stepId, input.ablation, input.unredactedRefs);
+        if (!replacement.unredacted) {
+          const ref = replacement.text.startsWith('⟪') && /#\d+⟫$/.test(replacement.text) ? replacement.text : null;
+          redactions.push(toRedactionEntry(r, ref));
+        }
+        return { span: r.span, entity: r.entity, replacement: replacement.text };
       });
     return substitute(text, replacements);
   }
@@ -364,22 +407,32 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
 
   const nodes: SanitizedNode[] = escapedNodes.map((node) => {
     const region = regionsByKey.get(`node:${node.id}`);
-    const value = toNodeValue(node, region, vault, policy, originKey, stepId, input.ablation);
+    const value = toNodeValue(node, region, vault, policy, originKey, stepId, input.ablation, input.unredactedRefs);
     if (region) {
       // `toNodeValue` only mints through a `field` (a form field's own value) — a vision-only
       // node (canvas/img/video, T-6.5/T-6.6) has no field, so its region would otherwise be
       // recorded with `ref: null` and the compositor would draw an unlabelled box instead of the
       // typed placeholder design.md §7's milestone demo describes (`⟪AADHAAR#7⟫`). Mint directly
       // from the region here, the same call `sanitizeFreeText` makes for a free-text match.
-      const ref = node.field
-        ? value && 'ref' in value
-          ? value.ref
-          : null
-        : (() => {
-            const replacement = replacementFor(region, vault, policy, originKey, stepId, input.ablation);
-            return replacement.startsWith('⟪') && /#\d+⟫$/.test(replacement) ? replacement : null;
-          })();
-      redactions.push(toRedactionEntry(region, ref));
+      //
+      // T-6.12: `value.kind === 'text'` for a `node.field` node here can only mean "un-redacted"
+      // (never volatile — `toNodeValue` returns that case before `region` is ever computed, so
+      // `region` truthy at this point already rules it out) — skip the redaction entry the same
+      // way the free-text paths above do for the identical reason. The vision-only branch checks
+      // `replacementFor`'s own `unredacted` flag directly, from the SAME call that computes `ref`
+      // (not a second one) — `vault.mint` is idempotent per region, but there is no reason to
+      // call it twice.
+      let ref: string | null = null;
+      let unredacted = false;
+      if (node.field) {
+        unredacted = value?.kind === 'text';
+        if (!unredacted && value && 'ref' in value) ref = value.ref;
+      } else {
+        const replacement = replacementFor(region, vault, policy, originKey, stepId, input.ablation, input.unredactedRefs);
+        unredacted = replacement.unredacted;
+        if (!unredacted) ref = replacement.text.startsWith('⟪') && /#\d+⟫$/.test(replacement.text) ? replacement.text : null;
+      }
+      if (!unredacted) redactions.push(toRedactionEntry(region, ref));
     }
     const duplicateOfRun = runSubstitutionByBoxText.get(`${node.box.join(',')} ${node.name}`);
     const sanitizedName = duplicateOfRun ?? sanitizeFreeText(`name:${node.id}`, node.name);
