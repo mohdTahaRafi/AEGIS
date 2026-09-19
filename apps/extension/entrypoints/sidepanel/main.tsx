@@ -15,15 +15,26 @@ import { ConfirmAction } from '../../src/ui/ConfirmAction';
 import { GuardBlockCard } from '../../src/ui/GuardBlockCard';
 import { PayloadViewer } from '../../src/ui/PayloadViewer';
 import { RedactionSummary } from '../../src/ui/RedactionSummary';
+import { Settings } from '../../src/ui/Settings';
 import type { SanitizedContext } from '@aegis/protocol';
+import type { EntityType } from '@aegis/recognizers';
 import type { AblationArm } from '../../src/shared/ablation';
+import { defaultPolicy } from '@aegis/policy';
+import { applyAlwaysRedact, defaultSettings, loadSettings, saveSettings, type Settings as SettingsValue } from '../../src/host/settings/store';
 
-// phase_2_spine.md §6.7's demo default; overridable at build time (design.md §13.5's "Server URL"
-// setting — a real settings UI is not built this phase, so this is the one place it lives).
+// phase_2_spine.md §6.7's demo default; overridable at build time. design.md §13.5's "Server URL"
+// setting (T-6.11) reads/writes these through `Settings`/`settings/store.ts` now — this constant
+// stays as the *build-time* default `defaultSettings()` falls back to on a fresh install, per
+// that row's own "Default: build-time value".
 const GATEWAY_URL = (import.meta.env.VITE_GATEWAY_URL as string | undefined) ?? 'http://localhost:8787';
 // design.md §4.1 (T-2.31); OQ-15 (docs/DECISIONS.md) leaves the finale's real provisioning model
 // open — `dev-token` matches the gateway's own `config.py` default for local/demo use.
 const GATEWAY_TOKEN = (import.meta.env.VITE_GATEWAY_TOKEN as string | undefined) ?? 'dev-token';
+
+// design.md §13.5, T-6.11: `Settings`'s "Per-type redaction policy" row needs every entity type
+// that exists — `defaultPolicy.entityClass`'s own keys are that list already (packages/policy's
+// real data), not a second hardcoded enum living here.
+const SETTINGS_ENTITY_TYPES = Object.keys(defaultPolicy.entityClass) as EntityType[];
 
 // Mirrors public/models/models.manifest.json's face entry (T-4.3). [A] Duplicated rather than
 // imported: `public/` assets are runtime-fetched static files in WXT/Vite's model, not part of
@@ -130,8 +141,14 @@ function App() {
   const [guardBlock, setGuardBlock] = useState<{ rule: string; entity?: string } | null>(null);
   const [perceptionBackend, setPerceptionBackend] = useState<'webgpu' | 'wasm' | null>(null);
   const [modelsLoadedMB, setModelsLoadedMB] = useState(0);
+  const [settings, setSettings] = useState<SettingsValue>(() => defaultSettings(GATEWAY_URL, GATEWAY_TOKEN));
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const sessionRef = useRef<Session | null>(null);
   sessionRef.current = session;
+
+  useEffect(() => {
+    loadSettings(browser.storage.local, defaultSettings(GATEWAY_URL, GATEWAY_TOKEN)).then(setSettings);
+  }, []);
 
   function handleSessionEvent(event: SessionEvent, activeSession: Session): void {
     if (event.type === 'step') {
@@ -177,7 +194,7 @@ function App() {
       return;
     }
 
-    const gateway = createGatewayClient(GATEWAY_URL, import.meta.env.BROWSER === 'firefox' ? 'firefox' : 'chrome', fetch, GATEWAY_TOKEN);
+    const gateway = createGatewayClient(settings.serverUrl, import.meta.env.BROWSER === 'firefox' ? 'firefox' : 'chrome', fetch, settings.accessToken);
     let created;
     try {
       created = await gateway.openSession();
@@ -202,9 +219,9 @@ function App() {
     const perceptionClient = createPerceptionClient();
     try {
       const ready = await perceptionClient.init(
-        'auto',
+        settings.backend,
         [FACE_MODEL_SPEC, OCR_DET_MODEL_SPEC, OCR_REC_EN_MODEL_SPEC, OCR_REC_DEVANAGARI_MODEL_SPEC],
-        'S',
+        settings.nerProfile,
       );
       setPerceptionBackend(ready.backend);
       setModelsLoadedMB(ready.loaded.reduce((sum, m) => sum + m.bytes, 0) / (1024 * 1024));
@@ -255,6 +272,7 @@ function App() {
       perception: { client: perceptionClient, capture: captureVisibleTabAsBitmap },
       canaries,
       ablation: ablationArm,
+      policy: applyAlwaysRedact(defaultPolicy, settings.alwaysRedact),
     });
 
     setSession(newSession);
@@ -288,10 +306,30 @@ function App() {
     };
   }, []);
 
+  if (settingsOpen) {
+    return (
+      <div style={{ fontFamily: 'system-ui, sans-serif' }}>
+        <Settings
+          value={settings}
+          entityTypes={SETTINGS_ENTITY_TYPES}
+          onSave={(next) => {
+            setSettings(next);
+            saveSettings(browser.storage.local, next);
+            setSettingsOpen(false);
+          }}
+          onClose={() => setSettingsOpen(false)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', fontSize: 13, maxWidth: 480 }}>
       <div style={{ padding: 12 }}>
-        <h2 style={{ margin: '0 0 4px' }}>AEGIS</h2>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+          <h2 style={{ margin: '0 0 4px' }}>AEGIS</h2>
+          <button onClick={() => setSettingsOpen(true)}>Settings</button>
+        </div>
         <p style={{ color: '#666', margin: '0 0 8px' }}>{panelStateLabel(panelState)}</p>
 
         {panelState === 'no-permission' && (
@@ -317,11 +355,11 @@ function App() {
 
         <MetricsBar backend="not connected" steps={steps} />
         <ResourceBar backend={perceptionBackend} modelsLoadedMB={modelsLoadedMB} />
-        <StepTimeline steps={steps} />
+        {settings.debugOverlay && <StepTimeline steps={steps} />}
         {lastPayload && (
           <>
             <RedactionSummary redactions={lastPayload.redactions} coverage={lastPayload.coverage} />
-            <PayloadViewer payload={lastPayload} />
+            {settings.showRawPayload && <PayloadViewer payload={lastPayload} />}
           </>
         )}
         {report && <ReportView title={report.title} content={report.content} />}
