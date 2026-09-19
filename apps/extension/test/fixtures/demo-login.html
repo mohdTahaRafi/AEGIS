@@ -1,0 +1,76 @@
+<!doctype html>
+<!--
+  T-7.2 (phase_7_demo_submission.md DR-1) — the 30-second demo fixture.
+
+  Not a real government portal, not modelled on one: a generic citizen-services login page,
+  built to be "realistic without impersonating a real portal" per the task's acceptance criteria.
+  The Aadhaar number is synthetic but passes the real Verhoeff checksum
+  (`eval/src/aegis_eval/corpus/checksums.py`'s own generator produced it), so it is redacted for
+  the same structural reason a real one would be, not because it is hard-coded as a fixture.
+
+  The profile photo (fixtures/demo-profile-photo.png) is a synthetic silhouette, not a real
+  photograph — there is no licensable face photo reachable in this sandbox (same disclosed gap
+  as apps/extension/test/browser/face-pipeline.spec.ts). It exercises the image-redaction
+  plumbing (an <img> is a vision node, gets composited/graced through the additive compositor)
+  but does NOT prove real face-detection accuracy. Swap in a real consented photo before the
+  actual event if the face-redaction beat is to be shown with a genuine detection, and say so
+  if it is not.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Citizen Services — Sign in</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { font-family: system-ui, sans-serif; background: #f3f4f6; color: #111; margin: 0; padding: 32px; }
+      .card { max-width: 420px; margin: 0 auto; background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 24px; }
+      h1 { font-size: 18px; margin: 0 0 4px; }
+      .sub { color: #555; font-size: 13px; margin-bottom: 20px; }
+      .profile { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+      .profile img { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; }
+      .field { margin-bottom: 14px; }
+      label { display: block; font-size: 13px; color: #333; margin-bottom: 4px; }
+      input { width: 100%; padding: 8px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
+      .readonly-value { font-size: 14px; font-weight: 600; }
+      button { width: 100%; padding: 10px; font-size: 14px; background: #1a56db; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Citizen Services Portal</h1>
+      <div class="sub">Sign in to continue your application</div>
+
+      <div class="profile">
+        <img src="demo-profile-photo.png" alt="Profile photo" width="56" height="56" />
+        <div>
+          <div class="readonly-value">Ramesh Kumar</div>
+          <div id="aadhaar-line" class="sub">Aadhaar on record: 2345 6789 0124</div>
+        </div>
+      </div>
+
+      <form id="login-form">
+        <div class="field">
+          <label for="username">Username</label>
+          <input id="username" name="username" type="text" autocomplete="username" value="ramesh.kumar" />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" value="hunter2-correct-battery" />
+        </div>
+        <button id="submit" type="submit">Sign in</button>
+      </form>
+
+      <div id="success" hidden>
+        <p>Signed in successfully.</p>
+      </div>
+    </div>
+
+    <script>
+      document.getElementById('login-form').addEventListener('submit', (event) => {
+        event.preventDefault();
+        document.getElementById('login-form').hidden = true;
+        document.getElementById('success').hidden = false;
+      });
+    </script>
+  </body>
+</html>

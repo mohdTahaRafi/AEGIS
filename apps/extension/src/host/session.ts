@@ -67,7 +67,8 @@ export type SessionEvent =
   | { type: 'done'; summary?: string }
   | { type: 'confirmation_required'; risk: RiskLevel; description: string }
   | { type: 'guard_blocked'; rule: string; entity?: string }
-  | { type: 'rehydration_rejected'; code: string };
+  | { type: 'rehydration_rejected'; code: string }
+  | { type: 'sanitized_preview'; payload: ReturnType<typeof buildSanitizedContext> };
 
 function countBy<T>(items: readonly T[], keyOf: (item: T) => string): Record<string, number> {
   const counts: Record<string, number> = {};
@@ -399,6 +400,13 @@ export class Session {
           entityCountsByChannel: countBy(context.redactions.flatMap((r) => r.sources), (s) => s),
           coverage: context.coverage,
         });
+        // DR-2 (phase_7_demo_submission.md): the sanitized preview must stay visible even if the
+        // network is down — but the panel only ever learned about a step's payload from the
+        // 'step' event, which used to fire AFTER `sendToGateway` returned. That left the panel
+        // blank on a network failure even though the sanitized context was already built and
+        // guard-passed by this point. Emitted here, before the network call, so a SERVER_ERROR
+        // below still leaves the last sanitized payload on screen (found and fixed T-7.4, 2026-09-19).
+        this.deps.onEvent({ type: 'sanitized_preview', payload: context });
       } catch (err) {
         const blocked = err instanceof GuardBlockedError ? err : new GuardBlockedError('SCHEMA');
         this.controller.send({ type: 'guard_block' });

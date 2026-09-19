@@ -106,6 +106,32 @@ describe('Session — golden path (phase_2_spine.md §10 milestone)', () => {
   });
 });
 
+describe('Session — sanitized preview survives a network failure (T-7.4, DR-2)', () => {
+  it('emits sanitized_preview with the built context BEFORE sendToGateway is called, and it is the last thing emitted when the network call then fails', async () => {
+    const sendToGateway = vi.fn().mockRejectedValue(new Error('network unreachable — airplane mode'));
+    const { session, events } = buildSession(sendToGateway, graphResponder);
+
+    await session.start('click sign in');
+
+    // The preview must exist and must have been emitted before sendToGateway was ever invoked —
+    // proving the sanitized context (detection + redaction, entirely local) was built and
+    // guard-passed independently of whether the network call that follows it succeeds.
+    const previewIndex = events.findIndex((e) => e.type === 'sanitized_preview');
+    expect(previewIndex).toBeGreaterThanOrEqual(0);
+    const preview = events[previewIndex] as Extract<SessionEvent, { type: 'sanitized_preview' }>;
+    expect(preview.payload.nodes.length).toBeGreaterThan(0);
+
+    // The preview is followed later by the 'stopped'/SERVER_ERROR event, never by a 'step' event
+    // (the plan never validated — there was no plan) — so main.tsx's `lastPayload` state, once set
+    // by 'sanitized_preview', is never subsequently cleared for this failed step.
+    expect(events.slice(previewIndex + 1).some((e) => e.type === 'step')).toBe(false);
+
+    // The session still ends up stopped with SERVER_ERROR — the fix doesn't paper over the
+    // failure, it just keeps the already-built local privacy pipeline's output visible through it.
+    expect(events.some((e) => e.type === 'stopped' && e.reason === 'SERVER_ERROR')).toBe(true);
+  });
+});
+
 describe('Session — budgets (T-2.18 AC)', () => {
   it('stops with STEPS_EXCEEDED, distinct reason code, when the step budget is hit', async () => {
     const sendToGateway = vi.fn().mockResolvedValue({ step_id: 's-1', actions: [{ op: 'wait', ms: 1 }] });

@@ -12,12 +12,29 @@ The server can be assumed hostile and the user's sensitive values still never le
 
 ## Status
 
-Early development. The monorepo is scaffolded, the extension builds for Chrome and Firefox
-(Manifest V3), the client–server protocol contract is defined and validated on both sides, and a
-minimal gateway service is running. No end-to-end product feature exists yet. See
-[docs/CURRENT_BUILD.md](docs/CURRENT_BUILD.md) for the current state and
-[docs/PLAN.md](docs/PLAN.md) for the roadmap. No performance metric has been measured yet — every
-number elsewhere in the documentation is a target, not a result.
+Phase 7 (demo & submission) of 7. Phases 1–5 are complete; Phase 6's non-Firefox scope is complete
+and verified; Firefox itself (AC-12) is genuinely blocked in the current build/CI environment (no
+way to launch a Playwright-driven Firefox here — confirmed by trying, not assumed). The full
+privacy pipeline is real and running end to end: DOM extraction, on-device vision (face detection,
+OCR), dual-channel fusion, typed-placeholder substitution, the vault, the egress guard, and action
+dispatch back into the real page. See [docs/CURRENT_BUILD.md](docs/CURRENT_BUILD.md) for the
+detailed state and [docs/PLAN.md](docs/PLAN.md) for the roadmap.
+
+**Measured, not asserted** (full detail and citations in [docs/demo/judge-qa.md](docs/demo/judge-qa.md)):
+
+| | Held-out (n=38, one-time authorised run) | Dev (n=166, re-run freely) |
+|---|---|---|
+| PII recall — structured entities | 0.803 | 0.798 |
+| Redaction pixel precision | 0.981 | 0.981 |
+| Over-redaction on hard negatives | 0.0000 | 0.0000 |
+| Leak count | 0 / 36 payloads | 1 / 156 payloads (disclosed `PIN_CODE` finding) |
+| Task peak RSS / CPU p95 | not measured on this split | 1123.8 MB / 35.0% |
+| Task wall-clock p50 / p95 | not measured on this split | 1247.4 / 1658.6 ms |
+
+**Not measured, on any split: task success with a live model (Metric 1).** This environment has no
+GPU (`navigator.gpu.requestAdapter()` returns `null`, confirmed) — OQ-13 remains open. Everything
+above concerns the local detection/redaction/action pipeline, which runs and is measured
+independently of that gap.
 
 ## Documentation
 
@@ -61,12 +78,27 @@ Five things make the privacy claim true rather than asserted:
 ## Known limitations
 
 - The guard can only find what its recognizers and detectors can find. A PII type none of them knows
-  can pass. The residual risk is measured by the harness, not claimed away.
+  can pass. The residual risk is measured by the harness, not claimed away — see the leak counts
+  above, and note the auditor scans JSON text only, not image pixels (no OCR model in the auditor).
 - JavaScript offers no secure memory zeroing; vault values are ordinary strings kept in one module
-  and dropped on clear.
+  and dropped on clear, reclaimed only via the browser process's normal memory lifecycle.
+- Task success with a live model (Metric 1) has never been measured — no GPU in the build/CI
+  environment (OQ-13). What's measured instead is the full local pipeline (detection through
+  action dispatch), independent of model quality.
+- **Firefox is currently untested (AC-12 open)** — genuinely blocked in this environment, not a
+  design choice: Playwright's Firefox build isn't downloadable here and the system Firefox doesn't
+  speak Playwright's automation protocol.
+- Face-detection *accuracy* is unverified against a real photograph — no licensable face photo is
+  reachable in this environment. The detection pipeline runs end to end against the real bundled
+  model; only accuracy on real faces is untested.
+- No CLIP-family vision-language model exists in this build, so zero-shot region screening and the
+  screen-state label are real call shapes with no model behind them yet.
 - WebGPU is an accelerator, not a requirement. The WASM path is first-class and slower; both are
-  measured and reported.
-- Firefox on Linux still needs a preference for WebGPU, so it runs the single-threaded WASM path.
+  measured and reported. Firefox on Linux still needs a preference for WebGPU, so it runs the
+  single-threaded WASM path (once Firefox itself is verified — see above).
+- The visual PII category (face/ID document/signature/QR code) shows 0.000 recall in every report
+  produced so far — a disclosed corpus gap (no real example of any of these exists in either
+  split), not a detector failure.
 
 ## Scope
 

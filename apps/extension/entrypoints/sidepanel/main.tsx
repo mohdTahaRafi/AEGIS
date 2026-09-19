@@ -156,6 +156,11 @@ function App() {
       setSteps((prev) => [...prev, event.step]);
       const latest = activeSession.getLedger().latest();
       if (latest) setLastPayload(latest.payload);
+    } else if (event.type === 'sanitized_preview') {
+      // Fires before the network call (session.ts, T-7.4/DR-2) so the sanitized preview survives
+      // a SERVER_ERROR — the 'step' handler above still overwrites this once a step fully
+      // completes, same payload shape either way.
+      setLastPayload(event.payload);
     } else if (event.type === 'report') {
       setReport({ title: event.title, content: event.content });
     } else if (event.type === 'done') {
