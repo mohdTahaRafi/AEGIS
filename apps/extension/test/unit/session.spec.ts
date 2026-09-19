@@ -348,3 +348,49 @@ describe('Session — un-redact (T-6.12, FR-36)', () => {
     expect(secondValue.text).toBe('user@example.com');
   });
 });
+
+// T-6.13 (FR-8, NG-8) — session-level CAPTCHA detection stops the agent before it ever builds a
+// payload or calls the server, "no solving attempt is ever made" in the strongest possible sense.
+const CAPTCHA_NODE: WireScreenNode = {
+  id: 'n-3',
+  frame: 'f-0',
+  role: 'generic',
+  name: '',
+  box: [0, 0, 300, 78],
+  z: 0,
+  state: { focused: false, disabled: false, readonly: false, required: false, hasValue: false, valueLen: 0, occluded: false, volatile: false },
+  affordances: [],
+  container: 'root',
+  textRuns: [],
+  domSignal: { entity: 'CAPTCHA', score: 1.0, valueRead: false },
+};
+
+function captchaGraphResponder(sent: unknown, emit: (m: unknown) => void): void {
+  const msg = sent as { type: string };
+  if (msg.type === 'extract') {
+    emit({ type: 'graph', frame: 'f-0', nodes: [CAPTCHA_NODE], removed: [], textRuns: [], privacyEpoch: 0, reason: 'initial', hostileDynamic: false });
+  }
+}
+
+describe('Session — CAPTCHA detection (T-6.13, FR-8/NG-8)', () => {
+  it('stops with CAPTCHA_DETECTED and never calls the server at all', async () => {
+    const sendToGateway = vi.fn().mockResolvedValue({ step_id: 's-1', actions: [{ op: 'done' }] });
+    const { session, events } = buildSession(sendToGateway, captchaGraphResponder);
+
+    await session.start('sign in');
+
+    expect(session.getState()).toBe('STOPPED');
+    expect(events).toContainEqual({ type: 'stopped', reason: 'CAPTCHA_DETECTED' });
+    expect(sendToGateway).not.toHaveBeenCalled();
+  });
+
+  it('a page with no CAPTCHA is completely unaffected', async () => {
+    const sendToGateway = vi.fn().mockResolvedValue({ step_id: 's-1', actions: [{ op: 'done' }] });
+    const { session, events } = buildSession(sendToGateway, graphResponder);
+
+    await session.start('log in');
+
+    expect(session.getState()).toBe('DONE');
+    expect(events.some((e) => e.type === 'stopped' && e.reason === 'CAPTCHA_DETECTED')).toBe(false);
+  });
+});

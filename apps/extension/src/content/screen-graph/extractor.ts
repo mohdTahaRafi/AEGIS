@@ -4,6 +4,7 @@
 import { computeAccessibleName } from './accname';
 import { classifyChannelD, type ChannelDSignal } from '../detect/channel-d';
 import { classifyProtected } from '../detect/protected';
+import { isCaptchaElement } from '../detect/captcha';
 import { boxFromRect, readBoxesInOnePass, type Box } from './geometry';
 import { ContainerResolver, computeNodeKeyForElement, type NodeIdentityRegistry } from './identity';
 import { computeRole } from './roles';
@@ -227,7 +228,11 @@ export function extractScreenGraph(
       field: computeField(p.el),
       container: containerResolver.resolve(p.el),
       textRuns: [],
-      domSignal: classifyChannelD(p.el, p.name),
+      // T-6.13 (FR-8): `classifyChannelD` only ever looks at form fields (a CAPTCHA widget is a
+      // plain div/iframe, never one), so a real widget falls through to this check — a non-form
+      // Channel D signal with no "value" to read, the same `presence`-only shape PASSWORD/OTP
+      // already use for the identical reason (nothing to mint, only something to flag).
+      domSignal: classifyChannelD(p.el, p.name) ?? (isCaptchaElement(p.el) ? { entity: 'CAPTCHA', score: 1.0, valueRead: false } : undefined),
       tagName: p.el.tagName,
     };
   });

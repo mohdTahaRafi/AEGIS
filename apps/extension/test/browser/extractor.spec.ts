@@ -120,4 +120,22 @@ describe('extractScreenGraph', () => {
     expect(disabled.state.hasValue).toBe(true);
     expect(disabled.state.valueLen).toBe(1);
   });
+
+  // T-6.13 (FR-8) — a real reCAPTCHA container extracted the same way any other node is,
+  // tagged with a presence-only Channel D signal (`classifyChannelD` itself never fires for a
+  // div, since it only looks at form fields — this is the parallel, non-form check).
+  it('tags a real reCAPTCHA widget with a presence-only CAPTCHA domSignal', () => {
+    // A real reCAPTCHA widget always renders at a fixed size (Google's own script sets this);
+    // an empty test div with no styling collapses to a zero box and would be filtered by
+    // `isVisible` before `isCandidateNode` is ever the thing under test.
+    const { nodes } = extract('<div id="cap" class="g-recaptcha" data-sitekey="6Le-real-site-key" style="width:304px;height:78px;"></div>');
+    const captcha = nodes.find((n) => n.tagName === 'DIV' && n.domSignal?.entity === 'CAPTCHA');
+    expect(captcha).toBeDefined();
+    expect(captcha!.domSignal).toEqual({ entity: 'CAPTCHA', score: 1.0, valueRead: false });
+  });
+
+  it('does not tag an ordinary div as a CAPTCHA', () => {
+    const { nodes } = extract('<div id="plain" tabindex="0">Just a focusable div</div>');
+    expect(nodes.some((n) => n.domSignal?.entity === 'CAPTCHA')).toBe(false);
+  });
 });

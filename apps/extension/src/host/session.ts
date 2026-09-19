@@ -275,6 +275,20 @@ export class Session {
       if (this.hostileDynamicStepStreak > Session.HOSTILE_DYNAMIC_STEP_LIMIT) {
         return this.stop('HOSTILE_DYNAMIC');
       }
+
+      // T-6.13 (FR-8, NG-8): "the agent shall stop and hand control to the user" — checked here,
+      // before this step ever builds a payload or calls the server, so "no solving attempt is
+      // ever made" holds even more strongly than the validator's own `CAPTCHA_SOLVE` hard denial
+      // (defense in depth for a plan that somehow still tries). Reads `allSeenNodes` (the
+      // accumulated full set `onGraph` maintains), not `graphMessage.nodes` — the SAME
+      // reobserveGeometry lesson from T-6.10 applies: a captcha node reported once in an earlier
+      // step's delta would silently disappear from a later step's own delta once its own geometry
+      // stops changing, even though it's still on the page. No streak/settle window like
+      // hostile-dynamic's — a CAPTCHA isn't a storm that might pass; once present, stop.
+      const captchaPresent = [...this.allSeenNodes.values()].some((n) => n.domSignal?.entity === 'CAPTCHA');
+      if (captchaPresent) {
+        return this.stop('CAPTCHA_DETECTED');
+      }
       // T-6.9: `dom_only` disables the image path exactly like hostile-dynamic mode does — "never
       // attach images" (design.md §18.3) — no privacy-core change needed beyond this one check.
       const imagePathDisabled = graphMessage.hostileDynamic || this.deps.ablation === 'dom_only';
@@ -423,7 +437,17 @@ export class Session {
       timings.server = this.now() - t;
 
       t = this.now();
-      const hardDenialContext: HardDenialContext = { nodeEntities: new Map(), extensionOwnedNodeIds: new Set() };
+      // T-6.13: was unconditionally `new Map()` — `checkHardDenials`'s own `CAPTCHA_SOLVE` guard
+      // (validator.ts) could structurally never fire, for any entity, regardless of whether the
+      // step loop's own proactive CAPTCHA stop above ever applied. Built from THIS step's own
+      // just-sent `context.nodes` (the validator's doc comment already said this is where it
+      // should come from), matching `nodeEntities`'s documented shape: a presence-kind value's
+      // node id → entity, the only `NodeValue` kind that ever carries an entity with no value.
+      const nodeEntities = new Map<string, string>();
+      for (const n of context.nodes) {
+        if (n.value?.kind === 'presence') nodeEntities.set(n.id, n.value.entity);
+      }
+      const hardDenialContext: HardDenialContext = { nodeEntities, extensionOwnedNodeIds: new Set() };
       const validated = validatePlan(rawPlan, stepId, hardDenialContext);
       if (!validated.ok) {
         this.controller.send({ type: 'validation_rejected' });

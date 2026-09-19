@@ -2,6 +2,7 @@
 // all; visibility (visibility.ts) then decides which candidates survive.
 
 import { computeRole } from './roles';
+import { isCaptchaElement } from '../detect/captcha';
 
 /** Marks an element (and its subtree) as the extension's own injected UI — never a candidate. */
 export const AEGIS_IGNORE_ATTR = 'data-aegis-ignore';
@@ -63,6 +64,11 @@ export function isCandidateNode(el: Element): boolean {
   if (INTERACTIVE_TAGS.has(el.tagName)) return true;
   if (el.tagName === 'LABEL') return true;
   if (MEDIA_TAGS.has(el.tagName)) return true;
+  // T-6.13 (FR-8): a real reCAPTCHA/hCaptcha container/iframe has no click affordance style, no
+  // direct text child and no landmark role of its own by default — the same reachability gap
+  // MEDIA_TAGS above exists to close, for the same reason (nothing in §5.2's original criteria
+  // was ever written with a structural, non-text, non-interactive-by-CSS widget in mind).
+  if (isCaptchaElement(el)) return true;
 
   const role = computeRole(el);
   if (INTERACTIVE_ROLES.has(role)) return true;

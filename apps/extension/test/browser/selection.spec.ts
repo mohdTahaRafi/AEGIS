@@ -66,6 +66,29 @@ describe('isCandidateNode — T-2.7 node selection', () => {
     document.body.innerHTML = '<span id="wrapper"><b>bold</b></span>';
     expect(isCandidateNode(document.getElementById('wrapper')!)).toBe(false);
   });
+
+  // T-6.13 (FR-8) — a real reCAPTCHA/hCaptcha container has no click-cursor style, no direct
+  // text and no landmark role of its own, the same reachability gap MEDIA_TAGS closes for
+  // canvas/img/video (see selection.ts's own doc comment).
+  it('includes a real reCAPTCHA container div even though it has none of the other candidate signals', () => {
+    document.body.innerHTML = '<div id="cap" class="g-recaptcha" data-sitekey="6Le-real-site-key"></div>';
+    expect(isCandidateNode(document.getElementById('cap')!)).toBe(true);
+  });
+
+  it('includes the reCAPTCHA-hosted iframe once its script has rendered one', () => {
+    document.body.innerHTML = '<iframe id="cap" src="https://www.google.com/recaptcha/api2/anchor?k=x"></iframe>';
+    expect(isCandidateNode(document.getElementById('cap')!)).toBe(true);
+  });
+
+  it('includes a real hCaptcha container div', () => {
+    document.body.innerHTML = '<div id="cap" class="h-captcha" data-sitekey="10000000-ffff-ffff-ffff-000000000001"></div>';
+    expect(isCandidateNode(document.getElementById('cap')!)).toBe(true);
+  });
+
+  it('a div that merely LOOKS like a captcha class name with no data-sitekey is not treated as one', () => {
+    document.body.innerHTML = '<div id="not-cap" class="g-recaptcha"></div>';
+    expect(isCandidateNode(document.getElementById('not-cap')!)).toBe(false);
+  });
 });
 
 describe('computeAffordances (design.md §3.1/§4.3)', () => {
