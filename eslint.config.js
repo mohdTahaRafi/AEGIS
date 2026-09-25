@@ -39,6 +39,7 @@ export default tseslint.config(
     ignores: [
       '**/node_modules/**',
       '**/.venv/**',
+      '**/.venv-vllm/**',
       '**/.output/**',
       '**/.wxt/**',
       '**/dist/**',

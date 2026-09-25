@@ -1,5 +1,9 @@
 {
-  "extends": "./tsconfig.base.json",
-  "compilerOptions": { "noEmit": true },
-  "include": []
+  "files": [],
+  "references": [
+    { "path": "./packages/protocol" },
+    { "path": "./packages/recognizers" },
+    { "path": "./packages/policy" },
+    { "path": "./apps/extension" }
+  ]
 }

@@ -10,6 +10,11 @@ WORKDIR /app
 COPY server/gateway/pyproject.toml /app/server/gateway/pyproject.toml
 COPY server/gateway/src /app/server/gateway/src
 COPY packages/protocol/schema/action-plan.schema.json /app/protocol-schema/action-plan.schema.json
+# common.schema.json must live alongside it: model_client/vllm.py's load_action_plan_schema()
+# inlines action-plan.schema.json's external `common.schema.json#/$defs/...` refs before sending
+# the schema to vLLM (a real bug fix, 2026-09-25 — vLLM has no way to resolve a $ref into a file
+# it was never sent, so those fields were silently unconstrained during structured decoding).
+COPY packages/protocol/schema/common.schema.json /app/protocol-schema/common.schema.json
 
 RUN pip install --no-cache-dir /app/server/gateway
 
