@@ -1,5 +1,13 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "noEmit": true, "resolveJsonModule": true },
-  "include": ["src", "test"]
+  "compilerOptions": {
+    "resolveJsonModule": true,
+    "composite": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "dist",
+    "rootDir": "."
+  },
+  "include": ["src", "test", "policies/**/*.json"],
+  "references": [{ "path": "../recognizers" }]
 }
