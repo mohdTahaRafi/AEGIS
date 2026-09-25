@@ -14,7 +14,7 @@ import { ModelLoadError, ModelRegistry } from './runtime/sessions';
 import { cropRegion } from './preprocess/crop';
 import { detectFaces } from './models/face';
 import { buildCtcVocabulary } from './models/ocr-rec';
-import { screenLabel } from './models/vit-encoder';
+import { classifyRegion, entityForLabel, isSensitiveLabel, parsePromptEmbeddings, screenLabel, thresholdFor, type PromptLabel } from './models/vit-encoder';
 import { PriorityQueue } from './schedule/queue';
 import { runWithDeadline } from './schedule/deadline';
 import { applyCropBudget } from './schedule/budget';
@@ -36,6 +36,8 @@ let faceModelId: string | null = null;
 // not a silent one.
 let ocrDetModelId: string | null = null;
 let ocrRecEnModelId: string | null = null;
+let vitModelId: string | null = null;
+let vitPromptEmbeddings: ReadonlyMap<PromptLabel, Float32Array> | null = null;
 
 // phase_4_vision.md §3.2: "The worker holds one capture at a time, and closes the bitmap once
 // compose/rescan for that capture have finished." `perceive` transfers the bitmap in and analyses
@@ -69,11 +71,25 @@ async function handleInit(msg: Extract<ToWorker, { t: 'init' }>): Promise<void> 
   // detector and ViT encoder; OCR loads on its first real use (the halo re-scan, today).
   ocrDetModelId = msg.models.find((m) => m.role === 'ocr-det')?.id ?? null;
   ocrRecEnModelId = msg.models.find((m) => m.role === 'ocr-rec' && m.script === 'latin')?.id ?? null;
+  vitModelId = msg.models.find((m) => m.role === 'vit')?.id ?? null;
   if (faceModelId) {
     try {
       await registry.get(faceModelId);
     } catch (err) {
       faceModelId = null;
+      post({ t: 'error', code: err instanceof ModelLoadError ? err.code : 'MODEL_LOAD_FAILED', detail: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  // design.md §19: "Face detector and ViT encoder stay resident" — warmed the same way, and a
+  // load failure disables only the ViT path (screen label + region screening), same fail-closed
+  // shape as the face detector's own catch above.
+  if (vitModelId) {
+    try {
+      await registry.get(vitModelId);
+      vitPromptEmbeddings = parsePromptEmbeddings(await registry.getAsset(vitModelId));
+    } catch (err) {
+      vitModelId = null;
+      vitPromptEmbeddings = null;
       post({ t: 'error', code: err instanceof ModelLoadError ? err.code : 'MODEL_LOAD_FAILED', detail: err instanceof Error ? err.message : String(err) });
     }
   }
@@ -95,6 +111,7 @@ async function handlePerceive(msg: Extract<ToWorker, { t: 'perceive' }>): Promis
   for (const d of dropped) timedOut.push(d.box);
 
   const faceSession = faceModelId && registry ? await registry.get(faceModelId).catch(() => null) : null;
+  const vitSession = vitModelId && registry ? await registry.get(vitModelId).catch(() => null) : null;
   // T-6.5/T-6.6: OCR detection-side pass, finding NEW PII in a region the DOM never explained —
   // as opposed to `handleRescan`'s halo check, which only re-verifies pixels already decided to
   // be redacted. Loaded lazily, same as the halo path (design.md §6.4's degradation ladder never
@@ -103,12 +120,13 @@ async function handlePerceive(msg: Extract<ToWorker, { t: 'perceive' }>): Promis
 
   let faceTimeMs = 0;
   let ocrTimeMs = 0;
-  if (faceSession || ocrModels) {
-    // Both capabilities run inside ONE per-region job (`kind: 'face'`, the queue's own top
-    // priority) rather than two separately-queued jobs at 'face'/'ocr' priority — they already
-    // share the same crop and the same per-region deadline slot, and design.md §11.4's
-    // face > OCR ordering is about which capability gets dropped first under load (the ladder's
-    // `no-ocr` rung, still unwired — see docs/HISTORY.md), not about interleaving within a region.
+  let vitTimeMs = 0;
+  if (faceSession || ocrModels || vitSession) {
+    // All three capabilities run inside ONE per-region job (`kind: 'face'`, the queue's own top
+    // priority) rather than separately-queued jobs — they already share the same crop and the
+    // same per-region deadline slot, and design.md §11.4's ordering is about which capability
+    // gets dropped first under load (the ladder's `no-ocr` rung, still unwired — see
+    // docs/HISTORY.md), not about interleaving within a region.
     const queue = new PriorityQueue<(typeof admitted)[number]>();
     for (const region of admitted) queue.enqueue({ id: region.id, kind: 'face', payload: region });
 
@@ -125,31 +143,39 @@ async function handlePerceive(msg: Extract<ToWorker, { t: 'perceive' }>): Promis
         const ocrHits = ocrModels ? await detectTextEntitiesInRegion(ort, ocrModels, crop, job.payload.id, job.payload.box) : [];
         ocrTimeMs += performance.now() - ocrStart;
 
-        return { faces, ocrHits };
+        // design.md §6.4's zero-shot ViT region screening (T-4.6): a sensitive top class above
+        // its threshold becomes a whole-region candidate — see `entityForLabel`'s doc comment for
+        // the label→entity mapping this design gap needed resolving.
+        const vitStart = performance.now();
+        const vitResult = vitSession ? await classifyRegion(vitSession, ort, vitPromptEmbeddings, crop) : null;
+        vitTimeMs += performance.now() - vitStart;
+        const vitEntity = vitResult && isSensitiveLabel(vitResult.label) && vitResult.score >= thresholdFor(vitResult.label) ? entityForLabel(vitResult.label) : null;
+
+        return { faces, ocrHits, vitEntity, vitScore: vitResult?.score };
       },
       msg.deadlineMs,
     );
     for (const { job, result } of completed) {
       for (const face of result.faces) candidates.push({ entity: 'FACE', box: face.box, score: face.score, regionId: job.payload.id, channel: 'vision' });
       candidates.push(...result.ocrHits);
+      if (result.vitEntity) candidates.push({ entity: result.vitEntity, box: job.payload.box, score: result.vitScore!, regionId: job.payload.id, channel: 'vision' });
     }
     for (const job of regionTimedOut) timedOut.push(job.payload.box);
   } else {
-    // Neither capability available — every region that would have been screened stays
-    // `timedOut`, not silently cleared (the compositor's clearance rule then leaves it grey, per
-    // T-4.2's AC).
+    // No capability available — every region that would have been screened stays `timedOut`, not
+    // silently cleared (the compositor's clearance rule then leaves it grey, per T-4.2's AC).
     for (const region of admitted) timedOut.push(region.box);
   }
   timings.face = faceTimeMs;
   timings.ocr = ocrTimeMs;
+  timings.vit = vitTimeMs;
 
   // design.md §4.3: the ViT encoder also embeds a low-res thumbnail of the full viewport on
-  // EVERY capture, for the screen-state label — real call shape, disclosed no-op today (see
-  // `models/vit-encoder.ts`'s top comment).
+  // EVERY capture, for the screen-state label.
   let label: Extract<FromWorker, { t: 'perceived' }>['screenLabel'];
   if (msg.fullFrame) {
     const labelStart = performance.now();
-    const result = await screenLabel(msg.bitmap);
+    const result = await screenLabel(vitSession, ort, vitPromptEmbeddings, msg.bitmap);
     timings.screenLabel = performance.now() - labelStart;
     if (result) label = result;
   }

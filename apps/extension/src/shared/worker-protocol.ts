@@ -31,6 +31,10 @@ export interface ModelSpec {
   script?: 'latin' | 'devanagari';
   dictUrl?: string;
   dictSha256?: string;
+  /** `role: 'vit'` only (T-4.5/T-4.6) — the paired precomputed text-prompt embeddings
+   * (`vit-prompts.bin`), verified and fetched the same disclosed-exception way as an OCR dict. */
+  assetUrl?: string;
+  assetSha256?: string;
 }
 
 export interface ModelInfo {

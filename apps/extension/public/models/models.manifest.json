@@ -9,7 +9,12 @@
       "bytes": 232589,
       "source": "https://github.com/opencv/opencv_zoo/blob/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",
       "license": "MIT (Shiqi Yu)",
-      "inputShape": [1, 3, 640, 640],
+      "inputShape": [
+        1,
+        3,
+        640,
+        640
+      ],
       "dtype": "float32",
       "preferredBackend": "auto",
       "resident": true,
@@ -23,11 +28,16 @@
       "bytes": 4819576,
       "source": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv5/det/ch_PP-OCRv5_det_mobile.onnx",
       "license": "Apache-2.0 (PaddleOCR / RapidAI RapidOCR ONNX export)",
-      "inputShape": [1, 3, "dynamic", "dynamic"],
+      "inputShape": [
+        1,
+        3,
+        "dynamic",
+        "dynamic"
+      ],
       "dtype": "float32",
       "preferredBackend": "auto",
       "resident": false,
-      "notes": "architecture.md §6.3's PP-OCRv5 mobile detector (T-6.3). Real ORT introspection (2026-09-18): input `x` is [N,3,H,W] with H/W dynamic (a DB/DBNet-style segmentation detector, NOT an anchor decoder like YuNet — design.md §6.4's 'detector on unexplained regions, long side ≤ 960px' controls the resize before inference, padded to a multiple of 32 as DBNet requires). Output `fetch_name_0` is a single-channel probability map at the same spatial resolution as the (possibly downsampled) input; text boxes come from thresholding + contour-finding + the DB unclip formula, not a direct box regression head. See `src/perception/models/ocr-det.ts`."
+      "notes": "architecture.md \u00a76.3's PP-OCRv5 mobile detector (T-6.3). Real ORT introspection (2026-09-18): input `x` is [N,3,H,W] with H/W dynamic (a DB/DBNet-style segmentation detector, NOT an anchor decoder like YuNet \u2014 design.md \u00a76.4's 'detector on unexplained regions, long side \u2264 960px' controls the resize before inference, padded to a multiple of 32 as DBNet requires). Output `fetch_name_0` is a single-channel probability map at the same spatial resolution as the (possibly downsampled) input; text boxes come from thresholding + contour-finding + the DB unclip formula, not a direct box regression head. See `src/perception/models/ocr-det.ts`."
     },
     {
       "id": "ocr-rec-ppocrv5-mobile-en",
@@ -39,11 +49,16 @@
       "license": "Apache-2.0 (PaddleOCR / RapidAI RapidOCR ONNX export)",
       "dict": "ocr_rec_ppocrv5_mobile_en.dict.txt",
       "script": "latin",
-      "inputShape": [1, 3, 48, "dynamic"],
+      "inputShape": [
+        1,
+        3,
+        48,
+        "dynamic"
+      ],
       "dtype": "float32",
       "preferredBackend": "auto",
       "resident": false,
-      "notes": "architecture.md §6.3's Latin/English recognizer — smaller than the multilingual `ch_` variant, matching the doc's own 'measure' note (7.9MB here vs. the ~16MB multilingual figure architecture.md cites). Real ORT introspection (2026-09-18): output is [N, T, 438] (T dynamic) — a per-timestep class distribution over PaddleOCR's CTC vocabulary, verified exactly (see below). Input `x`'s ORT-reported shape is [N(dynamic), 3, '?', W(dynamic)] — the height dimension's own metadata is an unlabelled '?', not a number; height=48 (design.md §6.4's cited figure) was instead confirmed the way that matters more than metadata — a real successful end-to-end inference run: `test/browser/ocr-pipeline.spec.ts` renders the literal text 'HELLO WORLD' via a real `<canvas>` 2D context, runs it through the real bundled detector AND this recognizer at height=48, and gets back an EXACT decode match. Vocabulary size verified against PaddleOCR's own `rec_postprocess.py` (`CTCLabelDecode.add_special_char`: `['blank'] + dict_character`, where `dict_character` already has a trailing space appended when `use_space_char=True`): index 0 = CTC blank, indices 1-436 = `ocr_rec_ppocrv5_mobile_en.dict.txt`'s 436 lines in order, index 437 = space. 1+436+1=438, matching the real output dimension exactly — not assumed."
+      "notes": "architecture.md \u00a76.3's Latin/English recognizer \u2014 smaller than the multilingual `ch_` variant, matching the doc's own 'measure' note (7.9MB here vs. the ~16MB multilingual figure architecture.md cites). Real ORT introspection (2026-09-18): output is [N, T, 438] (T dynamic) \u2014 a per-timestep class distribution over PaddleOCR's CTC vocabulary, verified exactly (see below). Input `x`'s ORT-reported shape is [N(dynamic), 3, '?', W(dynamic)] \u2014 the height dimension's own metadata is an unlabelled '?', not a number; height=48 (design.md \u00a76.4's cited figure) was instead confirmed the way that matters more than metadata \u2014 a real successful end-to-end inference run: `test/browser/ocr-pipeline.spec.ts` renders the literal text 'HELLO WORLD' via a real `<canvas>` 2D context, runs it through the real bundled detector AND this recognizer at height=48, and gets back an EXACT decode match. Vocabulary size verified against PaddleOCR's own `rec_postprocess.py` (`CTCLabelDecode.add_special_char`: `['blank'] + dict_character`, where `dict_character` already has a trailing space appended when `use_space_char=True`): index 0 = CTC blank, indices 1-436 = `ocr_rec_ppocrv5_mobile_en.dict.txt`'s 436 lines in order, index 437 = space. 1+436+1=438, matching the real output dimension exactly \u2014 not assumed."
     },
     {
       "id": "ocr-rec-ppocrv5-mobile-devanagari",
@@ -55,11 +70,16 @@
       "license": "Apache-2.0 (PaddleOCR / RapidAI RapidOCR ONNX export)",
       "dict": "ocr_rec_ppocrv5_mobile_devanagari.dict.txt",
       "script": "devanagari",
-      "inputShape": [1, 3, 48, "dynamic"],
+      "inputShape": [
+        1,
+        3,
+        48,
+        "dynamic"
+      ],
       "dtype": "float32",
       "preferredBackend": "auto",
       "resident": false,
-      "notes": "design.md §6.4's script-routing recognizer: 'if the line's character set detection or page lang suggests Devanagari, use the Devanagari recognizer when bundled.' Real ORT introspection (2026-09-18): output is [N, T, 570], confirmed by an actual inference-session load, not inferred by pattern-matching from the English model. Vocabulary: index 0 = CTC blank, indices 1-568 = `ocr_rec_ppocrv5_mobile_devanagari.dict.txt`'s 568 lines in order, index 569 = space. 1+568+1=570, matching exactly. Height=48 (design.md §6.4's cited figure) confirmed correct by a real successful end-to-end inference run, not just metadata: `test/browser/ocr-pipeline.spec.ts` renders the real word 'आधार' (Aadhaar) via a real `<canvas>` 2D context and gets back an EXACT decode match at 99.9% confidence through the full detect→crop→recognize pipeline — the strongest verification this project's OCR work has, since (unlike face photographs) there is no licensing barrier to rendering real, known ground-truth text."
+      "notes": "design.md \u00a76.4's script-routing recognizer: 'if the line's character set detection or page lang suggests Devanagari, use the Devanagari recognizer when bundled.' Real ORT introspection (2026-09-18): output is [N, T, 570], confirmed by an actual inference-session load, not inferred by pattern-matching from the English model. Vocabulary: index 0 = CTC blank, indices 1-568 = `ocr_rec_ppocrv5_mobile_devanagari.dict.txt`'s 568 lines in order, index 569 = space. 1+568+1=570, matching exactly. Height=48 (design.md \u00a76.4's cited figure) confirmed correct by a real successful end-to-end inference run, not just metadata: `test/browser/ocr-pipeline.spec.ts` renders the real word '\u0906\u0927\u093e\u0930' (Aadhaar) via a real `<canvas>` 2D context and gets back an EXACT decode match at 99.9% confidence through the full detect\u2192crop\u2192recognize pipeline \u2014 the strongest verification this project's OCR work has, since (unlike face photographs) there is no licensing barrier to rendering real, known ground-truth text."
     },
     {
       "id": "ocr-rec-ppocrv5-mobile-en-dict",
@@ -70,7 +90,7 @@
       "source": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/paddle/PP-OCRv5/rec/en_PP-OCRv5_rec_mobile/ppocrv5_en_dict.txt",
       "license": "Apache-2.0 (PaddleOCR / RapidAI RapidOCR)",
       "resident": false,
-      "notes": "436 lines, one character per line, UTF-8. Paired with `ocr-rec-ppocrv5-mobile-en` via that entry's `dict` field. sha256 computed and pinned here directly (no published hash found for this specific file upstream, unlike the .onnx models) — verify against a fresh download if this file is ever suspected corrupted."
+      "notes": "436 lines, one character per line, UTF-8. Paired with `ocr-rec-ppocrv5-mobile-en` via that entry's `dict` field. sha256 computed and pinned here directly (no published hash found for this specific file upstream, unlike the .onnx models) \u2014 verify against a fresh download if this file is ever suspected corrupted."
     },
     {
       "id": "ocr-rec-ppocrv5-mobile-devanagari-dict",
@@ -82,6 +102,40 @@
       "license": "Apache-2.0 (PaddleOCR / RapidAI RapidOCR)",
       "resident": false,
       "notes": "568 lines, one character per line, UTF-8. Paired with `ocr-rec-ppocrv5-mobile-devanagari` via that entry's `dict` field. sha256 computed and pinned here directly (no published hash found for this specific file upstream)."
+    },
+    {
+      "id": "vit-vision-clip-b32",
+      "role": "vit-vision",
+      "file": "vit-vision.onnx",
+      "sha256": "2d070b5e6edc1ab9c849333753154025e780491b870bf4d0360f40b8378f19d6",
+      "bytes": 88687890,
+      "source": "generated locally: tools/models/export_vit_vision.py --model ViT-B-32-quickgelu --pretrained openai, then tools/models/quantize.py --mode int8 (design.md \u00a76.4's zero-shot ViT screener, T-4.5/T-4.6/T-4.7)",
+      "license": "MIT (OpenAI CLIP weights, via open_clip_torch's 'openai' pretrained tag)",
+      "inputShape": [
+        1,
+        3,
+        224,
+        224
+      ],
+      "outputShape": [
+        1,
+        512
+      ],
+      "dtype": "float32 in, int8-quantized weights (onnxruntime.quantization.quantize_dynamic, QInt8)",
+      "preferredBackend": "auto",
+      "resident": false,
+      "notes": "Real ORT introspection + accuracy check (2026-09-25): exported via torch.onnx.export from open_clip's ViT-B-32-quickgelu/openai vision tower, wrapped to L2-normalize its own output so the browser never needs to. int8-quantized (fp32 source was 351,604,555 bytes; this is dynamic-range INT8, ~4x smaller). Verified against the unquantized fp32 export on a real generated QR-code image and a plain-color control: both models classify the QR code top-1 'QR code' (softmax 0.197 fp32 vs 0.199 int8) and the plain image top-1 'plain background' (0.132 vs 0.121) \u2014 no observed accuracy loss from quantization. [A] no fixed download URL exists for this artifact (it is generated, not fetched from a stable third-party host) \u2014 `scripts/fetch-models.ts` only verifies the sha256 of what's already on disk here; regenerating from scratch on a fresh checkout requires re-running both export scripts with network access to Hugging Face Hub (open_clip's own weight download), not `fetch-models.ts` alone. See docs/HISTORY.md's 2026-09-25 T-4.5/T-4.6 entry."
+    },
+    {
+      "id": "vit-prompts-b32",
+      "role": "vit-prompts",
+      "file": "vit-prompts.bin",
+      "sha256": "e1a8968eba0269c36d56f89fefdaa340604a6b77198f77ca1f8d1f13d25417b6",
+      "bytes": 30947,
+      "source": "generated locally: tools/models/export_vit_prompts.py --model ViT-B-32-quickgelu --pretrained openai (design.md \u00a76.4's precomputed text-prompt embeddings, T-4.5)",
+      "license": "MIT (OpenAI CLIP weights, via open_clip_torch's 'openai' pretrained tag)",
+      "resident": false,
+      "notes": "15 prompt embeddings (PROMPT_VOCABULARY in perception/models/vit-encoder.ts, label-for-label matched), dim=512, L2-normalized, custom binary format (magic 'AEGISVPB1') parsed by the browser at load time \u2014 see export_vit_prompts.py's header comment for the exact layout. Paired with vit-vision-clip-b32; same regeneration caveat as that entry."
     }
   ]
 }

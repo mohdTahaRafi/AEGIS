@@ -82,6 +82,19 @@ const OCR_REC_DEVANAGARI_MODEL_SPEC = {
   resident: false,
 };
 
+// Mirrors models.manifest.json's `vit-vision-clip-b32`/`vit-prompts-b32` entries (T-4.5/T-4.6),
+// same hand-duplication pattern. `resident: true`: design.md §19 keeps the ViT encoder resident
+// alongside the face detector, unlike OCR.
+const VIT_VISION_MODEL_SPEC = {
+  id: 'vit-vision-clip-b32',
+  role: 'vit' as const,
+  url: '/models/vit-vision.onnx',
+  sha256: '2d070b5e6edc1ab9c849333753154025e780491b870bf4d0360f40b8378f19d6',
+  assetUrl: '/models/vit-prompts.bin',
+  assetSha256: 'e1a8968eba0269c36d56f89fefdaa340604a6b77198f77ca1f8d1f13d25417b6',
+  resident: true,
+};
+
 /** design.md §11.1 — the host's only reference to `perception/worker.ts`, via the `new
  * Worker(url, {type:'module'})` constructor rather than an import (the ESLint boundary rule
  * blocks `src/host/**` from importing `src/perception/**` by module path; a Worker URL is not a
@@ -226,7 +239,7 @@ function App() {
     try {
       const ready = await perceptionClient.init(
         settings.backend,
-        [FACE_MODEL_SPEC, OCR_DET_MODEL_SPEC, OCR_REC_EN_MODEL_SPEC, OCR_REC_DEVANAGARI_MODEL_SPEC],
+        [FACE_MODEL_SPEC, OCR_DET_MODEL_SPEC, OCR_REC_EN_MODEL_SPEC, OCR_REC_DEVANAGARI_MODEL_SPEC, VIT_VISION_MODEL_SPEC],
         settings.nerProfile,
       );
       setPerceptionBackend(ready.backend);

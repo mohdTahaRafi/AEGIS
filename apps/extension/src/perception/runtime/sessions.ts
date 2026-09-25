@@ -59,6 +59,7 @@ export class ModelRegistry {
   private readonly sessions = new Map<string, LoadedSession>();
   private readonly specs = new Map<string, ModelSpec>();
   private readonly dicts = new Map<string, string[]>();
+  private readonly assets = new Map<string, ArrayBuffer>();
 
   constructor(private readonly backend: Backend) {}
 
@@ -123,6 +124,24 @@ export class ModelRegistry {
       .filter((line) => line.length > 0);
     this.dicts.set(modelId, lines);
     return lines;
+  }
+
+  /** `role: 'vit'`'s paired asset (T-4.5/T-4.6): a raw binary companion file, verified the same
+   * disclosed-exception way as an ONNX session or an OCR dict, but with no format assumed here —
+   * `models/vit-encoder.ts`'s `parsePromptEmbeddings` owns the actual layout. */
+  async getAsset(modelId: string): Promise<ArrayBuffer> {
+    const cached = this.assets.get(modelId);
+    if (cached) return cached;
+
+    const spec = this.specs.get(modelId);
+    if (!spec) throw new ModelLoadError(modelId, 'not registered');
+    if (!spec.assetUrl || !spec.assetSha256) {
+      throw new ModelLoadError(modelId, 'no asset configured for this model');
+    }
+
+    const bytes = await fetchAndVerify(modelId, spec.assetUrl, spec.assetSha256);
+    this.assets.set(modelId, bytes);
+    return bytes;
   }
 
   /** T-4.11: evict a non-resident session that has been idle. Resident models (`spec.resident`)

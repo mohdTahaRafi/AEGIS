@@ -1,16 +1,26 @@
 // design.md §6.4 / phase_4_vision.md §4.2-§4.3, T-4.5, T-4.6, T-4.7 — zero-shot ViT region
 // screening and the per-capture screen-state label.
 //
-// [A] DISCLOSED LIMITATION, same category as `perception/models/pii-ner.ts`'s: no CLIP-family
-// image encoder weights are bundled or fetchable in this sandboxed, network-restricted
-// environment (T-4.3/T-4.5 need an actual `.onnx` encoder plus `tools/models/export_vit_prompts.py`
-// run against a real checkpoint — the export script is written, per T-4.5, but has not been run;
-// see its own header comment). This file defines the real call shape — the prompt vocabulary
-// (§4.2's exact list), the cosine-similarity + temperature-softmax classification rule, and the
-// per-region/per-frame entry points `worker.ts` calls — against which a real encoder is wired in
-// once weights exist. `classifyRegion` and `screenLabel` both return `null` today: nothing
-// downstream (fusion, the compositor's clearance rule) assumes ViT recall it doesn't have. Faces
-// (`models/face.ts`, real) and DOM-derived signals carry Channel V's real detections this phase.
+// [Resolved 2026-09-25, see docs/HISTORY.md] The disclosed gap this file used to carry (no
+// CLIP-family weights reachable) is closed: `tools/models/export_vit_vision.py` (new) exports
+// open_clip's `ViT-B-32-quickgelu`/`openai` vision tower to ONNX, L2-normalizing its own output;
+// `tools/models/quantize.py` (already written, now run for real) int8-quantizes it
+// (351,604,555 → 88,687,890 bytes). `tools/models/export_vit_prompts.py` (already written, now
+// run for real) produces the paired 15-label text-prompt embeddings. Both verified end to end on a
+// real generated QR-code image and a plain-color control — int8 and fp32 agree on top-1 for both
+// (QR code / plain background) with near-identical softmax scores — before shipping the int8
+// variant; see `models.manifest.json`'s `vit-vision-clip-b32`/`vit-prompts-b32` entries for the
+// full account, including the disclosed regeneration caveat (no fixed download URL — this is a
+// generated, not fetched, artifact).
+//
+// Preprocessing uses `preprocess/letterbox.ts`'s square-pad transform (not CLIP's original
+// resize-then-center-crop) — a deliberate consistency choice with this codebase's face detector,
+// which already uses the same "fit inside a square, pad the rest" convention for its own fixed
+// input rather than introducing a second resize convention; `letterbox.ts`'s own doc comment
+// already anticipated this.
+
+import type * as ort from 'onnxruntime-web';
+import { letterbox, toCHWFloat32 } from '../preprocess/letterbox';
 
 export const PROMPT_VOCABULARY = [
   'identity card',
@@ -43,6 +53,32 @@ export function isSensitiveLabel(label: PromptLabel): boolean {
   return SENSITIVE_LABELS.has(label);
 }
 
+/** [A] design.md §6.4 says a sensitive top class "emit[s] a whole-region candidate" but does not
+ * name which `EntityType` — resolved here against the visual entity group metric 2's own scorer
+ * already tracks (`{FACE, ID_DOCUMENT, QR_CODE, SIGNATURE}`, confirmed in real scoreboards): the
+ * card/document-image labels collapse to `ID_DOCUMENT` (no dedicated `AADHAAR_CARD_IMAGE`/
+ * `PAN_CARD_IMAGE` entity exists — Channel D/T's text-based AADHAAR/PAN recognizers already own
+ * the digit/alphanumeric-string case), `handwritten signature` maps to `SIGNATURE`, and `QR code`/
+ * `barcode` both map to `QR_CODE` (no separate `BARCODE` entity exists in the closed enum).
+ * `photo of a person` is deliberately absent — the real YuNet face detector already owns FACE. */
+export function entityForLabel(label: PromptLabel): 'ID_DOCUMENT' | 'SIGNATURE' | 'QR_CODE' | null {
+  switch (label) {
+    case 'identity card':
+    case 'Aadhaar card':
+    case 'PAN card':
+    case 'passport page':
+    case 'credit or debit card':
+      return 'ID_DOCUMENT';
+    case 'handwritten signature':
+      return 'SIGNATURE';
+    case 'QR code':
+    case 'barcode':
+      return 'QR_CODE';
+    default:
+      return null;
+  }
+}
+
 export interface RegionClassification {
   label: PromptLabel;
   score: number;
@@ -70,14 +106,100 @@ export function classifyByCosine(embedding: Float32Array, promptEmbeddings: Read
   return { label: topLabel, score: topScore };
 }
 
-/** No encoder is loaded — see this file's top-of-file doc comment. Always returns null, meaning
- * "not screened," never "screened and found nothing" (the compositor's clearance rule in
- * `compose/clearance.ts` treats a region with no ViT input as unanalysed, not cleared). */
-export async function classifyRegion(_crop: ImageBitmap | OffscreenCanvas): Promise<RegionClassification | null> {
-  return null;
+const CLIP_INPUT_SIZE = 224;
+// CLIP's own published per-channel normalization (open_clip's `ViT-B-32-quickgelu`/`openai`
+// preprocess transform, confirmed by inspecting it directly during export — see this file's
+// top-of-file comment). `toCHWFloat32` already gives [0,1]-scaled RGB planes; this rescales each
+// plane to CLIP's expected distribution.
+const CLIP_MEAN = [0.48145466, 0.4578275, 0.40821073] as const;
+const CLIP_STD = [0.26862954, 0.26130258, 0.27577711] as const;
+
+function normalizeForClip(chw: Float32Array): Float32Array {
+  const plane = chw.length / 3;
+  const out = new Float32Array(chw.length);
+  for (let c = 0; c < 3; c++) {
+    const mean = CLIP_MEAN[c]!;
+    const std = CLIP_STD[c]!;
+    const base = c * plane;
+    for (let i = 0; i < plane; i++) {
+      out[base + i] = (chw[base + i]! - mean) / std;
+    }
+  }
+  return out;
 }
 
-/** design.md's per-capture screen-state label (§4.3) — same disclosed gap. */
-export async function screenLabel(_frame: ImageBitmap | OffscreenCanvas): Promise<{ label: string; score: number } | null> {
-  return null;
+/** Binary format `export_vit_prompts.py` writes (magic `AEGISVPB1`): label count + embedding dim,
+ * then each label's UTF-8 bytes length-prefixed, then the raw float32 embedding matrix — see that
+ * script's own header comment for the exact layout this must stay byte-for-byte matched to. */
+export function parsePromptEmbeddings(buffer: ArrayBuffer): ReadonlyMap<PromptLabel, Float32Array> {
+  const view = new DataView(buffer);
+  let offset = 0;
+  const magic = new TextDecoder().decode(new Uint8Array(buffer, 0, 9));
+  if (magic !== 'AEGISVPB1') throw new Error(`vit-prompts.bin: bad magic ${magic}`);
+  offset += 9;
+  const count = view.getUint32(offset, true);
+  offset += 4;
+  const dim = view.getUint32(offset, true);
+  offset += 4;
+  const labels: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const len = view.getUint16(offset, true);
+    offset += 2;
+    labels.push(new TextDecoder().decode(new Uint8Array(buffer, offset, len)));
+    offset += len;
+  }
+  // `Float32Array`'s (buffer, byteOffset, length) constructor requires byteOffset to be a
+  // multiple of 4 — real bug, found by this file's own browser test: the header's variable-length
+  // label strings don't guarantee that alignment. `slice` copies from `offset` into a fresh,
+  // zero-based (therefore always-aligned) buffer rather than requiring the caller to pad the
+  // on-disk format to a 4-byte boundary.
+  const matrix = new Float32Array(buffer.slice(offset));
+  const out = new Map<PromptLabel, Float32Array>();
+  for (let i = 0; i < count; i++) {
+    out.set(labels[i] as PromptLabel, matrix.subarray(i * dim, (i + 1) * dim));
+  }
+  return out;
+}
+
+async function embed(session: ort.InferenceSession, ort_: typeof ort, crop: ImageBitmap | OffscreenCanvas): Promise<Float32Array> {
+  const lb = letterbox(crop, CLIP_INPUT_SIZE);
+  const chw = normalizeForClip(toCHWFloat32(lb.canvas));
+  const tensor = new ort_.Tensor('float32', chw, [1, 3, CLIP_INPUT_SIZE, CLIP_INPUT_SIZE]);
+  const inputName = session.inputNames[0];
+  if (!inputName) throw new Error('vit-vision model exposes no input names');
+  const results = await session.run({ [inputName]: tensor });
+  const outputName = session.outputNames[0]!;
+  return results[outputName]!.data as Float32Array;
+}
+
+/** design.md §6.4's zero-shot region screener, real end to end: embeds `crop` with the bundled
+ * int8 CLIP vision encoder, compares against the precomputed prompt vectors via `classifyByCosine`.
+ * Still returns `null` on any real failure (missing session/prompts, a thrown inference error) —
+ * the compositor's clearance rule treats that as "unanalysed," never "cleared," so a model or
+ * runtime failure fails closed exactly as it did when this was an intentional stub. */
+export async function classifyRegion(
+  session: ort.InferenceSession | null,
+  ort_: typeof ort,
+  promptEmbeddings: ReadonlyMap<PromptLabel, Float32Array> | null,
+  crop: ImageBitmap | OffscreenCanvas,
+): Promise<RegionClassification | null> {
+  if (!session || !promptEmbeddings || promptEmbeddings.size === 0) return null;
+  try {
+    const embedding = await embed(session, ort_, crop);
+    return classifyByCosine(embedding, promptEmbeddings);
+  } catch {
+    return null;
+  }
+}
+
+/** design.md's per-capture screen-state label (§4.3): the same embed+cosine call over the whole
+ * captured frame rather than one region, reusing the identical top-1 label/score shape. */
+export async function screenLabel(
+  session: ort.InferenceSession | null,
+  ort_: typeof ort,
+  promptEmbeddings: ReadonlyMap<PromptLabel, Float32Array> | null,
+  frame: ImageBitmap | OffscreenCanvas,
+): Promise<{ label: string; score: number } | null> {
+  const result = await classifyRegion(session, ort_, promptEmbeddings, frame);
+  return result;
 }

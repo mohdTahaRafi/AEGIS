@@ -3,6 +3,12 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
-    "types": ["@webgpu/types"]
-  }
+    "types": ["@webgpu/types"],
+    "composite": true
+  },
+  "references": [
+    { "path": "../../packages/policy" },
+    { "path": "../../packages/protocol" },
+    { "path": "../../packages/recognizers" }
+  ]
 }
