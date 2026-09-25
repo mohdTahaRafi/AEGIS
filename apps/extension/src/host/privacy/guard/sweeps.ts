@@ -4,7 +4,7 @@
 // so it never reached the vault at all). "Independent" means: different inputs (final serialized
 // bytes, not DOM/candidates) at a different time (after substitution) — see design.md §7.2.
 
-import { ALL_RECOGNIZERS, type EntityType } from '@aegis/recognizers';
+import { ALL_RECOGNIZERS, normalizeForMatching, type EntityType } from '@aegis/recognizers';
 import type { Policy, Sensitivity } from '@aegis/policy';
 import { entityClass } from '@aegis/policy';
 import type { Vault } from '../vault';
@@ -31,9 +31,10 @@ export function vaultLeakSweep(vault: Vault, bytes: string): GuardBlock | null {
  * independently of whatever detected (or failed to detect) them the first time. */
 export function patternResweep(policy: Policy, bytes: string): GuardBlock | null {
   const highOrAbove = new Set(['HIGH', 'CRITICAL']);
+  const normalized = normalizeForMatching(bytes);
   for (const recognizer of ALL_RECOGNIZERS) {
     if (!highOrAbove.has(entityClass(policy, recognizer.entity))) continue;
-    for (const match of recognizer.find(bytes)) {
+    for (const match of recognizer.find(normalized)) {
       if (match.valid) {
         return { rule: 'PATTERN', entity: recognizer.entity };
       }

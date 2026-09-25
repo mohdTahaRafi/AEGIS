@@ -2,6 +2,7 @@
 node_modules/
 .pnpm-store/
 .venv/
+.venv-vllm/
 __pycache__/
 *.egg-info/
 

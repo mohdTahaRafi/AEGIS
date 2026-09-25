@@ -46,3 +46,34 @@ describe('built manifests (T-2.3 AC)', () => {
     expect(firefox.manifest_version).toBe(3);
   }, 30_000);
 });
+
+describe('built manifests — platform shim parity (design.md §14, T-6.1/T-6.2)', () => {
+  it('the Firefox manifest carries browser_specific_settings.gecko.id', () => {
+    const manifest = build('firefox');
+    const bss = manifest.browser_specific_settings as { gecko?: { id?: string } } | undefined;
+    expect(bss?.gecko?.id).toBeTruthy();
+  }, 30_000);
+
+  it('the Chrome manifest carries no gecko id (Chrome-specific field must not leak across builds)', () => {
+    const manifest = build('chrome');
+    expect(manifest.browser_specific_settings).toBeUndefined();
+  }, 30_000);
+
+  it('Chrome panel host is side_panel; Firefox panel host is sidebar_action', () => {
+    const chrome = build('chrome');
+    const firefox = build('firefox');
+    expect(chrome.side_panel).toBeDefined();
+    expect(chrome.sidebar_action).toBeUndefined();
+    expect(firefox.sidebar_action).toBeDefined();
+    expect(firefox.side_panel).toBeUndefined();
+  }, 30_000);
+
+  it('Chrome opts into cross-origin isolation (COEP/COOP) for threaded WASM; Firefox does not', () => {
+    const chrome = build('chrome');
+    const firefox = build('firefox');
+    expect(chrome.cross_origin_embedder_policy).toEqual({ value: 'require-corp' });
+    expect(chrome.cross_origin_opener_policy).toEqual({ value: 'same-origin' });
+    expect(firefox.cross_origin_embedder_policy).toBeUndefined();
+    expect(firefox.cross_origin_opener_policy).toBeUndefined();
+  }, 30_000);
+});

@@ -1,0 +1,32 @@
+// @vitest-environment jsdom
+// T-6.1/T-6.2 — Firefox has no cross-origin-isolation headers (wxt.config.ts only sets COEP/COOP
+// for `browser === 'chrome'`), so `self.crossOriginIsolated` is false there at runtime and
+// `wasmBackend()` must fall back to a single WASM thread — this was implemented but, until now,
+// never actually asserted by a test. This is the runtime half of "single-thread WASM" (design §14);
+// wxt.config.ts's manifest-level half (no COEP/COOP for firefox) is asserted by manifest.spec.ts.
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+describe('wasmBackend — single-thread fallback (T-6.1)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it('uses exactly 1 thread when crossOriginIsolated is false (Firefox — no COEP/COOP)', async () => {
+    vi.stubGlobal('crossOriginIsolated', false);
+    vi.stubGlobal('navigator', { ...globalThis.navigator, hardwareConcurrency: 8 });
+    const { selectBackend } = await import('../../src/perception/runtime/backend');
+    const result = await selectBackend('wasm');
+    expect(result.backend).toBe('wasm');
+    expect(result.threads).toBe(1);
+  });
+
+  it('uses more than 1 thread when crossOriginIsolated is true (Chrome — COEP/COOP set)', async () => {
+    vi.stubGlobal('crossOriginIsolated', true);
+    vi.stubGlobal('navigator', { ...globalThis.navigator, hardwareConcurrency: 8 });
+    const { selectBackend } = await import('../../src/perception/runtime/backend');
+    const result = await selectBackend('wasm');
+    expect(result.backend).toBe('wasm');
+    expect(result.threads).toBeGreaterThan(1);
+  });
+});

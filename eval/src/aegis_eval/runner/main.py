@@ -235,14 +235,29 @@ def run(
     resource_sample_s: float = 1.0,
     ablation_arm: str | None = None,
 ) -> int:
-    """`ablation_arm` (T-6.9/T-6.10, design.md §18.3): `None` (the default, every pre-T-6.9
-    caller) runs the ordinary single `fused` pipeline against the RELEASE build, unchanged.
-    Any of `'fused' | 'dom_only' | 'pixel_only' | 'blackbox'` instead drives the run against the
-    DEBUG build (`DEBUG_EXTENSION_DIR` — the release build never ships the switch at all, T-6.9's
-    AC) with that arm selected via `storage.local`, exactly the mechanism `debug/ablations.ts`
-    expects. Passing the literal string `'fused'` here (as opposed to leaving the parameter
-    unset) still uses the debug build — useful for confirming the debug build's own `'fused'`
-    behaviour matches the release build's, which `ablations/runner.py`'s comparison relies on."""
+    """`ablation_arm` (T-6.9/T-6.10, design.md §18.3): `None` (the default) selects the ordinary
+    `fused` pipeline (every channel on, no debug switch flipped); any of `'fused' | 'dom_only' |
+    'pixel_only' | 'blackbox'` instead selects that arm via `storage.local`, the mechanism
+    `debug/ablations.ts` expects.
+
+    [Real bug found and fixed, 2026-09-25 — see docs/HISTORY.md]: this used to also pick the
+    extension BUILD by `ablation_arm` (`None` → the release build at `EXTENSION_DIR`, anything
+    else → `DEBUG_EXTENSION_DIR`), on the theory that a plain harness run should exercise the
+    real release artifact. That is dead code that has never actually completed a single fixture:
+    `entrypoints/sidepanel/main.tsx`'s `handleStart` calls `ensureHostPermission`, which on the
+    release manifest (`optional_host_permissions` only, no auto-grant) falls through to
+    `chrome.permissions.request(...)` — and confirmed by direct reproduction, that call never
+    resolves OR rejects without a real user gesture, which headless Playwright automation can
+    never supply. There is no timeout anywhere in that path, so a plain (non-ablation) run just
+    hangs forever on fixture 1 with zero output, zero error, zero worker ever created — exactly
+    what a from-scratch run in a fresh sandbox instance hit after 90 minutes of silence. Every
+    historical "n=166 dev" report in this repo's HISTORY.md was, in retrospect, necessarily
+    produced via `--ablation fused` (the debug build, `host_permissions` auto-granted) — the
+    'plain' code path had silently never been exercised end-to-end by anyone.
+
+    Fixed by always using `DEBUG_EXTENSION_DIR` here, regardless of `ablation_arm`. The two
+    builds' manifests differ by exactly one key (`host_permissions: ["<all_urls>"]`, diffed for
+    real) — nothing about the redaction/fusion/guard pipeline this harness measures changes."""
     audit_line = guard_heldout_access(split, heldout_confirmed, heldout_reason)
 
     screen_ids = list_fixtures(split)
@@ -261,7 +276,9 @@ def run(
     task_samples: list[ResourceSample] = []
     task_wall_clock_ms: list[float] = []
 
-    extension_dir = DEBUG_EXTENSION_DIR if ablation_arm else EXTENSION_DIR
+    # Always the debug build — see this function's own doc comment for the real, reproduced
+    # reason (the release manifest's host-permission model cannot be satisfied headlessly).
+    extension_dir = DEBUG_EXTENSION_DIR
     # T-6.10: fixture pages are served over real HTTP now, not `file://` — a `file://` origin can
     # never be granted `captureVisibleTab` access (see `fixture_server.py`'s own doc comment for
     # the real, previously-undiscovered bug this was found fixing: the vision/image path has
