@@ -1,4 +1,3 @@
-import { normalizeForMatching } from '../normalize';
 import type { Recognizer, RecognizerMatch } from '../types';
 
 // design.md §6.2 — a VPA looks like an email but its "domain" is a PSP handle with no TLD dot
@@ -15,8 +14,7 @@ const KNOWN_HANDLES = new Set([
 export const upiRecognizer: Recognizer = {
   id: 'pattern:upi',
   entity: 'UPI_VPA',
-  find(rawText: string): RecognizerMatch[] {
-    const text = normalizeForMatching(rawText);
+  find(text: string): RecognizerMatch[] {
     const matches: RecognizerMatch[] = [];
     for (const m of text.matchAll(UPI_RE)) {
       const handle = m[2]!.toLowerCase();

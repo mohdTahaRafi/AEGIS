@@ -1,7 +1,6 @@
 import { verhoeffValidate } from '../checksums/verhoeff';
 import { AADHAAR_LEXICON } from '../context/lexicons';
 import { scoreByContext } from '../context/boost';
-import { normalizeForMatching } from '../normalize';
 import type { Recognizer, RecognizerContext, RecognizerMatch } from '../types';
 
 // design.md §6.2 — 12 digits, optionally grouped 4-4-4 with space or hyphen, first digit 2–9.
@@ -11,8 +10,7 @@ const MASKED_AADHAAR_RE = /\b[Xx*]{4}[ -]?[Xx*]{4}[ -]?(\d{4})\b/g;
 export const aadhaarRecognizer: Recognizer = {
   id: 'pattern:aadhaar',
   entity: 'AADHAAR',
-  find(rawText: string, ctx?: RecognizerContext): RecognizerMatch[] {
-    const text = normalizeForMatching(rawText);
+  find(text: string, ctx?: RecognizerContext): RecognizerMatch[] {
     const matches: RecognizerMatch[] = [];
 
     for (const m of text.matchAll(AADHAAR_RE)) {

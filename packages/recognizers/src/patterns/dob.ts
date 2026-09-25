@@ -1,6 +1,5 @@
 import { scoreByContext } from '../context/boost';
 import { DOB_LEXICON } from '../context/lexicons';
-import { normalizeForMatching } from '../normalize';
 import type { Recognizer, RecognizerContext, RecognizerMatch } from '../types';
 
 // design.md §6.2 — date patterns, label context required to be usable (a bare date is LOW/
@@ -10,8 +9,7 @@ const DATE_RE = /\b(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}|\d{4}-\d{2}-\d{2})\b/g;
 export const dobRecognizer: Recognizer = {
   id: 'pattern:dob',
   entity: 'DOB',
-  find(rawText: string, ctx?: RecognizerContext): RecognizerMatch[] {
-    const text = normalizeForMatching(rawText);
+  find(text: string, ctx?: RecognizerContext): RecognizerMatch[] {
     const matches: RecognizerMatch[] = [];
     const score = scoreByContext(ctx, DOB_LEXICON, 0.3, 0.85);
     for (const m of text.matchAll(DATE_RE)) {

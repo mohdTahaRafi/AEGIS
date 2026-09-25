@@ -1,4 +1,3 @@
-import { normalizeForMatching } from '../normalize';
 import type { Recognizer, RecognizerMatch } from '../types';
 
 // design.md §6.2 — [A-Z]{4}0[A-Z0-9]{6}. IFSC classifies a bank branch, not a person — MEDIUM
@@ -8,8 +7,7 @@ const IFSC_RE = /\b([A-Z]{4}0[A-Z0-9]{6})\b/g;
 export const ifscRecognizer: Recognizer = {
   id: 'pattern:ifsc',
   entity: 'IFSC',
-  find(rawText: string): RecognizerMatch[] {
-    const text = normalizeForMatching(rawText);
+  find(text: string): RecognizerMatch[] {
     const matches: RecognizerMatch[] = [];
     for (const m of text.matchAll(IFSC_RE)) {
       matches.push({

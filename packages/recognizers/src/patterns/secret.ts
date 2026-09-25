@@ -1,4 +1,3 @@
-import { normalizeForMatching } from '../normalize';
 import type { Recognizer, RecognizerMatch } from '../types';
 
 // design.md §6.2 — high-entropy tokens with known prefixes (API keys, JWT shape, PEM headers).
@@ -24,8 +23,7 @@ const ENTROPY_THRESHOLD = 3.5;
 export const secretRecognizer: Recognizer = {
   id: 'pattern:secret',
   entity: 'SECRET',
-  find(rawText: string): RecognizerMatch[] {
-    const text = normalizeForMatching(rawText);
+  find(text: string): RecognizerMatch[] {
     const matches: RecognizerMatch[] = [];
     const covered = new Set<number>();
 

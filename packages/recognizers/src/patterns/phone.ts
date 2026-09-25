@@ -1,4 +1,4 @@
-import { digitsOnly, normalizeForMatching } from '../normalize';
+import { digitsOnly } from '../normalize';
 import type { Recognizer, RecognizerMatch } from '../types';
 
 // design.md §6.2 — optional +91/0 then [6-9]\d{9} for Indian mobiles.
@@ -17,8 +17,7 @@ const INTL_RE = /\+(\d{1,3})[ -]?(\d{6,12})\b/g;
 export const phoneRecognizer: Recognizer = {
   id: 'pattern:phone',
   entity: 'PHONE',
-  find(rawText: string): RecognizerMatch[] {
-    const text = normalizeForMatching(rawText);
+  find(text: string): RecognizerMatch[] {
     const matches: RecognizerMatch[] = [];
 
     for (const m of text.matchAll(INDIAN_MOBILE_RE)) {

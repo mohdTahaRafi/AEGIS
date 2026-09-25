@@ -1,5 +1,5 @@
 import { luhnValidate, matchesIinRange } from '../checksums/luhn';
-import { digitsOnly, normalizeForMatching } from '../normalize';
+import { digitsOnly } from '../normalize';
 import type { Recognizer, RecognizerMatch } from '../types';
 
 // design.md §6.2 — 13-19 digits, optionally grouped. Luhn + IIN range is what separates a card
@@ -9,8 +9,7 @@ const CARD_RE = /\b(\d[ -]?){13,19}\b/g;
 export const cardRecognizer: Recognizer = {
   id: 'pattern:card',
   entity: 'CARD_NUMBER',
-  find(rawText: string): RecognizerMatch[] {
-    const text = normalizeForMatching(rawText);
+  find(text: string): RecognizerMatch[] {
     const matches: RecognizerMatch[] = [];
     for (const m of text.matchAll(CARD_RE)) {
       const digits = digitsOnly(m[0]);

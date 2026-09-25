@@ -1,6 +1,5 @@
 import { scoreByContext } from '../context/boost';
 import { PASSPORT_LEXICON } from '../context/lexicons';
-import { normalizeForMatching } from '../normalize';
 import type { Recognizer, RecognizerContext, RecognizerMatch } from '../types';
 
 // design.md §6.2 — [A-Z][0-9]{7}, label context required to be usable at all (0.30 without
@@ -10,8 +9,7 @@ const PASSPORT_RE = /\b([A-Z]\d{7})\b/g;
 export const passportRecognizer: Recognizer = {
   id: 'pattern:passport',
   entity: 'PASSPORT',
-  find(rawText: string, ctx?: RecognizerContext): RecognizerMatch[] {
-    const text = normalizeForMatching(rawText);
+  find(text: string, ctx?: RecognizerContext): RecognizerMatch[] {
     const matches: RecognizerMatch[] = [];
     const score = scoreByContext(ctx, PASSPORT_LEXICON, 0.3, 0.85);
     for (const m of text.matchAll(PASSPORT_RE)) {

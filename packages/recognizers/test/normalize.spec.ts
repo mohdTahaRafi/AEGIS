@@ -36,8 +36,8 @@ describe('normalization feeds recognizers (AC-relevant)', () => {
     const ascii = asciiBody + check;
     const devanagari = ascii.replace(/\d/g, (d) => '०१२३४५६७८९'[Number(d)]!);
 
-    const asciiMatches = aadhaarRecognizer.find(ascii);
-    const devanagariMatches = aadhaarRecognizer.find(devanagari);
+    const asciiMatches = aadhaarRecognizer.find(normalizeForMatching(ascii));
+    const devanagariMatches = aadhaarRecognizer.find(normalizeForMatching(devanagari));
 
     expect(asciiMatches).toHaveLength(1);
     expect(devanagariMatches).toHaveLength(1);
@@ -47,7 +47,7 @@ describe('normalization feeds recognizers (AC-relevant)', () => {
 
   it('still detects a card number interrupted by zero-width-joiner characters', () => {
     const withZwj = '4111‍1111‍1111‍1111';
-    const matches = cardRecognizer.find(withZwj);
+    const matches = cardRecognizer.find(normalizeForMatching(withZwj));
     expect(matches.some((m) => m.valid)).toBe(true);
   });
 });

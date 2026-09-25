@@ -1,4 +1,3 @@
-import { normalizeForMatching } from '../normalize';
 import type { Recognizer, RecognizerMatch } from '../types';
 
 // design.md §6.2 — [A-Z]{5}[0-9]{4}[A-Z]; the 4th character encodes the holder type and must be
@@ -10,8 +9,7 @@ const HOLDER_TYPES = new Set(['A', 'B', 'C', 'F', 'G', 'H', 'J', 'L', 'P', 'T'])
 export const panRecognizer: Recognizer = {
   id: 'pattern:pan',
   entity: 'PAN',
-  find(rawText: string): RecognizerMatch[] {
-    const text = normalizeForMatching(rawText);
+  find(text: string): RecognizerMatch[] {
     const matches: RecognizerMatch[] = [];
     for (const m of text.matchAll(PAN_RE)) {
       const holderType = m[2]!;

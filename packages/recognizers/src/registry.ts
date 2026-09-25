@@ -1,6 +1,7 @@
 // design.md's "regexes compiled once at module load, not per call" (§19) is satisfied by every
 // pattern file above defining its RegExp at module scope; this registry just aggregates them.
 
+import { normalizeForMatching } from './normalize';
 import { aadhaarRecognizer } from './patterns/aadhaar';
 import { cardRecognizer } from './patterns/card';
 import { dobRecognizer } from './patterns/dob';
@@ -40,8 +41,12 @@ export function recognizersFor(entities: readonly EntityType[]): Recognizer[] {
   return ALL_RECOGNIZERS.filter((r) => set.has(r.entity));
 }
 
+/** T-5.14: normalizes once here rather than in each recognizer — with 13 recognizers, per-recognizer
+ * normalization meant the same string got NFKC-folded, Indic-digit-mapped and zero-width-stripped up
+ * to 13 times per call. `Recognizer.find` now requires pre-normalized text (see its doc comment). */
 export function findAll(text: string, ctx?: RecognizerContext, recognizers: readonly Recognizer[] = ALL_RECOGNIZERS): RecognizerMatch[] {
+  const normalized = normalizeForMatching(text);
   const out: RecognizerMatch[] = [];
-  for (const r of recognizers) out.push(...r.find(text, ctx));
+  for (const r of recognizers) out.push(...r.find(normalized, ctx));
   return out;
 }

@@ -1,6 +1,5 @@
 import { scoreByContext } from '../context/boost';
 import { ADDRESS_LEXICON } from '../context/lexicons';
-import { normalizeForMatching } from '../normalize';
 import type { Recognizer, RecognizerContext, RecognizerMatch } from '../types';
 
 // design.md §6.2 — [1-9][0-9]{5}, only usable with address context (a bare 6-digit run collides
@@ -10,8 +9,7 @@ const PIN_RE = /\b([1-9]\d{5})\b/g;
 export const pinRecognizer: Recognizer = {
   id: 'pattern:pin',
   entity: 'PIN_CODE',
-  find(rawText: string, ctx?: RecognizerContext): RecognizerMatch[] {
-    const text = normalizeForMatching(rawText);
+  find(text: string, ctx?: RecognizerContext): RecognizerMatch[] {
     const matches: RecognizerMatch[] = [];
     const score = scoreByContext(ctx, ADDRESS_LEXICON, 0.2, 0.7);
     for (const m of text.matchAll(PIN_RE)) {

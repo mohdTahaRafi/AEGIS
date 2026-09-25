@@ -1,4 +1,3 @@
-import { normalizeForMatching } from '../normalize';
 import type { Recognizer, RecognizerMatch } from '../types';
 
 // design.md §6.2 — state code + district + series + number. Small table of real Indian state/UT
@@ -15,8 +14,7 @@ const VEHICLE_RE = /\b([A-Z]{2})[ -]?(\d{1,2})[ -]?([A-Z]{1,2})[ -]?(\d{4})\b/g;
 export const vehicleRecognizer: Recognizer = {
   id: 'pattern:vehicle',
   entity: 'VEHICLE_REG',
-  find(rawText: string): RecognizerMatch[] {
-    const text = normalizeForMatching(rawText);
+  find(text: string): RecognizerMatch[] {
     const matches: RecognizerMatch[] = [];
     for (const m of text.matchAll(VEHICLE_RE)) {
       if (!STATE_CODES.has(m[1]!)) continue;

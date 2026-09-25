@@ -65,5 +65,8 @@ export interface RecognizerMatch {
 export interface Recognizer {
   id: string;
   entity: EntityType;
+  /** `text` must already be normalized via `normalizeForMatching` (NFKC, Indic digits, zero-width
+   * stripped) — callers normalize once (`findAll`, `patternResweep`) rather than each of the 13
+   * recognizers repeating the same whole-string normalization pass on every call. T-5.14. */
   find(text: string, ctx?: RecognizerContext): RecognizerMatch[];
 }
