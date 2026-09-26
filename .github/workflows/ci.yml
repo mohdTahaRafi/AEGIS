@@ -29,6 +29,10 @@ jobs:
       - name: Typecheck
         run: pnpm -r typecheck
 
+      - name: Install Playwright browser (vitest browser-mode tests)
+        working-directory: apps/extension
+        run: pnpm exec playwright install --with-deps chromium
+
       - name: Test
         run: pnpm -r test
 
