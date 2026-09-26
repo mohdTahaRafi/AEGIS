@@ -26,11 +26,17 @@ function hexToRgb(hex: string): [number, number, number] {
 
 /** Text rendering leaves gaps between/within glyphs — the exact center pixel of a label isn't
  * reliably "inside a stroke," so label-presence checks scan a horizontal band through the box's
- * vertical center for at least one white pixel, rather than asserting one exact coordinate. */
+ * vertical center for at least one white pixel, rather than asserting one exact coordinate.
+ * "White" is a near-white threshold, not an exact (255,255,255) match — real, measured (T-6.1,
+ * 2026-09-26): real headless Firefox's small-font (~9-10px) text anti-aliasing at this exact
+ * placeholder string's row tops out at 239 per channel, never hitting pure 255, while Chromium's
+ * own anti-aliasing does — both browsers genuinely render the label, this is a rasterizer
+ * precision difference between engines, not a redaction/compositor bug. */
+const NEAR_WHITE_THRESHOLD = 200;
 function hasWhitePixelInRow(canvas: OffscreenCanvas, y: number, xStart: number, xEnd: number): boolean {
   for (let x = xStart; x <= xEnd; x++) {
     const [r, g, b] = pixelAt(canvas, x, y);
-    if (r === 255 && g === 255 && b === 255) return true;
+    if (r >= NEAR_WHITE_THRESHOLD && g >= NEAR_WHITE_THRESHOLD && b >= NEAR_WHITE_THRESHOLD) return true;
   }
   return false;
 }

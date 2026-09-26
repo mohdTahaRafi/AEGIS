@@ -47,7 +47,19 @@ describe('checkHalosForText — real OCR halo re-scan (T-6.3)', () => {
     ctx.fillText('SECRET123', 50, 50);
     const textWidth = ctx.measureText('SECRET123').width;
 
-    const redactionBox: [number, number, number, number] = [50, 50, textWidth - 15, 30]; // covers all but the trailing ~15px ("3")
+    // Expose exactly the trailing character's own measured width (+ a small buffer), not a fixed
+    // pixel count — real, measured (T-6.1, 2026-09-26): Chromium and Firefox substitute
+    // meaningfully different default "sans-serif" fonts in this environment (137.4px vs 126.3px
+    // for the same 9-char string), so a fixed "-15px" offset tuned against one engine's font
+    // metrics can land short of a full readable glyph in the other. A first attempt at a
+    // proportional fix (expose the last 2/9 of the measured width) overcorrected: `haloAround`
+    // only extends `HALO_PX=24` past the redaction box on each side (the halo re-scan's own real,
+    // fixed constant — design.md's actual insufficient-dilation scenario), and 2/9 of Chromium's
+    // wider measured width (~30.5px) exceeds that margin, pushing part of the exposed text
+    // outside the halo crop entirely — a real regression this dry run caught. Measuring the
+    // specific trailing character directly stays comfortably under the 24px margin in both fonts.
+    const lastCharWidth = ctx.measureText('3').width;
+    const redactionBox: [number, number, number, number] = [50, 50, textWidth - lastCharWidth - 3, 30];
     ctx.fillStyle = '#808080';
     ctx.fillRect(...redactionBox);
 

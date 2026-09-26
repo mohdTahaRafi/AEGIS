@@ -184,7 +184,15 @@ function findDatamodelCodegen(): [string, ...string[]] {
   } catch { /* fall through */ }
   try {
     execFileSync('uvx', ['--version']);
-    return ['uvx', '--with', 'datamodel-code-generator', 'datamodel-codegen'];
+    // Real, reproduced bug (2026-09-26): `uvx <cmd>` resolves the TOOL PACKAGE from `<cmd>`
+    // itself unless `--from` overrides it — `--with` only adds an extra dependency alongside
+    // whatever that primary package turns out to be. Since the PyPI package is
+    // `datamodel-code-generator` but its console-script entry point is the differently-named
+    // `datamodel-codegen`, `uvx --with datamodel-code-generator datamodel-codegen` tried to
+    // resolve a nonexistent package literally called `datamodel-codegen` and always failed
+    // ("No solution found... datamodel-codegen was not found in the package registry"), on every
+    // environment that ever reached this fallback. `--from` fixes the mismatch directly.
+    return ['uvx', '--from', 'datamodel-code-generator', 'datamodel-codegen'];
   } catch { /* fall through */ }
   return ['datamodel-codegen'];
 }
