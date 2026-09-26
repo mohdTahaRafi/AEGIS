@@ -75,7 +75,16 @@ def extension_context(
     # the full Chromium binary) combined with the raw --headless=new Chromium flag, which does
     # run genuinely headless — confirmed here by loading the real built extension and observing
     # its background service worker start with no display attached.
+    # T-6.8, 2026-09-26: WebGPU needs the real Chromium binary AND these three GPU/Vulkan flags —
+    # confirmed by direct reproduction, not assumed: without them, `navigator.gpu` is present but
+    # `requestAdapter()` silently returns `null` even on hardware with a real, working NVIDIA
+    # driver (`--use-gl=angle --use-angle=vulkan` selects the real GPU path over Chromium's
+    # default swrast/no-GPU fallback in a sandboxed environment; `--enable-unsafe-webgpu` is still
+    # required on this Chromium version). Harmless to add unconditionally — every existing
+    # non-WebGPU fixture run is unaffected, and this is what let profile L (NER) actually run for
+    # the first time; see docs/HISTORY.md's 2026-09-26 T-6.8 entry.
     launch_args = ["--headless=new"] if headless else []
+    launch_args += ["--use-gl=angle", "--use-angle=vulkan", "--enable-unsafe-webgpu"]
     launch_args += [
         f"--disable-extensions-except={extension_dir}",
         f"--load-extension={extension_dir}",

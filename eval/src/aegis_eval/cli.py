@@ -24,6 +24,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             heldout_reason=args.reason,
             headless=not args.headed,
             ablation_arm=args.ablation,
+            ner_profile=args.ner_profile,
         )
     except HeldOutAccessDeniedError as exc:
         print(f"error: {exc}")
@@ -86,6 +87,16 @@ def main() -> None:
         help=(
             "design.md §18.3 (T-6.9/T-6.10): drive the run against the DEBUG build with this "
             "arm selected, instead of the ordinary release build. Omit for a normal run."
+        ),
+    )
+    run_p.add_argument(
+        "--ner-profile",
+        choices=["S", "L"],
+        default=None,
+        help=(
+            "T-6.8/OQ-7: set the extension's NER profile via storage.local before the run "
+            "(profile L needs a real WebGPU-capable launch — see browser.py). Omit to leave the "
+            "extension's own default (S) in place."
         ),
     )
 

@@ -234,11 +234,19 @@ def run(
     headless: bool = True,
     resource_sample_s: float = 1.0,
     ablation_arm: str | None = None,
+    ner_profile: str | None = None,
 ) -> int:
     """`ablation_arm` (T-6.9/T-6.10, design.md §18.3): `None` (the default) selects the ordinary
     `fused` pipeline (every channel on, no debug switch flipped); any of `'fused' | 'dom_only' |
     'pixel_only' | 'blackbox'` instead selects that arm via `storage.local`, the mechanism
     `debug/ablations.ts` expects.
+
+    `ner_profile` (T-6.8, OQ-7): `None` (the default) leaves the extension's own default (`'S'`,
+    settings/store.ts) in place; `'L'` writes `chrome.storage.local`'s real `aegis_settings` blob
+    (the same key/shape `host/settings/store.ts` reads) with `nerProfile: 'L'` before any fixture
+    runs, so `perception/worker.ts`'s real `openai/privacy-filter` model is what backs Channel N
+    for this run instead of the disclosed profile-S no-op — the only way to get a real,
+    corpus-scale recall number for design.md's actual shipping condition.
 
     [Real bug found and fixed, 2026-09-25 — see docs/HISTORY.md]: this used to also pick the
     extension BUILD by `ablation_arm` (`None` → the release build at `EXTENSION_DIR`, anything
@@ -266,6 +274,7 @@ def run(
         return 1
 
     report_split = f"{split}-{ablation_arm}" if ablation_arm else split
+    report_split = f"{report_split}-ner{ner_profile}" if ner_profile else report_split
     run_dir = new_run_dir(report_split)
     hardware = hardware_description()
     date = datetime.now(UTC).isoformat()
@@ -304,6 +313,19 @@ def run(
             setup_page.goto(f"chrome-extension://{ext_id}/sidepanel.html")
             setup_page.evaluate(
                 "(arm) => chrome.storage.local.set({ aegis_debug_ablation_arm: arm })", ablation_arm
+            )
+            setup_page.close()
+
+        if ner_profile:
+            # Same one-write-for-the-whole-run pattern as the ablation switch above, but through
+            # `host/settings/store.ts`'s real `aegis_settings` key (not a debug-only switch) —
+            # `loadSettings` merges this partial blob field-by-field over its own defaults, so
+            # only `nerProfile` needs to be set here.
+            setup_page = context.new_page()
+            setup_page.goto(f"chrome-extension://{ext_id}/sidepanel.html")
+            setup_page.evaluate(
+                "(profile) => chrome.storage.local.set({ aegis_settings: { nerProfile: profile } })",
+                ner_profile,
             )
             setup_page.close()
 

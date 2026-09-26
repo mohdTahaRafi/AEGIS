@@ -19,6 +19,15 @@ apps/extension/public/models/*.onnx
 apps/extension/public/models/*.bin
 apps/extension/public/ort/
 
+# T-6.8: NER profile L's model + its onnxruntime-web/transformers.js runtime dependencies —
+# fetched from Hugging Face Hub / copied from the pinned npm packages' own dist/ output at
+# integration time (see docs/HISTORY.md's 2026-09-26 T-6.8 entries), never hand-committed, same
+# policy as the models above. ~950MB combined; regenerate by re-running the same fetch/copy steps.
+apps/extension/public/models/privacy-filter/
+apps/extension/public/models/ort-web/
+apps/extension/public/models/transformers-web/
+apps/extension/public/models/onnxruntime-common/
+
 # Evaluation outputs and recordings
 eval/reports/
 server/recordings/

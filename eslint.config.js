@@ -49,6 +49,11 @@ export default tseslint.config(
       '**/*.d.ts',
       '**/generated/**',
       'apps/extension/.wxt/**',
+      // T-6.8: third-party vendor files copied in unmodified (see docs/HISTORY.md's 2026-09-26
+      // entry) — not this project's own code, never meant to pass this project's own lint rules.
+      'apps/extension/public/models/transformers-web/**',
+      'apps/extension/public/models/ort-web/**',
+      'apps/extension/public/models/onnxruntime-common/**',
     ],
   },
 
