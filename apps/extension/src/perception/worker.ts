@@ -22,6 +22,8 @@ import { compose, encodeWebp, type RedactionBoxSet } from './compose/compositor'
 import { detectTextEntitiesInRegion } from './detect/text-region';
 import { recheckFacesOnComposedImage } from './rescan/face-recheck';
 import { checkHalosForText, type OcrRescanModels } from './rescan/halo';
+import { shouldRunNer } from './prefilter';
+import { classifyProfileL, classifyProfileS, type TokenClassificationPipeline } from './models/pii-ner';
 
 ort.env.allowLocalModels = true;
 
@@ -38,6 +40,13 @@ let ocrDetModelId: string | null = null;
 let ocrRecEnModelId: string | null = null;
 let vitModelId: string | null = null;
 let vitPromptEmbeddings: ReadonlyMap<PromptLabel, Float32Array> | null = null;
+// T-6.8: which NER profile this session's `init` asked for — read by `getNerPipeline` below.
+// Profile L's pipeline is intentionally NOT warmed here alongside face/ViT: design.md §19's
+// degradation ladder explicitly lists NER-L among the "lazy load; evict after idle" models (unlike
+// the face detector/ViT encoder, which stay resident) — it loads on the first real `ner` message.
+let nerProfile: 'S' | 'L' = 'S';
+let nerPipeline: TokenClassificationPipeline | null = null;
+let nerPipelineFailed = false;
 
 // phase_4_vision.md §3.2: "The worker holds one capture at a time, and closes the bitmap once
 // compose/rescan for that capture have finished." `perceive` transfers the bitmap in and analyses
@@ -72,6 +81,9 @@ async function handleInit(msg: Extract<ToWorker, { t: 'init' }>): Promise<void> 
   ocrDetModelId = msg.models.find((m) => m.role === 'ocr-det')?.id ?? null;
   ocrRecEnModelId = msg.models.find((m) => m.role === 'ocr-rec' && m.script === 'latin')?.id ?? null;
   vitModelId = msg.models.find((m) => m.role === 'vit')?.id ?? null;
+  nerProfile = msg.profile;
+  nerPipeline = null;
+  nerPipelineFailed = false;
   if (faceModelId) {
     try {
       await registry.get(faceModelId);
@@ -231,6 +243,97 @@ async function loadOcrRescanModels(): Promise<OcrRescanModels | null> {
   }
 }
 
+/** T-6.8: `openai/privacy-filter` at q4, real, loaded through `@huggingface/transformers`'s own
+ * pipeline (not `ModelRegistry` — that class manages one-file `ort.InferenceSession`s; this model
+ * is a multi-file (config/tokenizer/onnx) load transformers.js already knows how to do, and
+ * duplicating that loader here would be the same "not the real thing" gap the old stub was, just
+ * moved down a layer). `env.localModelPath` defaults to `/models/` in a browser/worker environment
+ * (confirmed by reading `@huggingface/transformers`'s own `env.js`, not assumed) — the SAME
+ * extension-relative root every other bundled model already fetches from (`public/models/`), so
+ * `apps/extension/public/models/privacy-filter/` (this repo's real, sha256-unverified-by-us-but-
+ * fetched-straight-from-`openai/privacy-filter`'s own HF repo weights) is found with no extra
+ * config. `allowRemoteModels = false` is the one setting that matters for this project's own
+ * invariant: even if the local fetch somehow missed, this call must never silently reach out to
+ * the real Hugging Face Hub over the network from inside the perception worker. WebGPU-only per
+ * design.md §6.3/OQ-7 — a `backend !== 'webgpu'` session never attempts this at all, same
+ * fail-closed shape `classifyRegion`'s vision path already uses (a load/inference failure disables
+ * only this capability, never the rest of the step). */
+async function getNerPipeline(): Promise<TokenClassificationPipeline | null> {
+  if (nerProfile !== 'L' || backend !== 'webgpu' || nerPipelineFailed) return null;
+  if (nerPipeline) return nerPipeline;
+  try {
+    // Real bug, found and fixed 2026-09-26 (T-6.8), root-caused across several layers before
+    // landing on this fix. Importing `@huggingface/transformers` as a normal module specifier
+    // (`import ... from '@huggingface/transformers'`) makes Vite bundle/inline its code — and its
+    // bundled `onnxruntime-web`'s WebGPU (JSEP) backend loader does its OWN dynamic `import()` of
+    // its WASM glue module, keyed off `import.meta.url`/same-origin checks that resolve
+    // differently once Vite has processed the code this way (confirmed by direct reproduction:
+    // the resulting `import.meta.url` no longer points at a plain, directly re-importable same-
+    // origin file the way the untouched package does). The end effect, at runtime: a `TypeError:
+    // Failed to fetch dynamically imported module: blob:chrome-extension://...` — this extension's
+    // CSP (`script-src 'self' 'wasm-unsafe-eval'`, wxt.config.ts) has no reason to allow a `blob:`
+    // script source, and correctly blocks it, so `pipeline()` always failed with "no available
+    // backend found" and profile L never ran on a single real fixture. Tried and ruled out first,
+    // each confirmed NOT sufficient by rerunning against the real built extension rather than
+    // assumed fixed: overriding `env.backends.onnx.wasm.wasmPaths` to this project's own bundled
+    // local copies of the exact matching onnxruntime-web files (`public/models/ort-web/` — still
+    // worth keeping, since it also stops a real CDN fetch attempt); `wxt.config.ts`'s `worker:
+    // { format: 'es' }` (still worth keeping — real ESM output instead of Vite's default IIFE);
+    // `numThreads = 1`. The fix that actually works: don't let Vite touch `@huggingface/
+    // transformers` at all. Its own `dist/transformers.web.js` is a complete, pre-built, ready-
+    // to-run browser ES module (copied once into `public/models/transformers-web/`, unmodified —
+    // the package's own official browser build, not a third-party mirror) — dynamically importing
+    // it by its literal served URL (not a bare specifier) is exactly the same "opaque runtime
+    // string Vite doesn't touch" pattern `wasmPaths` and every `.onnx` model URL already use, and
+    // sidesteps the whole class of Vite-processing-changes-module-semantics problem above: this
+    // file's own `import.meta.url` is simply its own real, same-origin, directly-fetchable URL.
+    // @ts-expect-error a served static-asset URL, not a resolvable module specifier — TS has no
+    // way to type-check this import target; the cast just below supplies the real shape instead.
+    const { pipeline, env } = (await import(/* @vite-ignore */ '/models/transformers-web/transformers.web.js')) as typeof import('@huggingface/transformers');
+    env.allowRemoteModels = false;
+    env.allowLocalModels = true;
+    // Still needed even with the plain-URL import above: `onnxruntime-web`'s own module-level
+    // setup code defaults `wasmPaths` to a `cdn.jsdelivr.net` URL whenever it isn't already set,
+    // regardless of same-origin status — this has nothing to do with the blob-import bug the
+    // long comment above this function describes, it's simply the package's own unconditional
+    // default. Overridden to this project's own bundled copy of the exact matching files
+    // (`public/models/ort-web/`, copied once from this pinned dependency's own `dist/`).
+    if (env.backends.onnx.wasm) {
+      env.backends.onnx.wasm.wasmPaths = {
+        mjs: '/models/ort-web/ort-wasm-simd-threaded.jsep.mjs',
+        wasm: '/models/ort-web/ort-wasm-simd-threaded.jsep.wasm',
+      };
+    }
+    const p = await pipeline('token-classification', 'privacy-filter', { dtype: 'q4', device: 'webgpu' });
+    nerPipeline = p as unknown as TokenClassificationPipeline;
+    return nerPipeline;
+  } catch (err) {
+    nerPipelineFailed = true;
+    post({ t: 'error', code: 'MODEL_LOAD_FAILED', detail: err instanceof Error ? err.message : String(err) });
+    return null;
+  }
+}
+
+/** T-6.8: `msg.chunks` are `builder.ts`'s free-text sources, each independently prefiltered here
+ * (`shouldRunNer`, T-3.10's real pre-filter — "reject ≥80% before the model runs") before the
+ * (expensive) model ever sees it. [A] simplification: `shouldRunNer`'s second argument
+ * (`insideFormOrProfileContainer`) is a DOM concept the worker has no access to over this message —
+ * every chunk is prefiltered with it defaulted to `false`, which still catches this filter's own
+ * capitalized-run/digit-cluster/gazetteer signals; it just can't add the container-context boost. A
+ * disclosed narrowing, not a silent one. Profile S has no real model (`classifyProfileS` always
+ * returns `[]`) — this always answers, whichever profile is active, so the host never needs to
+ * branch on it. */
+async function handleNer(msg: Extract<ToWorker, { t: 'ner' }>): Promise<void> {
+  const nerModel = await getNerPipeline();
+  const spans: Extract<FromWorker, { t: 'nerResult' }>['spans'] = [];
+  for (const chunk of msg.chunks) {
+    if (!shouldRunNer(chunk.text)) continue;
+    const matches = nerModel ? await classifyProfileL(nerModel, chunk.text) : await classifyProfileS(chunk.text);
+    for (const m of matches) spans.push({ id: chunk.id, start: m.start, end: m.end, entity: m.entity, score: m.score });
+  }
+  post({ t: 'nerResult', jobId: msg.jobId, spans });
+}
+
 async function handleRescan(msg: Extract<ToWorker, { t: 'rescan' }>): Promise<void> {
   const hits: Extract<FromWorker, { t: 'rescanned' }>['hits'] = [];
   const faceSession = faceModelId && registry ? await registry.get(faceModelId).catch(() => null) : null;
@@ -252,6 +355,7 @@ self.addEventListener('message', (event: MessageEvent<ToWorker>) => {
     try {
       if (msg.t === 'init') return await handleInit(msg);
       if (msg.t === 'perceive') return await handlePerceive(msg);
+      if (msg.t === 'ner') return await handleNer(msg);
       if (msg.t === 'compose') return await handleCompose(msg);
       if (msg.t === 'rescan') return await handleRescan(msg);
       if (msg.t === 'stats') {
@@ -261,10 +365,6 @@ self.addEventListener('message', (event: MessageEvent<ToWorker>) => {
         registry?.evict(msg.model);
         return;
       }
-      // 'ner' — NER stays a Channel-independent call the host makes directly against
-      // `perception/models/pii-ner.ts`'s pure function today (no session, nothing to route
-      // through the worker's model registry); routing it through here is Phase 6 work once a
-      // real profile-L model needs the worker's scheduler.
     } catch (err) {
       const jobId = 'jobId' in msg ? msg.jobId : undefined;
       post({ t: 'error', jobId, code: 'WORKER_FAILED', detail: err instanceof Error ? err.message : String(err) });

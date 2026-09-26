@@ -53,7 +53,22 @@ export default defineConfig({
   // out of scope unless the team decides to publish (README.md "Store publication").
   suppressWarnings: { firefoxDataCollection: true },
   vite: (env) => ({
-    optimizeDeps: { exclude: ['onnxruntime-web'] },
+    optimizeDeps: { exclude: ['onnxruntime-web', '@huggingface/transformers'] },
+    // T-6.8, 2026-09-26: real root cause, found by reading the actual built output, not guessed —
+    // Vite's default `worker.format` is `'iife'`. An IIFE bundle has no native module resolution,
+    // so Rollup/Vite's own dynamic-`import()` polyfill for IIFE workers ALWAYS routes through a
+    // fetch-as-text-then-`Blob`-then-`import(URL.createObjectURL(...))` shim — confirmed directly:
+    // the built `assets/worker-*.js` literally starts with `(function(){...})()`. That shim is what
+    // was producing "Failed to fetch dynamically imported module: blob:chrome-extension://..." for
+    // `@huggingface/transformers`'s own internal `await import(...)` calls (its ONNX Runtime Web
+    // backend dynamically imports its WASM/JSEP glue module) — this extension's CSP is `script-src
+    // 'self' 'wasm-unsafe-eval'` (below), which has no reason to ever allow a `blob:` script source,
+    // and correctly blocks it. The perception worker is already constructed with `{ type: 'module'
+    // }` (`entrypoints/sidepanel/main.tsx`'s `createPerceptionClient`), so real ES-module output is
+    // exactly what the runtime expects — Vite defaults to IIFE purely for broad legacy-browser
+    // compatibility, which this MV3-only, Chromium/Firefox-only extension never needs. `format:
+    // 'es'` makes dynamic imports native `import()` calls again, with no blob involved at all.
+    worker: { format: 'es' },
     // design.md §18.3, T-6.9: `entrypoints/sidepanel/main.tsx` dynamically imports
     // `src/debug/ablations.ts` behind an `import.meta.env.DEV` check — but a dynamic `import()`
     // of a literal specifier still gets its own chunk in the OUTPUT regardless of that check

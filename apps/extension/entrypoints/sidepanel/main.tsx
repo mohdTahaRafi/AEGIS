@@ -159,6 +159,24 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const sessionRef = useRef<Session | null>(null);
   sessionRef.current = session;
+  // T-6.8, 2026-09-26: real, previously-undiscovered bug found while measuring NER profile L's
+  // corpus recall — `handleStart` (below) is assigned to `window.__aegisRunTask` exactly once, via
+  // an empty-deps effect (see that effect's own comment for why: `handleStart` must stay a stable
+  // reference across renders). That comment reasoned `handleStart` "closes over only stable
+  // setters and module-level constants" — true for `session`/`panelState`, but NOT for `settings`,
+  // which the ORIGINAL, now-fixed code read directly from component state. Every render's
+  // `handleStart` closure captured THAT render's `settings` — but only the FIRST render's
+  // `handleStart` is ever installed as `window.__aegisRunTask`, so it permanently saw the
+  // hardcoded defaults (`nerProfile: 'S'`, `backend: 'auto'`, ...) from before `loadSettings()`'s
+  // async `browser.storage.local` read had even resolved. Invisible to a real user (human reaction
+  // time to click "Run" is far longer than one storage read), but genuinely means NO settings
+  // change has ever actually reached a task run when `__aegisRunTask` fires programmatically before
+  // that read resolves — the eval harness's `--ner-profile L` measurement above always silently ran
+  // against profile S regardless of what was written to storage.local. Fixed the same way
+  // `sessionRef` already fixes the identical class of problem one line up: a ref `handleStart`
+  // reads from, kept current on every render rather than closed over once.
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
 
   useEffect(() => {
     loadSettings(browser.storage.local, defaultSettings(GATEWAY_URL, GATEWAY_TOKEN)).then(setSettings);
@@ -213,7 +231,7 @@ function App() {
       return;
     }
 
-    const gateway = createGatewayClient(settings.serverUrl, import.meta.env.BROWSER === 'firefox' ? 'firefox' : 'chrome', fetch, settings.accessToken);
+    const gateway = createGatewayClient(settingsRef.current.serverUrl, import.meta.env.BROWSER === 'firefox' ? 'firefox' : 'chrome', fetch, settingsRef.current.accessToken);
     let created;
     try {
       created = await gateway.openSession();
@@ -238,9 +256,9 @@ function App() {
     const perceptionClient = createPerceptionClient();
     try {
       const ready = await perceptionClient.init(
-        settings.backend,
+        settingsRef.current.backend,
         [FACE_MODEL_SPEC, OCR_DET_MODEL_SPEC, OCR_REC_EN_MODEL_SPEC, OCR_REC_DEVANAGARI_MODEL_SPEC, VIT_VISION_MODEL_SPEC],
-        settings.nerProfile,
+        settingsRef.current.nerProfile,
       );
       setPerceptionBackend(ready.backend);
       setModelsLoadedMB(ready.loaded.reduce((sum, m) => sum + m.bytes, 0) / (1024 * 1024));
@@ -291,7 +309,7 @@ function App() {
       perception: { client: perceptionClient, capture: captureVisibleTabAsBitmap },
       canaries,
       ablation: ablationArm,
-      policy: applyAlwaysRedact(defaultPolicy, settings.alwaysRedact),
+      policy: applyAlwaysRedact(defaultPolicy, settingsRef.current.alwaysRedact),
     });
 
     setSession(newSession);

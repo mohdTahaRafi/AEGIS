@@ -21,6 +21,7 @@
     "@aegis/policy": "workspace:*",
     "@aegis/protocol": "workspace:*",
     "@aegis/recognizers": "workspace:*",
+    "@huggingface/transformers": "^4.3.0",
     "onnxruntime-web": "^1.30.0",
     "preact": "^10.29.8"
   },

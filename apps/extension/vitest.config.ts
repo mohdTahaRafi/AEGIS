@@ -36,8 +36,18 @@ export default defineConfig({
           include: ['test/browser/**/*.spec.ts', 'test/e2e/**/*.spec.ts'],
           browser: {
             enabled: true,
-            provider: playwright(),
-            headless: true,
+            // T-6.8, 2026-09-26: Playwright's own `headless: true` shortcut launches Chromium's
+            // stripped "headless shell" binary — real, reproduced: it never exposes `navigator.gpu`
+            // at all (`'gpu' in navigator` is `false`), on any page, regardless of GPU flags, real
+            // driver health, or device permissions (all independently confirmed fine on this
+            // machine via a real NVIDIA/Vulkan/ANGLE renderer, verified through a raw CDP
+            // `SystemInfo.getInfo` call). Real Chromium (headless via the `--headless=new` runtime
+            // flag, not the separate headless-shell binary) does expose it — the exact same
+            // distinction `eval/src/aegis_eval/runner/browser.py`'s own doc comment already found
+            // for extension-loading; this is a second, independent real-world case of the same
+            // Playwright quirk. `headless: false` here selects the full binary; the flag below is
+            // what actually keeps it headless.
+            provider: playwright({ launchOptions: { headless: false, args: ['--headless=new', '--use-gl=angle', '--use-angle=vulkan', '--enable-unsafe-webgpu'] } }),
             instances: [{ browser: 'chromium' }],
           },
         },

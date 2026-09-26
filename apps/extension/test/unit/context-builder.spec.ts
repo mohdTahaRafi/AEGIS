@@ -2,7 +2,8 @@ import { validators } from '@aegis/protocol';
 import { defaultPolicy } from '@aegis/policy';
 import { describe, expect, it } from 'vitest';
 import { verhoeffGenerate } from '@aegis/recognizers';
-import { buildSanitizedContext, type BuildContextInput } from '../../src/host/privacy/context/builder';
+import { buildSanitizedContext, collectFreeTextSources, type BuildContextInput } from '../../src/host/privacy/context/builder';
+import type { RecognizerMatch } from '@aegis/recognizers';
 import { Vault } from '../../src/host/privacy/vault';
 import type { WireScreenNode, WireTextRun } from '../../src/shared/messages';
 
@@ -501,5 +502,61 @@ describe('buildSanitizedContext — session un-redact (T-6.12, FR-36)', () => {
     });
     const value = context.nodes[0]!.value as { kind: string };
     expect(value.kind).toBe('placeholder');
+  });
+});
+
+// T-6.8: profile L's real NER runs upstream (the perception worker, async, WebGPU-only) — the
+// session collects sources via `collectFreeTextSources` and hands results back via
+// `nerMatchesByKey`, keyed identically. These tests prove that contract, not the model itself
+// (see test/unit/pii-ner.spec.ts for the model-facing offset-recovery/label-mapping tests).
+describe('collectFreeTextSources — the exact keys buildSanitizedContext itself will scan (T-6.8)', () => {
+  it('produces one entry per text run, per deduped node name, plus task and title', () => {
+    const sources = collectFreeTextSources({
+      task: 'log in',
+      pageTitle: 'Login',
+      nodes: [node('n-1', { name: 'Sign in', role: 'button', field: undefined, affordances: ['click'] })],
+      textRuns: [{ id: 't-1', box: [0, 0, 50, 10], text: 'Welcome back' }],
+    });
+    const keys = sources.map((s) => s.key);
+    expect(keys).toEqual(expect.arrayContaining(['run:t-1', 'name:n-1', 'task', 'title']));
+    expect(sources.find((s) => s.key === 'run:t-1')?.text).toBe('Welcome back');
+    expect(sources.find((s) => s.key === 'task')?.text).toBe('log in');
+  });
+
+  it('drops a node name that exactly duplicates a text run at the same box, same as the builder does', () => {
+    const sources = collectFreeTextSources({
+      task: 'log in',
+      pageTitle: 'Login',
+      nodes: [node('n-1', { name: 'Welcome back', box: [0, 0, 50, 10], role: 'button', field: undefined, affordances: ['click'] })],
+      textRuns: [{ id: 't-1', box: [0, 0, 50, 10], text: 'Welcome back' }],
+    });
+    expect(sources.some((s) => s.key === 'name:n-1')).toBe(false);
+  });
+});
+
+describe('buildSanitizedContext — nerMatchesByKey (T-6.8, profile L real spans)', () => {
+  it('a precomputed NER match on a free-text run mints a real placeholder, exactly like a Channel T match would', () => {
+    const nerMatch: RecognizerMatch = { entity: 'PERSON_NAME', start: 11, end: 23, matchedText: 'Sarah Connor', score: 0.98, source: 'ner:private_person', valid: true };
+    const context = buildCtx({
+      textRuns: [{ id: 't-1', box: [0, 0, 200, 20], text: 'Contact: Sarah Connor' }],
+      nerMatchesByKey: new Map([['run:t-1', [nerMatch]]]),
+    });
+    expect(context.text[0]!.text).toMatch(/⟪PERSON_NAME#\d+⟫/);
+    expect(context.text[0]!.text).not.toContain('Sarah Connor');
+    expect(context.redactions.some((r) => r.entity === 'PERSON_NAME')).toBe(true);
+  });
+
+  it('absent nerMatchesByKey behaves identically to before this feature existed — no NER contribution', () => {
+    const context = buildCtx({ textRuns: [{ id: 't-1', box: [0, 0, 200, 20], text: 'Contact: Sarah Connor' }] });
+    expect(context.text[0]!.text).toBe('Contact: Sarah Connor');
+    expect(context.redactions).toEqual([]);
+  });
+
+  it('a key with no matching free-text source in this call is ignored, not an error', () => {
+    const context = buildCtx({
+      textRuns: [{ id: 't-1', box: [0, 0, 200, 20], text: 'nothing sensitive here' }],
+      nerMatchesByKey: new Map([['run:does-not-exist', [{ entity: 'PERSON_NAME', start: 0, end: 4, matchedText: 'Sam', score: 0.9, source: 'ner:private_person', valid: true }]]]),
+    });
+    expect(context.text[0]!.text).toBe('nothing sensitive here');
   });
 });

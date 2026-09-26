@@ -15,6 +15,7 @@
 // action set does not have.
 
 import type { ActionPlan } from '@aegis/protocol';
+import type { RecognizerMatch } from '@aegis/recognizers';
 import type { Policy } from '@aegis/policy';
 import { defaultPolicy } from '@aegis/policy';
 import { classifyAction } from './actions/dispatch';
@@ -28,7 +29,7 @@ import type { GuardedPayload } from './egress/brand';
 import { Ledger } from './ledger/ledger';
 import type { ContentPortClient } from './port';
 import { attachImage } from './privacy/context/attach-image';
-import { buildSanitizedContext } from './privacy/context/builder';
+import { buildSanitizedContext, collectFreeTextSources } from './privacy/context/builder';
 import { GuardBlockedError, guard } from './privacy/guard/guard';
 import type { ImageRescanDeps } from './privacy/guard/image-rescan';
 import { Vault } from './privacy/vault';
@@ -327,6 +328,47 @@ export class Session {
       this.controller.send({ type: 'perceived' });
       timings.perceive = this.now() - t;
 
+      // T-6.8: NER (profile L, real now) needs an async model call in the perception worker
+      // (WebGPU-only) — `buildSanitizedContext` itself must stay synchronous (40+ existing unit
+      // tests call it that way, and every other caller expects a plain return), so this runs
+      // BEFORE it, over the exact same free-text sources it will itself scan
+      // (`collectFreeTextSources` is `builder.ts`'s own escaping/keying logic, exported precisely
+      // so this call can't drift from what the builder scans). Same fail-closed shape as the
+      // vision path: no `deps.perception` (or a dead worker) means no NER contribution this step,
+      // never a thrown error — Channel D/T are unaffected either way.
+      let nerMatchesByKey: Map<string, RecognizerMatch[]> | undefined;
+      if (this.deps.perception) {
+        const freeTextSources = collectFreeTextSources({
+          task,
+          pageTitle: this.deps.pageTitle,
+          nodes: graphMessage.nodes,
+          textRuns: graphMessage.textRuns,
+          ablation: this.deps.ablation,
+        });
+        try {
+          const nerResult = await this.deps.perception.client.ner(freeTextSources.map((s) => ({ id: s.key, text: s.text })));
+          const textByKey = new Map(freeTextSources.map((s) => [s.key, s.text]));
+          nerMatchesByKey = new Map();
+          for (const span of nerResult.spans) {
+            const text = textByKey.get(span.id);
+            if (text === undefined) continue;
+            const list = nerMatchesByKey.get(span.id) ?? [];
+            list.push({
+              entity: span.entity,
+              start: span.start,
+              end: span.end,
+              matchedText: text.slice(span.start, span.end),
+              score: span.score,
+              source: `ner:${span.entity.toLowerCase()}`,
+              valid: true,
+            });
+            nerMatchesByKey.set(span.id, list);
+          }
+        } catch {
+          nerMatchesByKey = undefined;
+        }
+      }
+
       t = this.now();
       this.controller.send({ type: 'sanitized' });
       let context = buildSanitizedContext({
@@ -349,6 +391,7 @@ export class Session {
         visionAnalyzedNodeIds: perceptionResult?.visionAnalyzedNodeIds,
         ablation: this.deps.ablation,
         unredactedRefs: this.unredactedRefs,
+        nerMatchesByKey,
       });
 
       // T-4.16/T-4.17: attach the composed image only once the final fused `redactions` are known

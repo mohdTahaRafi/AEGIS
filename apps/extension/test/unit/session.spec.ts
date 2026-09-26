@@ -345,6 +345,10 @@ describe('Session — un-redact (T-6.12, FR-36)', () => {
   });
 
   it('a subsequent step sends the same value as raw text, not a placeholder, once un-redacted', async () => {
+    // Same forward-reference pattern as `buildSession`'s own `session` above (its comment there
+    // explains why) — needed here too since `sendToGateway`'s mock closes over `session` before
+    // `buildSession()` (which constructs it) is even called.
+    // eslint-disable-next-line prefer-const
     let session!: Session;
     let stepCount = 0;
     // The un-redact call has to land BETWEEN step 1 (which mints the ref) and step 2 (which

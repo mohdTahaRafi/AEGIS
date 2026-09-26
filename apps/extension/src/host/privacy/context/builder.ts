@@ -10,20 +10,22 @@
 // whether vision found anything there — `computeUnexplained` below. `coverage.unanalysed` stays
 // 0 (phase_3_privacy_core.md §16's forward dependency): it's still an approximation from
 // nodes/runs that produced a redaction, not the real compositor's pixel-area measurement.
-// [A] NER (design.md §6.3) is not a real pretrained model in this environment — see
-// `perception/models/pii-ner.ts`'s doc comment for why, and `docs/CURRENT_BUILD.md` for the
-// disclosed gap. Channel T (deterministic recognizers) is real and is what this builder relies on
-// for the milestone demo's Aadhaar/email detections.
+// T-6.8: NER profile L (`perception/models/pii-ner.ts`) is a real model now, running in the
+// perception worker (WebGPU-only) — this function stays synchronous, so `collectFreeTextSources`
+// below lets the caller (`session.ts`) run it BEFORE calling this function and hand the results
+// back in via `nerMatchesByKey`, the same upstream-async pattern `visionCandidates` already uses.
+// Profile S still has no real model (disclosed in `pii-ner.ts`'s own doc comment) — Channel T
+// (deterministic recognizers) is real regardless and is what this builder relies on for the
+// milestone demo's Aadhaar/email detections either way.
 
 import type { SanitizedContext } from '@aegis/protocol';
-import type { RecognizerContext } from '@aegis/recognizers';
+import type { RecognizerContext, RecognizerMatch } from '@aegis/recognizers';
 import { findAll } from '@aegis/recognizers';
 import type { Policy } from '@aegis/policy';
 import { isPresenceOnly } from '@aegis/policy';
 import type { AblationArm } from '../../../shared/ablation';
 import type { WireScreenNode, WireTextRun } from '../../../shared/messages';
 import { fuse } from '../fusion';
-import { runNerStub } from '../ner-stub';
 import { escapePlaceholderDelimiters } from '../placeholders/escape';
 import { mintForRegion } from '../placeholders/mint';
 import { substitute, type SpanReplacement } from '../placeholders/substitute';
@@ -80,6 +82,16 @@ export interface BuildContextInput {
    * function trusts that gate rather than re-deriving it, since it has no ledger/audit access of
    * its own. Absent (not an empty set) behaves exactly as before this feature existed. */
   unredactedRefs?: ReadonlySet<string>;
+  /** T-6.8, profile L: NER runs a real async model in the perception worker (WebGPU-only), so it
+   * cannot happen inside this function (which must stay synchronous — every other caller, and 40+
+   * existing unit tests, call it that way). The caller collects the exact same free-text sources
+   * this builder itself would (`collectFreeTextSources`, below — same escaping, same keys),
+   * sends them through `PerceptionClient.ner()` BEFORE calling this function, and passes the
+   * result back keyed by that same `FreeTextSource.key` (`"run:<id>"`, `"name:<id>"`, `"task"`,
+   * `"title"`) — exactly the pattern `visionCandidates` already established for the vision path.
+   * Absent (not an empty map) behaves exactly as before this feature existed: no NER contribution,
+   * same as profile S (which still has no real model — see `perception/models/pii-ner.ts`). */
+  nerMatchesByKey?: ReadonlyMap<string, RecognizerMatch[]>;
 }
 
 function fieldContext(node: WireScreenNode): RecognizerContext {
@@ -115,11 +127,12 @@ function candidateFromDomSignal(node: WireScreenNode, value: string | undefined)
   };
 }
 
-/** Channel T (+ the NER stub) over a free-text run, tagged with `textRunId` + `span` so fusion's
- * span-overlap grouping (merge.ts) merges overlapping matches from different recognizers. */
-function candidatesFromTextRun(runId: string, box: [number, number, number, number], text: string): Candidate[] {
+/** Channel T + (when profile L supplied real spans upstream) Channel N over a free-text run,
+ * tagged with `textRunId` + `span` so fusion's span-overlap grouping (merge.ts) merges overlapping
+ * matches from different recognizers. `nerMatches` is precomputed by the caller — see
+ * `BuildContextInput.nerMatchesByKey`'s doc comment for why this function can't run NER itself. */
+function candidatesFromTextRun(runId: string, box: [number, number, number, number], text: string, nerMatches: RecognizerMatch[]): Candidate[] {
   const patternMatches = findAll(text);
-  const nerMatches = runNerStub(text);
   return [...patternMatches, ...nerMatches].map((m) => ({
     entity: m.entity,
     box,
@@ -297,9 +310,13 @@ function computeUnexplained(nodes: readonly { id: string; role: string; box: [nu
     }));
 }
 
-export function buildSanitizedContext(input: BuildContextInput): SanitizedContext {
-  const { vault, policy, originKey, stepId } = input;
+type FreeTextSourceInput = Pick<BuildContextInput, 'task' | 'pageTitle' | 'nodes' | 'textRuns' | 'ablation'>;
 
+/** Escaping + the exact free-text-source list `buildSanitizedContext` scans — factored out so a
+ * caller can run NER over each source (`collectFreeTextSources`, below) with byte-for-byte the
+ * same keys/text `buildSanitizedContext` will scan itself, BEFORE calling it (see
+ * `BuildContextInput.nerMatchesByKey`'s doc comment for why NER can't run inside this function). */
+function prepareFreeText(input: FreeTextSourceInput) {
   // 1. Escape forged placeholder delimiters BEFORE anything is scanned or substituted (T-3.16).
   // T-6.7 (design.md §5.5): a volatile node's text is replaced by the literal `⟪LIVE⟫` instead —
   // deliberately NOT escaped (escaping is for page-controlled text that might forge a delimiter;
@@ -325,20 +342,6 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
   // this arm's whole point is to measure what relying on the OCR/pixel channel alone looks like.
   const pixelOnly = input.ablation === 'pixel_only';
 
-  // 2. Collect candidates: Channel D (already computed content-side) + Channel T over field
-  // values and every free-text source. Volatile nodes are skipped entirely (see above).
-  const candidates: Candidate[] = [];
-  if (!pixelOnly) {
-    for (const node of escapedNodes) {
-      if (node.state.volatile) continue;
-      const domCandidate = candidateFromDomSignal(node, node.field?.value);
-      if (domCandidate) candidates.push(domCandidate);
-      if (node.field?.valueRead && node.field.value) {
-        candidates.push(...candidatesFromNodeValue(node, node.field.value));
-      }
-    }
-  }
-
   // A leaf node's accessible name frequently duplicates a text run already extracted at the same
   // box (e.g. a plain `<div>` whose only content is one text node) — detecting the identical
   // string via both sources produced two independent, never-merged SensitiveRegions for the same
@@ -356,9 +359,44 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
     { key: 'task', box: [0, 0, 0, 0] as [number, number, number, number], text: escapedTask },
     { key: 'title', box: [0, 0, 0, 0] as [number, number, number, number], text: escapedTitle },
   ];
+
+  return { escapedTask, escapedTitle, escapedNodes, escapedRuns, pixelOnly, freeTextSources };
+}
+
+/** T-6.8: the session (`session.ts`) calls this BEFORE `buildSanitizedContext`, sends each
+ * source's text through `PerceptionClient.ner()`, and passes the keyed result back in as
+ * `nerMatchesByKey`. Only sources a real page could ever run NER over are relevant here — the
+ * pixel-only ablation's own restriction is applied identically at scan time inside
+ * `buildSanitizedContext`, so this deliberately does NOT filter by it: sending a couple of extra
+ * strings to the worker for an ablation arm nobody runs in production is cheaper than duplicating
+ * that filter and risking the two drifting apart. */
+export function collectFreeTextSources(input: FreeTextSourceInput): { key: string; text: string }[] {
+  return prepareFreeText(input).freeTextSources.map((s) => ({ key: s.key, text: s.text }));
+}
+
+export function buildSanitizedContext(input: BuildContextInput): SanitizedContext {
+  const { vault, policy, originKey, stepId } = input;
+
+  const { escapedTask, escapedTitle, escapedNodes, escapedRuns, pixelOnly, freeTextSources } = prepareFreeText(input);
+
+  // 2. Collect candidates: Channel D (already computed content-side) + Channel T over field
+  // values and every free-text source. Volatile nodes are skipped entirely (see above).
+  const candidates: Candidate[] = [];
+  if (!pixelOnly) {
+    for (const node of escapedNodes) {
+      if (node.state.volatile) continue;
+      const domCandidate = candidateFromDomSignal(node, node.field?.value);
+      if (domCandidate) candidates.push(domCandidate);
+      if (node.field?.valueRead && node.field.value) {
+        candidates.push(...candidatesFromNodeValue(node, node.field.value));
+      }
+    }
+  }
+
   for (const source of freeTextSources) {
     if (pixelOnly && source.key !== 'task' && source.key !== 'title') continue;
-    candidates.push(...candidatesFromTextRun(source.key, source.box, source.text));
+    const nerMatches = input.nerMatchesByKey?.get(source.key) ?? [];
+    candidates.push(...candidatesFromTextRun(source.key, source.box, source.text, nerMatches));
   }
   if (input.visionCandidates) candidates.push(...input.visionCandidates);
 

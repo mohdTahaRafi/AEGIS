@@ -107,6 +107,17 @@ export class PerceptionClient {
     return msg as Extract<FromWorker, { t: 'rescanned' }>;
   }
 
+  /** T-6.8: `chunks` are `builder.ts`'s `collectFreeTextSources()` output, keyed the same way
+   * (`run:<id>`, `name:<id>`, `task`, `title`) so the caller can zip `nerResult.spans` straight
+   * back onto `BuildContextInput.nerMatchesByKey` before calling `buildSanitizedContext`. Profile
+   * S has no real model (see `pii-ner.ts`'s doc comment) — the worker still answers this call, it
+   * just always returns `spans: []`; the caller does not need to know which profile is active. */
+  async ner(chunks: Extract<ToWorker, { t: 'ner' }>['chunks']): Promise<Extract<FromWorker, { t: 'nerResult' }>> {
+    const jobId = nextJobId();
+    const msg = await this.request({ t: 'ner', jobId, chunks });
+    return msg as Extract<FromWorker, { t: 'nerResult' }>;
+  }
+
   terminate(): void {
     this.worker.terminate();
     this.handleTermination();
