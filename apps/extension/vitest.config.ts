@@ -24,6 +24,17 @@ export default defineConfig({
           name: 'node',
           include: ['test/unit/**/*.{test,spec}.{ts,tsx}'],
           exclude: ['test/browser/**'],
+          // manifest.spec.ts and ablation-build.spec.ts both invoke real `wxt build` calls against
+          // the same shared `.output/{chrome,firefox}-mv3` directories (T-6.9's own "build for
+          // real, inspect .output/" discipline — see ablation-build.spec.ts's doc comment). WXT
+          // wipes and recreates that directory on every build, so running these files in separate
+          // parallel workers races: one file's build-start wipe can delete the other's
+          // just-written output mid-read, producing a transient ENOENT. Real, reproduced
+          // (2026-09-26) — not a flaky test, a genuine cross-process shared-mutable-directory
+          // race, made more likely once `public/models/` grew to ~1GB (T-4.5/T-6.8) and each
+          // build's copy step takes measurably longer. Serializing this project's files removes
+          // the race entirely; the browser project (no build-invoking tests) is unaffected.
+          fileParallelism: false,
         },
       },
       {

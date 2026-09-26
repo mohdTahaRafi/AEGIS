@@ -41,11 +41,11 @@ describe('classifyProfileL — real openai/privacy-filter q4 model, real WebGPU 
     for (const m of matches) {
       expect(text.slice(m.start, m.end)).toBe(m.matchedText);
     }
-  }, 60_000);
+  }, 180_000);
 
   it('does not flag a sentence with no PII at all', async () => {
     if (!webgpuAvailable || !pipeline) return;
     const matches = await classifyProfileL(pipeline, 'The weather today is sunny with a light breeze.');
     expect(matches).toEqual([]);
-  }, 60_000);
+  }, 180_000);
 });
