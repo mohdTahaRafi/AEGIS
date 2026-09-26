@@ -49,12 +49,11 @@ jobs:
           python-version: '3.12'
 
       - name: Install gateway (with dev extras, incl. datamodel-code-generator)
-        working-directory: server/gateway
-        run: uv pip install --system -e ".[dev]"
+        run: uv sync --package aegis-gateway --extra dev
 
       - name: Test
         working-directory: server/gateway
-        run: python -m pytest -q
+        run: uv run pytest -q
 
   contract-drift:
     name: Protocol schema drift check
@@ -77,8 +76,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Install gateway (for datamodel-codegen, used by the generator)
-        working-directory: server/gateway
-        run: uv pip install --system -e ".[dev]"
+        run: uv sync --package aegis-gateway --extra dev
 
       - name: Regenerate protocol from schema
         run: pnpm gen:protocol
