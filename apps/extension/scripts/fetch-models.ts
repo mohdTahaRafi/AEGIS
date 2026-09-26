@@ -47,6 +47,19 @@ async function main() {
       console.warn(`[aegis] ${model.id}: on-disk hash mismatch, refetching`);
     }
 
+    // Some manifest entries (T-4.5/T-4.6's `vit-vision-clip-b32`/`vit-prompts-b32`) have no fixed
+    // download URL at all — their `source` field documents a *local generation* recipe
+    // (`tools/models/export_vit_vision.py` + `quantize.py` / `export_vit_prompts.py`) instead,
+    // since the artifact is derived from a checkpoint fetched through `open_clip`'s own loader,
+    // not a stable third-party host this script could `fetch()`. Skip them here rather than
+    // crash on `new URL("generated locally: ...")` — a separate step (CI or a human) must run
+    // those scripts and place the output before this one runs, and this script has no way to do
+    // that itself without a Python/torch toolchain it doesn't carry.
+    if (!/^https?:\/\//.test(model.source)) {
+      console.warn(`[aegis] ${model.id}: not fetchable (${model.source.split(':')[0]}) — skipping; see this entry's "source" field for how to produce it`);
+      continue;
+    }
+
     const url = toMediaUrl(model.source);
     console.log(`[aegis] ${model.id}: fetching ${url}`);
     const res = await fetch(url);

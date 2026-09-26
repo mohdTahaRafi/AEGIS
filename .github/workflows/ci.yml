@@ -33,6 +33,70 @@ jobs:
         working-directory: apps/extension
         run: pnpm exec playwright install --with-deps chromium
 
+      # T-4.5/T-4.6/T-6.8: the ViT vision encoder + prompt embeddings and the openai/privacy-filter
+      # NER model are real, bundled-inside-the-package artifacts (FR-13: no runtime model
+      # download) that some browser-mode tests load — but neither is a stable third-party download
+      # `fetch-models.ts` alone can verify: the ViT pair is generated locally from an `open_clip`
+      # checkpoint (`tools/models/export_vit_vision.py`/`quantize.py`/`export_vit_prompts.py`, no
+      # fixed URL — see `models.manifest.json`'s own `source` field), and Privacy Filter is ~900MB
+      # fetched straight from its own HF repo. Cached because this is ~1.5GB of network+compute
+      # that doesn't change unless the export scripts or manifest do.
+      - name: Cache generated/fetched ML models (~1GB, T-4.5/T-4.6/T-6.8)
+        id: model-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            apps/extension/public/models/vit-vision.onnx
+            apps/extension/public/models/vit-prompts.bin
+            apps/extension/public/models/privacy-filter
+            apps/extension/public/models/ort-web
+            apps/extension/public/models/transformers-web
+          key: aegis-generated-models-v1-${{ hashFiles('apps/extension/public/models/models.manifest.json', 'tools/models/export_vit_vision.py', 'tools/models/export_vit_prompts.py', 'tools/models/quantize.py') }}
+
+      - name: Fetch sha256-pinned models (face detector, OCR det/rec — real URLs only)
+        working-directory: apps/extension
+        run: pnpm exec tsx scripts/fetch-models.ts
+
+      - name: Copy bundled runtime deps for the NER worker path (ort-web, transformers-web)
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        working-directory: apps/extension
+        run: |
+          mkdir -p public/models/ort-web public/models/transformers-web
+          cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.mjs public/models/ort-web/
+          cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm public/models/ort-web/
+          cp node_modules/@huggingface/transformers/dist/transformers.web.js public/models/transformers-web/
+
+      - name: Set up Python for the CLIP export (T-4.5/T-4.6)
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Export ViT vision encoder + prompt embeddings
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        working-directory: tools/models
+        run: |
+          pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+          pip install --quiet torchvision --index-url https://download.pytorch.org/whl/cpu --upgrade
+          pip install --quiet open_clip_torch onnx onnxruntime
+          python export_vit_vision.py --model ViT-B-32-quickgelu --pretrained openai --out /tmp/vit-vision-fp32.onnx
+          python quantize.py --input /tmp/vit-vision-fp32.onnx --mode int8 --out ../../apps/extension/public/models/vit-vision.onnx
+          python export_vit_prompts.py --model ViT-B-32-quickgelu --pretrained openai --out ../../apps/extension/public/models/vit-prompts.bin
+
+      - name: Fetch Privacy Filter model (T-6.8, ~900MB from its own HF repo, no third-party mirror)
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        # `privacy-filter/` is gitignored (never committed — see .gitignore's ~950MB comment), so
+        # a fresh checkout doesn't have it; `working-directory` can't `cd` into a directory that
+        # doesn't exist yet, so this creates it first rather than relying on one.
+        run: |
+          mkdir -p apps/extension/public/models/privacy-filter/onnx
+          cd apps/extension/public/models/privacy-filter
+          curl -fsSL --retry 5 --retry-delay 3 -o config.json https://huggingface.co/openai/privacy-filter/resolve/main/config.json
+          curl -fsSL --retry 5 --retry-delay 3 -o tokenizer.json https://huggingface.co/openai/privacy-filter/resolve/main/tokenizer.json
+          curl -fsSL --retry 5 --retry-delay 3 -o tokenizer_config.json https://huggingface.co/openai/privacy-filter/resolve/main/tokenizer_config.json
+          curl -fsSL --retry 5 --retry-delay 3 -o onnx/model_q4.onnx https://huggingface.co/openai/privacy-filter/resolve/main/onnx/model_q4.onnx
+          curl -fsSL --retry 5 --retry-delay 3 -o onnx/model_q4.onnx_data https://huggingface.co/openai/privacy-filter/resolve/main/onnx/model_q4.onnx_data
+
       - name: Test
         run: pnpm -r test
 
@@ -48,9 +112,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # `setup-uv` has no `python-version` input (verified against its real action.yml) — `uv sync`
+      # already resolves and downloads the right interpreter from `pyproject.toml`'s own
+      # `requires-python = ">=3.12"`, so there's nothing to pin here.
       - uses: astral-sh/setup-uv@v3
-        with:
-          python-version: '3.12'
 
       - name: Install gateway (with dev extras, incl. datamodel-code-generator)
         run: uv sync --package aegis-gateway --extra dev
@@ -73,9 +138,8 @@ jobs:
           node-version: '22'
           cache: pnpm
 
+      # Same non-input as the `py` job above — `uv sync` resolves 3.12 from pyproject.toml itself.
       - uses: astral-sh/setup-uv@v3
-        with:
-          python-version: '3.12'
 
       - run: pnpm install --frozen-lockfile
 

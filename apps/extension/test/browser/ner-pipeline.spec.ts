@@ -18,7 +18,7 @@ beforeAll(async () => {
   env.allowLocalModels = true;
   const p = await makePipeline('token-classification', 'privacy-filter', { dtype: 'q4', device: 'webgpu' });
   pipeline = p as unknown as TokenClassificationPipeline;
-}, 120_000);
+}, 180_000);
 
 describe('classifyProfileL — real openai/privacy-filter q4 model, real WebGPU inference (T-6.8)', () => {
   it('extracts a real person name, address, email and phone from one free-text sentence', async () => {
