@@ -7,7 +7,7 @@
   "main": "src/index.ts",
   "scripts": {
     "generate": "tsx scripts/generate.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --build",
     "test": "vitest run",
     "lint": "echo 'no lint rules yet — Phase 1'"
   },

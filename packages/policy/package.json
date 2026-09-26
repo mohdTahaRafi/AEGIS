@@ -6,7 +6,7 @@
   "description": "Sensitivity classes, thresholds, operators and rehydration rules as versioned data. Phase 3.",
   "main": "src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --build",
     "test": "vitest run",
     "lint": "echo 'no lint rules yet — Phase 3'",
     "gen:validator": "tsx scripts/generate-validator.ts"
