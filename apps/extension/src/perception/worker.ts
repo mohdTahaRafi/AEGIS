@@ -8,13 +8,13 @@
 // any session is created).
 
 import * as ort from 'onnxruntime-web';
-import type { Backend, FromWorker, ToWorker } from '../shared/worker-protocol';
+import type { Backend, FromWorker, ModelLoadFailure, PerceiveDiagnostics, RegionDiagnostic, ToWorker } from '../shared/worker-protocol';
 import { selectBackend } from './runtime/backend';
 import { ModelLoadError, ModelRegistry } from './runtime/sessions';
 import { cropRegion } from './preprocess/crop';
 import { detectFaces } from './models/face';
 import { buildCtcVocabulary } from './models/ocr-rec';
-import { classifyRegion, entityForLabel, isSensitiveLabel, parsePromptEmbeddings, screenLabel, thresholdFor, type PromptLabel } from './models/vit-encoder';
+import { acceptedEntity, classifyRegion, parsePromptEmbeddings, screenLabel, type PromptLabel } from './models/vit-encoder';
 import { PriorityQueue } from './schedule/queue';
 import { runWithDeadline } from './schedule/deadline';
 import { applyCropBudget } from './schedule/budget';
@@ -39,6 +39,7 @@ let faceModelId: string | null = null;
 let ocrDetModelId: string | null = null;
 let ocrRecEnModelId: string | null = null;
 let vitModelId: string | null = null;
+let ocrLoadError: string | null = null;
 let vitPromptEmbeddings: ReadonlyMap<PromptLabel, Float32Array> | null = null;
 // T-6.8: which NER profile this session's `init` asked for — read by `getNerPipeline` below.
 // Profile L's pipeline is intentionally NOT warmed here alongside face/ViT: design.md §19's
@@ -68,7 +69,7 @@ function post(msg: FromWorker, transfer?: Transferable[]): void {
 async function handleInit(msg: Extract<ToWorker, { t: 'init' }>): Promise<void> {
   const selected = await selectBackend(msg.backendPref);
   backend = selected.backend;
-  registry = new ModelRegistry(backend);
+  registry = new ModelRegistry(selected.providerPolicy);
   registry.register(msg.models);
 
   // Resident models are warmed up at init (design.md §19) so the first real step isn't penalised
@@ -84,12 +85,20 @@ async function handleInit(msg: Extract<ToWorker, { t: 'init' }>): Promise<void> 
   nerProfile = msg.profile;
   nerPipeline = null;
   nerPipelineFailed = false;
+  ocrLoadError = null;
+  const failed: ModelLoadFailure[] = [];
+  const failure = (id: string, role: ModelLoadFailure['role'], err: unknown): ModelLoadFailure => ({
+    id,
+    role,
+    code: err instanceof ModelLoadError ? err.code : 'MODEL_LOAD_FAILED',
+    detail: err instanceof Error ? err.message : String(err),
+  });
   if (faceModelId) {
     try {
       await registry.get(faceModelId);
     } catch (err) {
+      failed.push(failure(faceModelId, 'face', err));
       faceModelId = null;
-      post({ t: 'error', code: err instanceof ModelLoadError ? err.code : 'MODEL_LOAD_FAILED', detail: err instanceof Error ? err.message : String(err) });
     }
   }
   // design.md §19: "Face detector and ViT encoder stay resident" — warmed the same way, and a
@@ -100,13 +109,13 @@ async function handleInit(msg: Extract<ToWorker, { t: 'init' }>): Promise<void> 
       await registry.get(vitModelId);
       vitPromptEmbeddings = parsePromptEmbeddings(await registry.getAsset(vitModelId));
     } catch (err) {
+      failed.push(failure(vitModelId, 'vit', err));
       vitModelId = null;
       vitPromptEmbeddings = null;
-      post({ t: 'error', code: err instanceof ModelLoadError ? err.code : 'MODEL_LOAD_FAILED', detail: err instanceof Error ? err.message : String(err) });
     }
   }
 
-  post({ t: 'ready', backend, loaded: registry.loadedInfo(), adapterInfo: selected.adapterInfo });
+  post({ t: 'ready', backend, loaded: registry.loadedInfo(), failed, adapterInfo: selected.adapterInfo, webgpuRejected: selected.webgpuRejected });
 }
 
 async function handlePerceive(msg: Extract<ToWorker, { t: 'perceive' }>): Promise<void> {
@@ -114,13 +123,20 @@ async function handlePerceive(msg: Extract<ToWorker, { t: 'perceive' }>): Promis
   // after all) must not leak — see this file's `currentCapture` doc comment.
   currentCapture = { bitmap: msg.bitmap };
 
+  const perceiveStart = performance.now();
   const timings: Record<string, number> = {};
   const timedOut: Extract<FromWorker, { t: 'perceived' }>['timedOut'] = [];
   const candidates: Extract<FromWorker, { t: 'perceived' }>['candidates'] = [];
+  const regionDiagnostics: RegionDiagnostic[] = [];
+  const inferences: PerceiveDiagnostics['inferences'] = { face: 0, vitRegion: 0, vitFullFrame: 0, ocrDet: 0, ocrRec: 0 };
+  const modelErrors: PerceiveDiagnostics['modelErrors'] = [];
 
   const cropRegions = msg.regions.filter((r) => r.kind === 'crop');
   const { admitted, dropped } = applyCropBudget(cropRegions, backend);
-  for (const d of dropped) timedOut.push(d.box);
+  for (const d of dropped) {
+    timedOut.push(d.box);
+    regionDiagnostics.push({ regionId: d.id, outcome: 'budget' });
+  }
 
   const faceSession = faceModelId && registry ? await registry.get(faceModelId).catch(() => null) : null;
   const vitSession = vitModelId && registry ? await registry.get(vitModelId).catch(() => null) : null;
@@ -129,6 +145,7 @@ async function handlePerceive(msg: Extract<ToWorker, { t: 'perceive' }>): Promis
   // be redacted. Loaded lazily, same as the halo path (design.md §6.4's degradation ladder never
   // resident-loads OCR); skipped entirely when there are no crop regions to look at.
   const ocrModels = admitted.length > 0 ? await loadOcrRescanModels() : null;
+  if (admitted.length > 0 && !ocrModels && ocrLoadError) modelErrors.push({ role: 'ocr-det', code: ocrLoadError });
 
   let faceTimeMs = 0;
   let ocrTimeMs = 0;
@@ -145,25 +162,45 @@ async function handlePerceive(msg: Extract<ToWorker, { t: 'perceive' }>): Promis
     const { completed, timedOut: regionTimedOut } = await runWithDeadline(
       queue,
       async (job) => {
+        const regionStart = performance.now();
         const crop = cropRegion(msg.bitmap, job.payload.box);
 
         const faceStart = performance.now();
         const faces = faceSession ? await detectFaces(faceSession, ort, crop, job.payload.box) : [];
+        if (faceSession) inferences.face += 1;
         faceTimeMs += performance.now() - faceStart;
 
         const ocrStart = performance.now();
-        const ocrHits = ocrModels ? await detectTextEntitiesInRegion(ort, ocrModels, crop, job.payload.id, job.payload.box) : [];
+        const ocrStats = { linesDetected: 0, linesRecognized: 0 };
+        const ocrHits = ocrModels ? await detectTextEntitiesInRegion(ort, ocrModels, crop, job.payload.id, job.payload.box, ocrStats) : [];
+        if (ocrModels) {
+          inferences.ocrDet += 1;
+          inferences.ocrRec += ocrStats.linesRecognized;
+        }
         ocrTimeMs += performance.now() - ocrStart;
 
-        // design.md §6.4's zero-shot ViT region screening (T-4.6): a sensitive top class above
-        // its threshold becomes a whole-region candidate — see `entityForLabel`'s doc comment for
-        // the label→entity mapping this design gap needed resolving.
+        // design.md §6.4's zero-shot ViT region screening (T-4.6): a sensitive entity whose pooled
+        // probability clears its threshold becomes a whole-region candidate — see
+        // `acceptedEntity`'s doc comment for why pooled rather than top-1.
         const vitStart = performance.now();
         const vitResult = vitSession ? await classifyRegion(vitSession, ort, vitPromptEmbeddings, crop) : null;
+        if (vitResult) inferences.vitRegion += 1;
         vitTimeMs += performance.now() - vitStart;
-        const vitEntity = vitResult && isSensitiveLabel(vitResult.label) && vitResult.score >= thresholdFor(vitResult.label) ? entityForLabel(vitResult.label) : null;
+        const vitEntity = vitResult ? acceptedEntity(vitResult) : null;
+        const vitAccepted = vitEntity !== null;
 
-        return { faces, ocrHits, vitEntity, vitScore: vitResult?.score };
+        const diagnostic: RegionDiagnostic = {
+          regionId: job.payload.id,
+          outcome: 'analysed',
+          ms: performance.now() - regionStart,
+          faces: faceSession ? faces.length : undefined,
+          faceTopScore: faces.length > 0 ? Math.max(...faces.map((f) => f.score)) : undefined,
+          ocrLinesDetected: ocrModels ? ocrStats.linesDetected : undefined,
+          ocrLinesRecognized: ocrModels ? ocrStats.linesRecognized : undefined,
+          ocrEntities: ocrModels ? ocrHits.map((h) => h.entity) : undefined,
+          vit: vitResult ? { label: vitResult.label, score: vitResult.score, accepted: vitAccepted, entity: vitResult.entity ?? undefined, entityScore: vitResult.entityScore } : undefined,
+        };
+        return { faces, ocrHits, vitEntity, vitScore: vitResult?.entityScore, diagnostic };
       },
       msg.deadlineMs,
     );
@@ -171,12 +208,19 @@ async function handlePerceive(msg: Extract<ToWorker, { t: 'perceive' }>): Promis
       for (const face of result.faces) candidates.push({ entity: 'FACE', box: face.box, score: face.score, regionId: job.payload.id, channel: 'vision' });
       candidates.push(...result.ocrHits);
       if (result.vitEntity) candidates.push({ entity: result.vitEntity, box: job.payload.box, score: result.vitScore!, regionId: job.payload.id, channel: 'vision' });
+      regionDiagnostics.push(result.diagnostic);
     }
-    for (const job of regionTimedOut) timedOut.push(job.payload.box);
+    for (const job of regionTimedOut) {
+      timedOut.push(job.payload.box);
+      regionDiagnostics.push({ regionId: job.payload.id, outcome: 'deadline' });
+    }
   } else {
     // No capability available — every region that would have been screened stays `timedOut`, not
     // silently cleared (the compositor's clearance rule then leaves it grey, per T-4.2's AC).
-    for (const region of admitted) timedOut.push(region.box);
+    for (const region of admitted) {
+      timedOut.push(region.box);
+      regionDiagnostics.push({ regionId: region.id, outcome: 'no-capability' });
+    }
   }
   timings.face = faceTimeMs;
   timings.ocr = ocrTimeMs;
@@ -185,16 +229,37 @@ async function handlePerceive(msg: Extract<ToWorker, { t: 'perceive' }>): Promis
   // design.md §4.3: the ViT encoder also embeds a low-res thumbnail of the full viewport on
   // EVERY capture, for the screen-state label.
   let label: Extract<FromWorker, { t: 'perceived' }>['screenLabel'];
+  let screenLabelMs = 0;
   if (msg.fullFrame) {
     const labelStart = performance.now();
     const result = await screenLabel(vitSession, ort, vitPromptEmbeddings, msg.bitmap);
-    timings.screenLabel = performance.now() - labelStart;
-    if (result) label = result;
+    screenLabelMs = performance.now() - labelStart;
+    timings.screenLabel = screenLabelMs;
+    if (result) {
+      label = result;
+      inferences.vitFullFrame += 1;
+    }
   }
+
+  const providerOf = (id: string | null) => (id && registry ? registry.providerOf(id) ?? undefined : undefined);
+  const diagnostics: PerceiveDiagnostics = {
+    backend,
+    providers: {
+      face: faceSession ? providerOf(faceModelId) : undefined,
+      vit: vitSession ? providerOf(vitModelId) : undefined,
+      ocrDet: ocrModels ? providerOf(ocrDetModelId) : undefined,
+      ocrRec: ocrModels ? providerOf(ocrRecEnModelId) : undefined,
+    },
+    available: { face: !!faceSession, vit: !!vitSession && !!vitPromptEmbeddings, ocr: !!ocrModels },
+    inferences,
+    ms: { face: faceTimeMs, vit: vitTimeMs, ocr: ocrTimeMs, screenLabel: screenLabelMs, total: performance.now() - perceiveStart },
+    regions: regionDiagnostics,
+    modelErrors,
+  };
 
   // NOT closed here — `currentCapture` still owns `msg.bitmap` until `compose` (or a superseding
   // `perceive`) closes it. See the `currentCapture` doc comment above.
-  post({ t: 'perceived', jobId: msg.jobId, candidates, screenLabel: label, timings, timedOut });
+  post({ t: 'perceived', jobId: msg.jobId, candidates, screenLabel: label, timings, timedOut, diagnostics });
 }
 
 async function handleCompose(msg: Extract<ToWorker, { t: 'compose' }>): Promise<void> {
@@ -237,8 +302,10 @@ async function loadOcrRescanModels(): Promise<OcrRescanModels | null> {
       registry.get(ocrRecEnModelId),
       registry.getDict(ocrRecEnModelId),
     ]);
+    ocrLoadError = null;
     return { detSession, recSession, vocabulary: buildCtcVocabulary(vocabDict) };
-  } catch {
+  } catch (err) {
+    ocrLoadError = err instanceof ModelLoadError ? err.code : 'MODEL_LOAD_FAILED';
     return null;
   }
 }

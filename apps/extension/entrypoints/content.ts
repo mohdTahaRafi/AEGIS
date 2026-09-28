@@ -8,6 +8,20 @@ export default defineContentScript({
   allFrames: true,
   runAt: 'document_idle',
   main() {
+    // The host may also inject this file programmatically (src/host/content-connection.ts) into a
+    // tab whose declared copy is missing or orphaned — and the declared copy can still arrive
+    // afterwards (document_idle). Only one live instance may answer the port, or every host
+    // request gets two replies. An orphaned instance from a reloaded extension does not count:
+    // its `runtime.id` reads undefined once its extension context is gone.
+    const scope = globalThis as { __aegisContentLive?: () => boolean };
+    if (scope.__aegisContentLive?.()) return;
+    scope.__aegisContentLive = () => {
+      try {
+        return browser.runtime?.id !== undefined;
+      } catch {
+        return false;
+      }
+    };
     bootContentScript({
       isTopFrame: window === window.top,
       onConnect: (listener) => browser.runtime.onConnect.addListener(listener),

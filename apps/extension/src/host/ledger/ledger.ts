@@ -3,6 +3,7 @@
 
 import type { SanitizedContext } from '@aegis/protocol';
 import type { StepStageTimings } from '../session';
+import type { PerceptionStepStatus } from '../perception-client/run-step';
 
 export type GuardVerdict = { ok: true } | { ok: false; rule: string; entity?: string };
 
@@ -15,11 +16,10 @@ export interface LedgerEntry {
   entityCountsByClass: Record<string, number>;
   entityCountsByChannel: Record<string, number>;
   coverage: SanitizedContext['coverage'];
-  /** phase_4_vision.md T-4.19/T-4.23 — absent on a step that never captured a frame (the common
-   * L0 case); present whenever the perception worker actually ran this step, so AC-3's "latency
-   * reported for both paths" and the panel's resource bar have real per-step backend/model data
-   * rather than a single session-wide guess. */
-  perception?: { backend: 'webgpu' | 'wasm'; modelsLoadedMB: number; screenLabel?: { label: string; score: number } };
+  /** phase_4_vision.md T-4.19/T-4.23 — this step's perception outcome: why it was or wasn't
+   * captured, and (when the worker ran) its real per-model inference counts, timings and backend.
+   * Absent only when the session has no perception path at all. */
+  perception?: { status: PerceptionStepStatus; screenLabel?: { label: string; score: number } };
 }
 
 /** T-6.12 (FR-36, design.md §7.1 step 9): a user session un-redact action, the only de-escalation

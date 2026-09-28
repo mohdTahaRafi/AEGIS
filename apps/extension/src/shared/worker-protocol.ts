@@ -42,6 +42,10 @@ export interface ModelInfo {
   role: ModelSpec['role'];
   loadMs: number;
   bytes: number;
+  /** Where this model's session actually runs. */
+  provider: Backend;
+  /** Load-time probe medians (ms), present only when both providers were measured. */
+  probeMs?: { wasm?: number; webgpu?: number };
 }
 
 export interface RegionJob {
@@ -70,6 +74,45 @@ export interface Candidate {
    * real vault placeholder for it exactly as it does for DOM-sourced text (`Candidate.value`,
    * `host/privacy/types.ts`). */
   value?: string;
+}
+
+/** Per-region outcome of one `perceive` call — counts, fixed-vocabulary labels and entity types
+ * only, never decoded OCR text or pixels (the closed-vocabulary logging rule). */
+export interface RegionDiagnostic {
+  regionId: string;
+  /** `budget`: dropped by the per-frame crop budget before any model ran. `deadline`: still queued
+   * when the step deadline passed. `no-capability`: no model was available at all. */
+  outcome: 'analysed' | 'budget' | 'deadline' | 'no-capability';
+  ms?: number;
+  faces?: number;
+  faceTopScore?: number;
+  ocrLinesDetected?: number;
+  ocrLinesRecognized?: number;
+  ocrEntities?: EntityType[];
+  /** `label`/`score`: CLIP top-1. `entity`/`entityScore`: the best sensitive entity's pooled
+   * probability, which is what `accepted` is decided on. */
+  vit?: { label: string; score: number; accepted: boolean; entity?: 'ID_DOCUMENT' | 'SIGNATURE' | 'QR_CODE'; entityScore?: number };
+}
+
+/** Real counters from the worker's own model calls — each field is incremented only where a
+ * model session actually returned, so a zero means the model genuinely did not run. */
+export interface PerceiveDiagnostics {
+  backend: Backend;
+  /** Provider each model actually ran on this call (per-model when WebGPU is accepted). */
+  providers: { face?: Backend; vit?: Backend; ocrDet?: Backend; ocrRec?: Backend };
+  available: { face: boolean; vit: boolean; ocr: boolean };
+  inferences: { face: number; vitRegion: number; vitFullFrame: number; ocrDet: number; ocrRec: number };
+  ms: { face: number; vit: number; ocr: number; screenLabel: number; total: number };
+  regions: RegionDiagnostic[];
+  /** Load failures observed during this call (OCR loads lazily here, not at `init`). */
+  modelErrors: { role: ModelSpec['role']; code: string }[];
+}
+
+export interface ModelLoadFailure {
+  id: string;
+  role: ModelSpec['role'];
+  code: string;
+  detail?: string;
 }
 
 export interface Coverage {
@@ -113,8 +156,12 @@ export type FromWorker =
   // adapter info"), which only the worker can observe (only a Worker/window context can call
   // `navigator.gpu.requestAdapter()`, and the design keeps the probe itself worker-side per
   // T-4.1's spike heritage).
-  | { t: 'ready'; backend: Backend; loaded: ModelInfo[]; adapterInfo?: AdapterInfo }
-  | { t: 'perceived'; jobId: string; candidates: Candidate[]; screenLabel?: { label: string; score: number }; timings: Record<string, number>; timedOut: Box[] }
+  // `failed`: resident models that did not load — reported here rather than as a jobless `error`,
+  // which `PerceptionClient.init` used to treat as a total init failure even though the worker
+  // still posted `ready` and kept serving every model that did load.
+  // `webgpuRejected`: a WebGPU adapter existed but was refused as CPU-emulated (the reason).
+  | { t: 'ready'; backend: Backend; loaded: ModelInfo[]; failed: ModelLoadFailure[]; adapterInfo?: AdapterInfo; webgpuRejected?: string }
+  | { t: 'perceived'; jobId: string; candidates: Candidate[]; screenLabel?: { label: string; score: number }; timings: Record<string, number>; timedOut: Box[]; diagnostics: PerceiveDiagnostics }
   | { t: 'nerResult'; jobId: string; spans: { id: string; start: number; end: number; entity: EntityType; score: number }[] }
   | { t: 'composed'; jobId: string; webp: ArrayBuffer; coverage: Coverage }
   | { t: 'rescanned'; jobId: string; hits: Candidate[] }

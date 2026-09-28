@@ -5,6 +5,7 @@ export * from './checksums/luhn';
 export * from './checksums/gstin';
 export * from './context/lexicons';
 export * from './context/boost';
+export * from './context/field-labels';
 export * from './registry';
 
 export { aadhaarRecognizer } from './patterns/aadhaar';

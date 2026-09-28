@@ -18,10 +18,13 @@
 // tensors built to the documented output contract, and a real-Chromium test confirms the full
 // preprocess→inference→decode pipeline runs end-to-end against the bundled model without throwing.
 // Real-photo validation is a disclosed follow-up, not silently assumed to pass.
+// [2026-09-28] That follow-up found a real defect: the input was fed as [0,1] RGB, so no real face
+// ever reached the score floor — see `toYunetInput`. Now validated against real photographs in
+// `test/browser/face-pipeline.spec.ts`.
 
 import type * as ort from 'onnxruntime-web';
 import type { Box } from '../../shared/worker-protocol';
-import { letterbox, toCHWFloat32, unletterboxPoint } from '../preprocess/letterbox';
+import { letterbox, unletterboxPoint } from '../preprocess/letterbox';
 
 const INPUT_SIZE = 640;
 const STRIDES = [8, 16, 32] as const;
@@ -102,6 +105,24 @@ export function decodeYunetOutputs(outputs: readonly StrideOutputs[]): FaceDetec
   return nms(dets, NMS_IOU_THRESHOLD);
 }
 
+/** YuNet's input contract is OpenCV's `FaceDetectorYN`: `cv::dnn::blobFromImage` with no scaling
+ * and no channel swap — BGR planes in raw [0,255]. Feeding [0,1] RGB (the ViT's convention) left
+ * every real face below the 0.5 score floor: a portrait scored 0.054 instead of 0.908, measured
+ * with this exact bundled model. */
+export function toYunetInput(canvas: OffscreenCanvas): Float32Array {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('OffscreenCanvas 2D context unavailable');
+  const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const plane = width * height;
+  const out = new Float32Array(3 * plane);
+  for (let i = 0; i < plane; i++) {
+    out[i] = data[i * 4 + 2]!; // B
+    out[plane + i] = data[i * 4 + 1]!; // G
+    out[2 * plane + i] = data[i * 4]!; // R
+  }
+  return out;
+}
+
 function expandBox([x, y, w, h]: Box, fraction: number): Box {
   const dx = (w * fraction) / 2;
   const dy = (h * fraction) / 2;
@@ -112,7 +133,7 @@ function expandBox([x, y, w, h]: Box, fraction: number): Box {
  * coordinates by the caller) and returns detections in source coordinates, boxes pre-expanded 10%. */
 export async function detectFaces(session: ort.InferenceSession, ort_: typeof ort, crop: ImageBitmap | OffscreenCanvas, sourceBox: Box): Promise<FaceDetection[]> {
   const lb = letterbox(crop, INPUT_SIZE);
-  const tensor = new ort_.Tensor('float32', toCHWFloat32(lb.canvas), [1, 3, INPUT_SIZE, INPUT_SIZE]);
+  const tensor = new ort_.Tensor('float32', toYunetInput(lb.canvas), [1, 3, INPUT_SIZE, INPUT_SIZE]);
   const inputName = session.inputNames[0];
   if (!inputName) throw new Error('face model exposes no input names');
   const results = await session.run({ [inputName]: tensor });

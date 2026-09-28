@@ -38,11 +38,19 @@ export const PROMPT_VOCABULARY = [
   'logo',
   'icon',
   'plain background',
+  // 2026-09-28: "everything else" labels. Never sensitive — they exist so an ordinary photo has a
+  // correct place to put its probability mass instead of being forced onto a sensitive label.
+  'landscape or scene',
+  'painting or illustration',
+  'everyday object, food or animal',
+  'map',
+  'website screenshot',
 ] as const;
 
 export type PromptLabel = (typeof PROMPT_VOCABULARY)[number];
 
-/** design.md §6.4: "Sensitive top class above threshold (0.35 for ID/card, 0.45 otherwise)." */
+/** design.md §6.4: "Sensitive top class above threshold (0.35 for ID/card, 0.45 otherwise)." Per
+ * label; the region decision itself uses the pooled `entityThreshold`/`acceptedEntity` below. */
 const SENSITIVE_LABELS = new Set<PromptLabel>(['identity card', 'Aadhaar card', 'PAN card', 'passport page', 'credit or debit card', 'handwritten signature', 'QR code', 'barcode']);
 
 export function thresholdFor(label: PromptLabel): number {
@@ -61,7 +69,7 @@ export function isSensitiveLabel(label: PromptLabel): boolean {
  * the digit/alphanumeric-string case), `handwritten signature` maps to `SIGNATURE`, and `QR code`/
  * `barcode` both map to `QR_CODE` (no separate `BARCODE` entity exists in the closed enum).
  * `photo of a person` is deliberately absent — the real YuNet face detector already owns FACE. */
-export function entityForLabel(label: PromptLabel): 'ID_DOCUMENT' | 'SIGNATURE' | 'QR_CODE' | null {
+export function entityForLabel(label: PromptLabel): VisionEntity | null {
   switch (label) {
     case 'identity card':
     case 'Aadhaar card':
@@ -79,15 +87,42 @@ export function entityForLabel(label: PromptLabel): 'ID_DOCUMENT' | 'SIGNATURE' 
   }
 }
 
+export type VisionEntity = 'ID_DOCUMENT' | 'SIGNATURE' | 'QR_CODE';
+
 export interface RegionClassification {
+  /** Top-1 label and its softmax probability — what the diagnostics display. */
   label: PromptLabel;
   score: number;
+  /** The sensitive entity with the highest pooled probability (sum over every label mapping to it
+   * — e.g. "Aadhaar card" + "identity card" + "passport page" all count toward ID_DOCUMENT), and
+   * that pooled probability. `null` only when no sensitive label exists in the prompt set. */
+  entity: VisionEntity | null;
+  entityScore: number;
+}
+
+/** CLIP ViT-B/32's own trained logit scale is exp(4.6052) = 100, i.e. temperature 0.01 — the value
+ * its image/text embeddings were contrastively trained against. The previous 0.07 (CLIP's
+ * *initial* temperature before training) flattened the softmax so far that nothing ever cleared
+ * the thresholds below: 0/69 real sensitive images accepted in the 2026-09-28 evaluation (see
+ * `tools/models/export_vit_prompts.py`'s PROMPT_ENSEMBLES comment and docs/HISTORY.md). */
+export const CLIP_TEMPERATURE = 0.01;
+
+/** Pooled per-entity acceptance: sub-labels of one entity split its probability between them (an
+ * Aadhaar sample scores on "Aadhaar card", "identity card" and "PAN card" at once), so taking only
+ * the top-1 label under-counts exactly the images that most clearly are an ID document. */
+export function acceptedEntity(result: RegionClassification): VisionEntity | null {
+  return result.entity !== null && result.entityScore >= entityThreshold(result.entity) ? result.entity : null;
+}
+
+/** design.md §6.4's thresholds (0.35 for ID/card, 0.45 otherwise), applied to the pooled score. */
+export function entityThreshold(entity: VisionEntity): number {
+  return entity === 'ID_DOCUMENT' ? 0.35 : 0.45;
 }
 
 /** design.md §6.4's cosine-similarity + temperature-softmax rule, factored out so it is testable
  * independent of whether a real encoder ever produces `embedding`/`promptEmbeddings`. */
-export function classifyByCosine(embedding: Float32Array, promptEmbeddings: ReadonlyMap<PromptLabel, Float32Array>, temperature = 0.07): RegionClassification {
-  const sims = new Map<PromptLabel, number>();
+export function classifyByCosine(embedding: Float32Array, promptEmbeddings: ReadonlyMap<PromptLabel, Float32Array>, temperature = CLIP_TEMPERATURE): RegionClassification {
+  const sims: [PromptLabel, number][] = [];
   for (const [label, vec] of promptEmbeddings) {
     let dot = 0;
     let normA = 0;
@@ -97,13 +132,29 @@ export function classifyByCosine(embedding: Float32Array, promptEmbeddings: Read
       normA += embedding[i]! ** 2;
       normB += vec[i]! ** 2;
     }
-    sims.set(label, dot / (Math.sqrt(normA) * Math.sqrt(normB) || 1));
+    sims.push([label, dot / (Math.sqrt(normA) * Math.sqrt(normB) || 1)]);
   }
-  const exps = [...sims.entries()].map(([label, s]) => [label, Math.exp(s / temperature)] as const);
+  // Standard max-shift for a numerically stable softmax (at temperature 0.01 the exponents are 100x
+  // the cosines).
+  const maxSim = Math.max(...sims.map(([, s]) => s));
+  const exps = sims.map(([label, s]) => [label, Math.exp((s - maxSim) / temperature)] as const);
   const sum = exps.reduce((a, [, v]) => a + v, 0);
   const softmax = exps.map(([label, v]) => [label, v / sum] as const);
   const [topLabel, topScore] = softmax.reduce((best, cur) => (cur[1] > best[1] ? cur : best));
-  return { label: topLabel, score: topScore };
+  const pooled = new Map<VisionEntity, number>();
+  for (const [label, p] of softmax) {
+    const entity = entityForLabel(label);
+    if (entity) pooled.set(entity, (pooled.get(entity) ?? 0) + p);
+  }
+  let entity: VisionEntity | null = null;
+  let entityScore = 0;
+  for (const [e, p] of pooled) {
+    if (p > entityScore) {
+      entity = e;
+      entityScore = p;
+    }
+  }
+  return { label: topLabel, score: topScore, entity, entityScore };
 }
 
 const CLIP_INPUT_SIZE = 224;
@@ -201,5 +252,5 @@ export async function screenLabel(
   frame: ImageBitmap | OffscreenCanvas,
 ): Promise<{ label: string; score: number } | null> {
   const result = await classifyRegion(session, ort_, promptEmbeddings, frame);
-  return result;
+  return result ? { label: result.label, score: result.score } : null;
 }

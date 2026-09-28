@@ -27,6 +27,7 @@ def create_session(
     return SessionCreated(
         session_id=session.session_id,
         model=session.model,
+        mode=settings.mode,
         limits=Limits(max_steps=max_steps, max_image_px=MAX_IMAGE_PX),
     )
 

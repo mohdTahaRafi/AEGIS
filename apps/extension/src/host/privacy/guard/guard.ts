@@ -9,7 +9,7 @@ import type { Policy } from '@aegis/policy';
 import { brand, type GuardedPayload } from '../../egress/brand';
 import type { Vault } from '../vault';
 import type { Box } from '../types';
-import { patternResweep, vaultLeakSweep } from './sweeps';
+import { patternResweep, payloadTextLeaves, vaultLeakSweep } from './sweeps';
 import { runImageRescan, type ImageRescanDeps } from './image-rescan';
 import { checkForCanaries } from './canary';
 
@@ -111,12 +111,14 @@ export async function guard(payload: SanitizedContext, policy: Policy, vault: Va
 
   const bytes = canonicalBytes(payload);
 
-  const leak = vaultLeakSweep(vault, bytes);
+  const { image: _image, ...textPayload } = payload;
+  const textLeaves = payloadTextLeaves(textPayload);
+  const leak = vaultLeakSweep(vault, bytes, textLeaves);
   if (leak) {
     throw new GuardBlockedError('VAULT_LEAK');
   }
 
-  const pattern = patternResweep(policy, bytes);
+  const pattern = patternResweep(policy, bytes, textLeaves);
   if (pattern) {
     throw new GuardBlockedError('PATTERN', pattern.entity);
   }

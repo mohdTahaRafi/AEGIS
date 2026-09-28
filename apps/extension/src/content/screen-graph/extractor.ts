@@ -3,6 +3,7 @@
 
 import { computeAccessibleName } from './accname';
 import { classifyChannelD, type ChannelDSignal } from '../detect/channel-d';
+import { classifyFieldSemantics, type FieldSemantics } from '../detect/field-semantics';
 import { classifyProtected } from '../detect/protected';
 import { isCaptchaElement } from '../detect/captcha';
 import { boxFromRect, readBoxesInOnePass, type Box } from './geometry';
@@ -134,9 +135,9 @@ function isMaskedCss(el: Element): boolean {
  * downstream that a refactor could bypass, because the string is never bound to a variable here
  * in the first place.
  */
-function computeField(el: Element): RawScreenNodeField | undefined {
+function computeField(el: Element, semantics: FieldSemantics | undefined): RawScreenNodeField | undefined {
   if (el instanceof HTMLInputElement) {
-    const protectedClass = classifyProtected(el);
+    const protectedClass = classifyProtected(el, semantics);
     const autocomplete = el.getAttribute('autocomplete') ?? undefined;
     const inputmode = el.getAttribute('inputmode') ?? undefined;
     const maskedCss = isMaskedCss(el);
@@ -146,7 +147,7 @@ function computeField(el: Element): RawScreenNodeField | undefined {
     return { inputType: el.type, autocomplete, inputmode, maskedCss, valueRead: true, value: el.value };
   }
   if (el instanceof HTMLTextAreaElement) {
-    const protectedClass = classifyProtected(el);
+    const protectedClass = classifyProtected(el, semantics);
     const autocomplete = el.getAttribute('autocomplete') ?? undefined;
     if (protectedClass) {
       return { inputType: 'textarea', autocomplete, maskedCss: false, valueRead: false };
@@ -215,6 +216,9 @@ export function extractScreenGraph(
   const nodes: RawScreenNode[] = pending.map((p) => {
     const id = identity.resolveId(p.el, p.key);
     elements.set(id, p.el);
+    // Computed once per field and shared: `computeField`'s protected-value decision and Channel D
+    // must agree on what the field is.
+    const semantics = classifyFieldSemantics(p.el);
     return {
       id,
       key: p.key,
@@ -225,14 +229,14 @@ export function extractScreenGraph(
       z: computeStackingRank(p.el, p.box),
       state: computeState(p.el, p.occluded, isVolatile),
       affordances: computeAffordances(p.el, p.role),
-      field: computeField(p.el),
+      field: computeField(p.el, semantics),
       container: containerResolver.resolve(p.el),
       textRuns: [],
       // T-6.13 (FR-8): `classifyChannelD` only ever looks at form fields (a CAPTCHA widget is a
       // plain div/iframe, never one), so a real widget falls through to this check — a non-form
       // Channel D signal with no "value" to read, the same `presence`-only shape PASSWORD/OTP
       // already use for the identical reason (nothing to mint, only something to flag).
-      domSignal: classifyChannelD(p.el, p.name) ?? (isCaptchaElement(p.el) ? { entity: 'CAPTCHA', score: 1.0, valueRead: false } : undefined),
+      domSignal: classifyChannelD(p.el, semantics) ?? (isCaptchaElement(p.el) ? { entity: 'CAPTCHA', score: 1.0, valueRead: false } : undefined),
       tagName: p.el.tagName,
     };
   });

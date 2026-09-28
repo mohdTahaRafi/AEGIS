@@ -12,7 +12,8 @@
 import { describe, expect, it } from 'vitest';
 import * as ort from 'onnxruntime-web';
 import qrCodeUrl from '../fixtures/qr-code-sample.png?url';
-import { classifyRegion, entityForLabel, isSensitiveLabel, parsePromptEmbeddings, thresholdFor } from '../../src/perception/models/vit-encoder';
+import { acceptedEntity, classifyRegion, entityForLabel, isSensitiveLabel, parsePromptEmbeddings } from '../../src/perception/models/vit-encoder';
+import einsteinUrl from '../fixtures/real-face-einstein-1947-pd.jpg?url';
 
 async function loadBitmapFromUrl(url: string): Promise<ImageBitmap> {
   const res = await fetch(url);
@@ -41,17 +42,11 @@ describe('classifyRegion — real model pipeline accuracy (T-4.5/T-4.6)', () => 
     expect(result!.label).toBe('QR code');
     expect(isSensitiveLabel(result!.label)).toBe(true);
     expect(entityForLabel(result!.label)).toBe('QR_CODE');
-    // Found by running this test, not assumed: a clean, synthetic 300×300 QR code (no page
-    // context, no surrounding UI) scores ~0.21 against the 15-way softmax here — correctly
-    // ranked top-1, but below design.md §6.4's own initial threshold guess (0.45) for
-    // QR/barcode/signature. Sixteen-class zero-shot softmax naturally produces lower absolute
-    // confidence than a binary classifier would; design.md's threshold was a stated *initial*
-    // number, not one measured against this real encoder — this is exactly the kind of number
-    // T-6.10-style bake-off work would tune, not something to force-pass here. Recorded honestly
-    // rather than asserted past: CLAUDE.md's "measure, do not assert" rule applies to test
-    // assertions as much as to reported metrics.
-    expect(result!.score).toBeGreaterThan(0);
-    expect(result!.score).toBeLessThan(thresholdFor(result!.label));
+    // Until 2026-09-28 this scored ~0.21 — below its 0.45 threshold, so a real QR code was never
+    // redacted by CLIP. Cause: temperature 0.07 instead of CLIP's trained 0.01, and a single
+    // "a photo of a {label}" template (see vit-encoder.ts's CLIP_TEMPERATURE / docs/HISTORY.md).
+    expect(acceptedEntity(result!)).toBe('QR_CODE');
+    expect(result!.entityScore).toBeGreaterThanOrEqual(0.45);
 
     await session.release();
   });
@@ -69,6 +64,15 @@ describe('classifyRegion — real model pipeline accuracy (T-4.5/T-4.6)', () => 
     expect(isSensitiveLabel(result!.label)).toBe(false);
     expect(entityForLabel(result!.label)).toBeNull();
 
+    await session.release();
+  });
+
+  it('a real portrait photo is not taken for an ID document, QR code or signature (YuNet owns faces)', async () => {
+    const session = await ort.InferenceSession.create('/models/vit-vision.onnx', { executionProviders: ['wasm'] });
+    const promptEmbeddings = parsePromptEmbeddings(await (await fetch('/models/vit-prompts.bin')).arrayBuffer());
+    const result = await classifyRegion(session, ort, promptEmbeddings, await loadBitmapFromUrl(einsteinUrl));
+    expect(result).not.toBeNull();
+    expect(acceptedEntity(result!)).toBeNull();
     await session.release();
   });
 

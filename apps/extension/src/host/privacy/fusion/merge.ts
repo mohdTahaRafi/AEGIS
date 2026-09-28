@@ -65,6 +65,22 @@ export function groupByOverlap(candidates: readonly ArbitratedCandidate[]): Cand
   return groups;
 }
 
+/** A field's own semantics (Channel D) name its entity; value-derived candidates on the same node
+ * may only choose among the entities those semantics already offer ("Email / Mobile" + a phone-
+ * shaped value → PHONE). A value that looks like something else entirely (an email typed into a
+ * "Username" field) stays the field's type — it still raises the group's class, since step 9 lets
+ * any channel escalate. */
+function semanticEntity(group: CandidateGroup): ArbitratedCandidate | undefined {
+  const semantic = group.members.filter((m) => m.channel === 'dom');
+  if (semantic.length === 0) return undefined;
+  const offered = new Set(semantic.map((m) => m.entity));
+  const confirmed = group.members
+    .filter((m) => m.channel !== 'dom' && offered.has(m.entity))
+    .sort((a, b) => b.score - a.score)[0];
+  if (confirmed) return semantic.find((m) => m.entity === confirmed.entity);
+  return [...semantic].sort((a, b) => (a.semanticRank ?? 0) - (b.semanticRank ?? 0) || b.score - a.score)[0];
+}
+
 export function mergedEntityAndClass(group: CandidateGroup): { entity: string; entities: string[]; class: Sensitivity; score: number } {
   let best = group.members[0]!;
   const entities = new Set<string>();
@@ -78,5 +94,5 @@ export function mergedEntityAndClass(group: CandidateGroup): { entity: string; e
       best = m;
     }
   }
-  return { entity: best.entity, entities: [...entities], class: cls, score };
+  return { entity: (semanticEntity(group) ?? best).entity, entities: [...entities], class: cls, score };
 }

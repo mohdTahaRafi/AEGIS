@@ -26,15 +26,31 @@ function fromAriaLabel(el: Element): string {
   return collapseWhitespace(el.getAttribute('aria-label') ?? '');
 }
 
+// A <textarea>'s text content is its prefilled value and a <select>'s is every option, so label
+// text must skip nested controls or the name would carry the value itself.
+const CONTROL_CONTENT_TAGS = new Set(['TEXTAREA', 'SELECT', 'OPTION', 'SCRIPT', 'STYLE']);
+
+function labelText(label: Element): string {
+  const out: string[] = [];
+  const walk = (node: Node) => {
+    for (const child of Array.from(node.childNodes)) {
+      if (child.nodeType === child.TEXT_NODE) out.push(child.textContent ?? '');
+      else if (child.nodeType === child.ELEMENT_NODE && !CONTROL_CONTENT_TAGS.has((child as Element).tagName)) walk(child);
+    }
+  };
+  walk(label);
+  return collapseWhitespace(out.join(' '));
+}
+
 function fromAssociatedLabel(el: Element): string {
   if (el.id) {
     const root = el.getRootNode() as Document | ShadowRoot;
     const labels = root.querySelectorAll ? Array.from(root.querySelectorAll('label')) : [];
     const forLabel = labels.find((l) => (l as HTMLLabelElement).htmlFor === el.id);
-    if (forLabel) return collapseWhitespace(forLabel.textContent ?? '');
+    if (forLabel) return labelText(forLabel);
   }
   const wrapping = el.closest('label');
-  if (wrapping) return collapseWhitespace(wrapping.textContent ?? '');
+  if (wrapping) return labelText(wrapping);
   return '';
 }
 
@@ -66,6 +82,7 @@ function collectText(el: Element, depth: number, out: string[]): void {
 }
 
 function fromTextContent(el: Element): string {
+  if (CONTROL_CONTENT_TAGS.has(el.tagName)) return '';
   const out: string[] = [];
   collectText(el, 0, out);
   const joined = collapseWhitespace(out.join(' '));

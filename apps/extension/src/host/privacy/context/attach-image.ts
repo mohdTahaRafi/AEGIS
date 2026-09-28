@@ -36,8 +36,22 @@ function toRegionInput(context: SanitizedContext): { entity: string; boxes: Box[
   return context.redactions.map((r) => ({ entity: r.entity, boxes: r.boxes as Box[], placeholder: r.ref ?? null }));
 }
 
+type BoxLike = readonly [number, number, number, number];
+
+function intersects([ax, ay, aw, ah]: BoxLike, [bx, by, bw, bh]: BoxLike): boolean {
+  return ax < bx + bw && bx < ax + aw && ay < by + bh && by < ay + ah;
+}
+
+/** Clearance rule 1's `hasUnanalysedImageContent`: the payload carries no DOM hierarchy, so
+ * "contains" is approximated by box overlap — conservative, since an overlapping text box is
+ * disqualified too. Without this, a clean-text container (article body, `<figure>`) was cleared and
+ * the compositor copied in the pixels of an image nested inside it that vision never screened —
+ * observed sending an unanalysed QR code on a real Wikipedia page once only one crop fit the
+ * step deadline. */
 function toClearanceCandidates(context: SanitizedContext, visionAnalyzedNodeIds: ReadonlySet<string>, nodeRequiresVision: (node: SanitizedNode) => boolean): ClearanceCandidate[] {
   const candidates: ClearanceCandidate[] = [];
+  const unanalysedImageBoxes = context.nodes.filter((n) => nodeRequiresVision(n) && !visionAnalyzedNodeIds.has(n.id)).map((n) => n.box as BoxLike);
+  const overlapsUnanalysedImage = (box: BoxLike) => unanalysedImageBoxes.some((b) => intersects(box, b));
   for (const node of context.nodes) {
     const requiresVision = nodeRequiresVision(node);
     const hadFinding = nodeHasRedaction(node);
@@ -46,11 +60,12 @@ function toClearanceCandidates(context: SanitizedContext, visionAnalyzedNodeIds:
       kind: requiresVision ? 'vision-region' : 'structural-text',
       fullyAnalysed: requiresVision ? visionAnalyzedNodeIds.has(node.id) : true,
       hadAcceptedFinding: hadFinding,
+      hasUnanalysedImageContent: !requiresVision && overlapsUnanalysedImage(node.box as BoxLike),
     });
   }
   for (const run of context.text) {
     const hadFinding = context.redactions.some((r) => r.boxes.some((b) => b[0] === run.box[0] && b[1] === run.box[1]));
-    candidates.push({ box: run.box as Box, kind: 'structural-text', fullyAnalysed: true, hadAcceptedFinding: hadFinding });
+    candidates.push({ box: run.box as Box, kind: 'structural-text', fullyAnalysed: true, hadAcceptedFinding: hadFinding, hasUnanalysedImageContent: overlapsUnanalysedImage(run.box as BoxLike) });
   }
   return candidates;
 }

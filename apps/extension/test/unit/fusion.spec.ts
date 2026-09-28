@@ -100,3 +100,39 @@ describe('expandToToken (T-3.13)', () => {
     expect(expandToToken(text, [0, 5])).toEqual([0, 5]);
   });
 });
+
+describe('fuse — semantic-first entity choice (field semantics outrank value format)', () => {
+  const box: Candidate['box'] = [0, 0, 10, 10];
+
+  it('a Username field holding an email-shaped value stays USERNAME, at the escalated class', () => {
+    const regions = fuse(defaultPolicy, [
+      { entity: 'USERNAME', box, score: 0.92, channel: 'dom', source: 'dom:username', nodeId: 'n-1', value: 'person@example.com', semanticRank: 0 },
+      { entity: 'EMAIL', box, score: 0.95, channel: 'text-dom', source: 'pattern:email', nodeId: 'n-1', value: 'person@example.com' },
+    ]);
+    expect(regions).toHaveLength(1);
+    expect(regions[0]!.entity).toBe('USERNAME');
+    expect(regions[0]!.class).toBe('HIGH');
+  });
+
+  it('a value recognizer picks among the label’s own alternatives ("Email / Mobile" + phone value → PHONE)', () => {
+    const regions = fuse(defaultPolicy, [
+      { entity: 'EMAIL', box, score: 0.92, channel: 'dom', source: 'dom:email', nodeId: 'n-1', value: '9876543210', semanticRank: 0 },
+      { entity: 'PHONE', box, score: 0.92, channel: 'dom', source: 'dom:phone', nodeId: 'n-1', value: '9876543210', semanticRank: 1 },
+      { entity: 'PHONE', box, score: 0.8, channel: 'text-dom', source: 'pattern:phone-in', nodeId: 'n-1', value: '9876543210' },
+    ]);
+    expect(regions[0]!.entity).toBe('PHONE');
+  });
+
+  it('with no value support, the primary semantic type wins ("Email / Mobile" + "abc" → EMAIL)', () => {
+    const regions = fuse(defaultPolicy, [
+      { entity: 'EMAIL', box, score: 0.92, channel: 'dom', source: 'dom:email', nodeId: 'n-1', value: 'abc', semanticRank: 0 },
+      { entity: 'PHONE', box, score: 0.92, channel: 'dom', source: 'dom:phone', nodeId: 'n-1', value: 'abc', semanticRank: 1 },
+    ]);
+    expect(regions[0]!.entity).toBe('EMAIL');
+  });
+
+  it('with no semantic candidate at all, value recognizers still decide (unlabelled search box + Aadhaar)', () => {
+    const regions = fuse(defaultPolicy, [{ entity: 'AADHAAR', box, score: 0.95, channel: 'text-dom', source: 'pattern:aadhaar+verhoeff', nodeId: 'n-1', value: 'x' }]);
+    expect(regions[0]!.entity).toBe('AADHAAR');
+  });
+});

@@ -19,6 +19,10 @@ export interface Candidate {
    * the vault); absent for presence-only DOM signals. */
   value?: string;
   presenceOnly?: boolean;
+  /** Channel D only: this entity's position in the field's own semantic reading (0 = the
+   * primary type, 1.. = alternatives the same label names). Fusion uses it so a value recognizer
+   * can pick among a field's semantic types but never override them — see merge.ts. */
+  semanticRank?: number;
 }
 
 export interface SensitiveRegion {

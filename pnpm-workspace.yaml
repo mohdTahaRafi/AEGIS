@@ -5,3 +5,7 @@ allowBuilds:
   esbuild: true
   onnxruntime-node: true
   protobufjs: true
+networkConcurrency: 4
+fetchRetries: 5
+fetchRetryMaxtimeout: 120000
+fetchTimeout: 300000

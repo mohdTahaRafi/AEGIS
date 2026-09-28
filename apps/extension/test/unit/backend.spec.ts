@@ -30,3 +30,43 @@ describe('wasmBackend — single-thread fallback (T-6.1)', () => {
     expect(result.threads).toBeGreaterThan(1);
   });
 });
+
+describe('selectBackend — WebGPU adapter screening', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  function stubAdapter(info: Record<string, unknown>) {
+    const destroy = vi.fn();
+    const adapter = { info, requestDevice: vi.fn(async () => ({ destroy })) };
+    vi.stubGlobal('navigator', { ...globalThis.navigator, hardwareConcurrency: 8, gpu: { requestAdapter: vi.fn(async () => adapter) } });
+    return adapter;
+  }
+
+  it('refuses a CPU-emulated adapter under auto and under an explicit webgpu preference', async () => {
+    stubAdapter({ vendor: 'google', architecture: 'swiftshader', device: '', description: '', isFallbackAdapter: true });
+    const { selectBackend } = await import('../../src/perception/runtime/backend');
+    for (const pref of ['auto', 'webgpu'] as const) {
+      const r = await selectBackend(pref);
+      expect(r.backend).toBe('wasm');
+      expect(r.providerPolicy).toBe('wasm');
+      expect(r.webgpuRejected).toMatch(/fallback|swiftshader/);
+    }
+  });
+
+  it('accepts a hardware adapter under auto with per-model measurement, not blanket WebGPU', async () => {
+    stubAdapter({ vendor: 'intel', architecture: 'xe-lpg', device: '', description: '' });
+    const { selectBackend } = await import('../../src/perception/runtime/backend');
+    const r = await selectBackend('auto');
+    expect(r.backend).toBe('webgpu');
+    expect(r.providerPolicy).toBe('measure');
+    expect(r.threads).toBeGreaterThanOrEqual(1);
+  });
+
+  it('an explicit webgpu preference on a hardware adapter forces WebGPU for every model', async () => {
+    stubAdapter({ vendor: 'intel', architecture: 'xe-lpg', device: '', description: '' });
+    const { selectBackend } = await import('../../src/perception/runtime/backend');
+    expect((await selectBackend('webgpu')).providerPolicy).toBe('webgpu');
+  });
+});

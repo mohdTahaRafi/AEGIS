@@ -13,6 +13,8 @@
 
 import * as ort from 'onnxruntime-web';
 import type { Backend, ModelInfo, ModelSpec } from '../../shared/worker-protocol';
+import type { ProviderPolicy } from './backend';
+import { chooseProvider, median, probeShapeFor } from './provider-choice';
 
 export class ModelLoadError extends Error {
   readonly code = 'MODEL_LOAD_FAILED';
@@ -33,6 +35,35 @@ interface LoadedSession {
   bytes: number;
   loadMs: number;
   lastUsedAt: number;
+  provider: Backend;
+  probeMs?: ModelInfo['probeMs'];
+}
+
+const PROBE_TIMED_RUNS = 3;
+
+/** Median warm latency of `session` on a synthetic (random, never page-derived) input of `shape`:
+ * one discarded warm-up run (WebGPU compiles its shaders there — 350-1000 ms measured), then up to
+ * `PROBE_TIMED_RUNS` timed runs. Stops early once a run exceeds `giveUpAboveMs` (already clearly
+ * the slower provider), so probing a slow provider costs one or two runs, not all of them. */
+async function probeLatency(session: ort.InferenceSession, shape: number[], giveUpAboveMs = Infinity): Promise<number> {
+  const size = shape.reduce((a, b) => a * b, 1);
+  const data = new Float32Array(size);
+  for (let i = 0; i < size; i++) data[i] = Math.random();
+  const inputName = session.inputNames[0]!;
+  const feeds = { [inputName]: new ort.Tensor('float32', data, shape) };
+  await session.run(feeds);
+  const times: number[] = [];
+  for (let i = 0; i < PROBE_TIMED_RUNS; i++) {
+    const t = performance.now();
+    await session.run(feeds);
+    times.push(performance.now() - t);
+    if (times[times.length - 1]! > giveUpAboveMs) break;
+  }
+  return median(times);
+}
+
+async function createSession(bytes: ArrayBuffer, provider: Backend): Promise<ort.InferenceSession> {
+  return ort.InferenceSession.create(new Uint8Array(bytes), { executionProviders: [provider], graphOptimizationLevel: 'all' });
 }
 
 /** Lazy-loading, verify-then-create, evictable session pool. One instance per worker; the worker
@@ -61,7 +92,9 @@ export class ModelRegistry {
   private readonly dicts = new Map<string, string[]>();
   private readonly assets = new Map<string, ArrayBuffer>();
 
-  constructor(private readonly backend: Backend) {}
+  /** `'measure'` (auto on a hardware WebGPU adapter): each model is created on both providers,
+   * timed, and the loser released — see `provider-choice.ts`. */
+  constructor(private readonly policy: ProviderPolicy) {}
 
   register(specs: readonly ModelSpec[]): void {
     for (const spec of specs) this.specs.set(spec.id, spec);
@@ -86,19 +119,67 @@ export class ModelRegistry {
     const started = performance.now();
     const bytes = await fetchAndVerify(modelId, spec.url, spec.sha256);
 
-    let session: ort.InferenceSession;
+    let chosen: { session: ort.InferenceSession; provider: Backend; probeMs?: ModelInfo['probeMs'] };
     try {
-      session = await ort.InferenceSession.create(bytes, {
-        executionProviders: [this.backend],
-        graphOptimizationLevel: 'all',
-      });
+      chosen = await this.createFor(spec, bytes);
     } catch (err) {
       throw new ModelLoadError(modelId, err instanceof Error ? err.message : String(err));
     }
 
     const loadMs = performance.now() - started;
-    this.sessions.set(modelId, { spec, session, bytes: bytes.byteLength, loadMs, lastUsedAt: Date.now() });
-    return session;
+    this.sessions.set(modelId, { spec, session: chosen.session, bytes: bytes.byteLength, loadMs, lastUsedAt: Date.now(), provider: chosen.provider, probeMs: chosen.probeMs });
+    return chosen.session;
+  }
+
+  providerOf(modelId: string): Backend | null {
+    return this.sessions.get(modelId)?.provider ?? null;
+  }
+
+  /** Session creation + probing is serialized: the worker loads OCR det and rec with
+   * `Promise.all`, and two overlapping WebGPU creates/probe runs wedged the GPU queue in real
+   * Chromium on an Intel Xe-LPG adapter (the step never returned; even page screenshots hung). */
+  private createChain: Promise<unknown> = Promise.resolve();
+
+  private createFor(spec: ModelSpec, bytes: ArrayBuffer): Promise<{ session: ort.InferenceSession; provider: Backend; probeMs?: ModelInfo['probeMs'] }> {
+    const next = this.createChain.then(() => this.createForUnserialized(spec, bytes));
+    this.createChain = next.catch(() => undefined);
+    return next;
+  }
+
+  private async createForUnserialized(spec: ModelSpec, bytes: ArrayBuffer): Promise<{ session: ort.InferenceSession; provider: Backend; probeMs?: ModelInfo['probeMs'] }> {
+    if (this.policy === 'wasm') return { session: await createSession(bytes, 'wasm'), provider: 'wasm' };
+    if (this.policy === 'webgpu') {
+      try {
+        return { session: await createSession(bytes, 'webgpu'), provider: 'webgpu' };
+      } catch {
+        return { session: await createSession(bytes, 'wasm'), provider: 'wasm' };
+      }
+    }
+    const shape = probeShapeFor(spec.role);
+    const wasm = await createSession(bytes, 'wasm');
+    if (!shape) return { session: wasm, provider: 'wasm' };
+    let wasmMs: number | null = null;
+    try {
+      wasmMs = await probeLatency(wasm, shape);
+    } catch {
+      // A model that cannot run a synthetic input on WASM still gets its WebGPU chance below.
+    }
+    let gpu: ort.InferenceSession | null = null;
+    let webgpuMs: number | null = null;
+    try {
+      gpu = await createSession(bytes, 'webgpu');
+      webgpuMs = await probeLatency(gpu, shape, wasmMs === null ? Infinity : wasmMs * 2);
+    } catch {
+      webgpuMs = null;
+    }
+    const provider = chooseProvider(wasmMs, webgpuMs);
+    const probeMs = { wasm: wasmMs ?? undefined, webgpu: webgpuMs ?? undefined };
+    if (provider === 'webgpu' && gpu) {
+      void wasm.release();
+      return { session: gpu, provider, probeMs };
+    }
+    if (gpu) void gpu.release();
+    return { session: wasm, provider: 'wasm', probeMs };
   }
 
   /** T-6.3's other half: an `ocr-rec` model is useless without its character dictionary (it can
@@ -169,6 +250,8 @@ export class ModelRegistry {
       role: e.spec.role,
       loadMs: e.loadMs,
       bytes: e.bytes,
+      provider: e.provider,
+      probeMs: e.probeMs,
     }));
   }
 

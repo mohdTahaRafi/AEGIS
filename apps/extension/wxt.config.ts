@@ -23,8 +23,16 @@ export default defineConfig({
   manifest: ({ browser, mode }) => ({
     name: 'AEGIS',
     description: 'Privacy-preserving browser agent with on-device visual perception',
-    permissions: ['scripting', 'tabs', 'storage'],
+    // `activeTab`: `tabs.captureVisibleTab` rejects a per-origin host grant and even a
+    // runtime-granted optional `<all_urls>` ("Either the '<all_urls>' or 'activeTab' permission is
+    // required", reproduced in Chromium 153). The toolbar click grants it for that tab only via
+    // `action.onClicked` (entrypoints/background.ts) — never via `openPanelOnActionClick`.
+    permissions: ['scripting', 'tabs', 'storage', 'activeTab'],
     optional_host_permissions: ['<all_urls>'],
+    // Declared explicitly: without an `action` key Chrome still draws an implicit toolbar icon, but
+    // `browser.action` (and so `action.onClicked`, the one path that grants `activeTab`) does not
+    // exist.
+    action: { default_title: 'AEGIS' },
     // T-6.10: the eval harness's fixture server (eval/src/aegis_eval/runner/fixture_server.py)
     // serves real corpus pages over http://127.0.0.1 so `captureVisibleTab` has a grantable
     // origin at all (`file://` pages can never get it — see that module's own doc comment).

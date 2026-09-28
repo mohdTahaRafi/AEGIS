@@ -5,18 +5,42 @@
 
 import type { Candidate } from '../privacy/types';
 import type { AblationArm } from '../../shared/ablation';
-import type { Box } from '../../shared/worker-protocol';
+import type { Box, PerceiveDiagnostics } from '../../shared/worker-protocol';
 import type { WireScreenNode } from '../../shared/messages';
 import type { PerceptionClient } from './client';
 import { decideEscalation, type PayloadLevel } from '../privacy/context/escalation';
 import { structuralCoverage } from '../privacy/context/structural-coverage';
 import { computeGeometryDigest, GeometryDigestGuard } from '../capture/digest';
+import type { CaptureFailureReason, CaptureResult } from '../capture/classify';
 
-const PERCEPTION_DEADLINE_MS = 120;
+// Per-step vision time budget: once it elapses no further crop is started (the one in flight
+// finishes) and every crop still queued stays grey — unanalysed, never cleared. Was 120 ms, which is
+// shorter than a single crop takes (measured on WASM, 2026-09-28: YuNet ~31 ms + CLIP ~92 ms + OCR
+// det ~130-180 ms + OCR rec ~30 ms per text line, i.e. ~0.25-1.3 s per crop), so exactly one image
+// per step was ever analysed and every other image on the page was sent grey. 1500 ms fits ~3-6
+// typical crops on WASM (the crop budget still caps it at 8/16), adds at most ~1.5 s + one crop to a
+// step whose model round trip already takes seconds, and keeps the worst case bounded.
+export const PERCEPTION_DEADLINE_MS = 1500;
 const IMAGE_LONG_SIDE_MAX_PX = 1600;
 
 export interface CaptureFn {
-  (): Promise<ImageBitmap | null>;
+  (): Promise<CaptureResult>;
+}
+
+/** Why this step did or did not get vision — every exit path of `runPerceptionStep` sets one, so
+ * "DOM-only" is always attributable to a concrete reason rather than inferred from silence. */
+export interface PerceptionStepStatus {
+  /** `disabled`: the session never called `runPerceptionStep` this step (see `disabledReason`). */
+  capture: 'ok' | 'not-needed' | 'geometry-changed' | 'disabled' | CaptureFailureReason;
+  disabledReason?: 'hostile-dynamic' | 'dom_only';
+  /** Chrome's own error text for a failed capture (quoted URLs removed) — shown in the panel so a
+   * failure is never reduced to a reason code alone. Panel/ledger only; never in the payload. */
+  captureDetail?: string;
+  worker: 'ok' | 'failed' | 'not-called';
+  level: PayloadLevel;
+  /** Crop regions (vision nodes) this step wanted analysed. */
+  regionsRequested: number;
+  diagnostics?: PerceiveDiagnostics;
 }
 
 export interface PerceptionStepDeps {
@@ -47,10 +71,26 @@ export interface PerceptionStepResult {
    * Exposed so `session.ts` can pass the same number to both `attachImage`'s `compose` call and
    * the geometry the resulting `image.scale` field records. */
   scale: number;
+  status: PerceptionStepStatus;
 }
 
 function isVisionNode(node: WireScreenNode): boolean {
   return node.role === 'img';
+}
+
+/** Area of `box` inside the viewport — what a screenshot crop of it can actually contain. */
+function visibleArea([x, y, w, h]: readonly [number, number, number, number], viewport: { w: number; h: number }): number {
+  const vw = Math.max(0, Math.min(x + w, viewport.w) - Math.max(x, 0));
+  const vh = Math.max(0, Math.min(y + h, viewport.h) - Math.max(y, 0));
+  return vw * vh;
+}
+
+/** Largest visible image first: the crop budget and deadline cut from the tail, so what gets
+ * analysed is where the most pixels (and the most chance of a document, face or QR code) are,
+ * rather than whatever came first in DOM order — typically header icons and logos. Anything cut
+ * stays grey either way. */
+export function prioritiseVisionNodes<T extends { box: readonly [number, number, number, number] }>(nodes: readonly T[], viewport: { w: number; h: number }): T[] {
+  return [...nodes].sort((a, b) => visibleArea(b.box, viewport) - visibleArea(a.box, viewport));
 }
 
 function geometryBoxesOf(nodes: readonly WireScreenNode[]): { id: string; box: readonly [number, number, number, number] }[] {
@@ -67,30 +107,35 @@ export async function runPerceptionStep(nodes: readonly WireScreenNode[], deps: 
   const decision = pixelOnly ? { level: 'L1' as const, fullFrame: true, region: null } : decideEscalation({ explainedFraction, serverRequestedRegion: null });
 
   const scale = Math.min(1, IMAGE_LONG_SIDE_MAX_PX / Math.max(deps.viewport.w, deps.viewport.h));
+  const regionsRequested = pixelOnly ? 1 : visionNodes.length;
+  const noVision = (status: Omit<PerceptionStepStatus, 'regionsRequested'>, captureInconsistent = false): PerceptionStepResult => ({
+    visionCandidates: [],
+    level: status.level,
+    captured: false,
+    captureInconsistent,
+    visionAnalyzedNodeIds: new Set(),
+    scale,
+    status: { ...status, regionsRequested },
+  });
+
   const noCaptureNeeded = !pixelOnly && decision.level === 'L0' && visionNodes.length === 0;
   if (noCaptureNeeded) {
-    return { visionCandidates: [], level: decision.level, captured: false, captureInconsistent: false, visionAnalyzedNodeIds: new Set(), scale };
+    return noVision({ capture: 'not-needed', worker: 'not-called', level: decision.level });
   }
 
   const beforeDigest = await computeGeometryDigest(geometryBoxesOf(nodes));
-  const bitmap = await deps.capture();
-  if (!bitmap) {
-    return { visionCandidates: [], level: 'L0', captured: false, captureInconsistent: false, visionAnalyzedNodeIds: new Set(), scale };
+  const captureResult = await deps.capture();
+  if (!captureResult.ok) {
+    return noVision({ capture: captureResult.reason, ...(captureResult.detail ? { captureDetail: captureResult.detail } : {}), worker: 'not-called', level: 'L0' });
   }
+  const bitmap = captureResult.bitmap;
 
   const freshNodes = await deps.reobserveGeometry();
   const afterDigest = await computeGeometryDigest(geometryBoxesOf(freshNodes));
   const digestVerdict = deps.digestGuard.check(beforeDigest, afterDigest);
   if (digestVerdict !== 'ok') {
     bitmap.close();
-    return {
-      visionCandidates: [],
-      level: 'L0',
-      captured: false,
-      captureInconsistent: digestVerdict === 'degrade',
-      visionAnalyzedNodeIds: new Set(),
-      scale,
-    };
+    return noVision({ capture: 'geometry-changed', worker: 'not-called', level: 'L0' }, digestVerdict === 'degrade');
   }
 
   // T-6.9: pixel-only sends ONE whole-viewport region at `kind: 'crop'` (not `'full'`) so it goes
@@ -102,11 +147,18 @@ export async function runPerceptionStep(nodes: readonly WireScreenNode[], deps: 
   const regions = pixelOnly
     ? [{ id: 'full-frame', box: [0, 0, deps.viewport.w, deps.viewport.h] as Box, kind: 'crop' as const }]
     : [
-        ...visionNodes.map((n) => ({ id: n.id, box: n.box as Box, kind: 'crop' as const })),
+        ...prioritiseVisionNodes(visionNodes, deps.viewport).map((n) => ({ id: n.id, box: n.box as Box, kind: 'crop' as const })),
         ...(decision.fullFrame ? [{ id: 'full-frame', box: [0, 0, deps.viewport.w, deps.viewport.h] as Box, kind: 'full' as const }] : []),
       ];
 
-  const perceived = await deps.client.perceive(bitmap, regions, PERCEPTION_DEADLINE_MS, decision.fullFrame);
+  // `PerceptionClient`'s contract: a rejected job (worker crashed or errored) means "no image, no
+  // vision candidates", never a retry — `captured: false` also keeps `attachImage` from running.
+  let perceived: Awaited<ReturnType<PerceptionClient['perceive']>>;
+  try {
+    perceived = await deps.client.perceive(bitmap, regions, PERCEPTION_DEADLINE_MS, decision.fullFrame);
+  } catch {
+    return noVision({ capture: 'ok', worker: 'failed', level: 'L0' });
+  }
 
   const timedOutIds = new Set(
     perceived.timedOut
@@ -130,7 +182,9 @@ export async function runPerceptionStep(nodes: readonly WireScreenNode[], deps: 
       box: c.box,
       score: c.score,
       channel: c.channel === 'text-ocr' ? 'text-ocr' : 'vision',
-      source: c.source ?? `vision:${c.entity.toLowerCase()}`,
+      // `ocr:` keeps a pixel-channel text match distinguishable in `redactions[].sources` from the
+      // same recognizer firing on DOM text (both would otherwise read `pattern:<id>`).
+      source: c.channel === 'text-ocr' ? `ocr:${c.source ?? c.entity.toLowerCase()}` : (c.source ?? `vision:${c.entity.toLowerCase()}`),
       nodeId,
       textRunId,
       value: c.value,
@@ -145,6 +199,7 @@ export async function runPerceptionStep(nodes: readonly WireScreenNode[], deps: 
     screenLabel: perceived.screenLabel,
     visionAnalyzedNodeIds,
     scale,
+    status: { capture: 'ok', worker: 'ok', level: decision.level, regionsRequested, diagnostics: perceived.diagnostics },
   };
 }
 

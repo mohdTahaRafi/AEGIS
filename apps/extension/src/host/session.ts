@@ -23,7 +23,7 @@ import { rehydrationRequiresConfirmation, resolveRehydration } from './actions/r
 import { classifyRisk, requiresConfirmation, type RiskLevel, type RiskSignals } from './actions/risk';
 import { validatePlan, type HardDenialContext } from './actions/validator';
 import { BudgetTracker, DEFAULT_BUDGETS, type BudgetLimits } from './controller/budgets';
-import { Controller } from './controller/machine';
+import { Controller, TERMINAL_STATES } from './controller/machine';
 import { ReconciliationTracker } from './controller/reconcile';
 import type { GuardedPayload } from './egress/brand';
 import { Ledger } from './ledger/ledger';
@@ -35,7 +35,7 @@ import type { ImageRescanDeps } from './privacy/guard/image-rescan';
 import { Vault } from './privacy/vault';
 import type { PerceptionClient } from './perception-client/client';
 import { GeometryDigestGuard } from './capture/digest';
-import { runPerceptionStep, type CaptureFn } from './perception-client/run-step';
+import { runPerceptionStep, type CaptureFn, type PerceptionStepStatus } from './perception-client/run-step';
 import type { AblationArm } from '../shared/ablation';
 import type { BudgetReasonCode } from '../shared/errors';
 import type { GraphMessage, WireScreenNode } from '../shared/messages';
@@ -64,12 +64,13 @@ export type SessionEvent =
   | { type: 'step'; step: StepRecord }
   | { type: 'report'; title?: string; content: string }
   | { type: 'ask_user'; question: string }
-  | { type: 'stopped'; reason: BudgetReasonCode | 'BLOCKED' | 'SERVER_ERROR' | 'CANCELLED' }
+  | { type: 'stopped'; reason: BudgetReasonCode | 'BLOCKED' | 'SERVER_ERROR' | 'CANCELLED' | 'PAGE_DISCONNECTED' }
   | { type: 'done'; summary?: string }
   | { type: 'confirmation_required'; risk: RiskLevel; description: string }
   | { type: 'guard_blocked'; rule: string; entity?: string }
   | { type: 'rehydration_rejected'; code: string }
-  | { type: 'sanitized_preview'; payload: ReturnType<typeof buildSanitizedContext> };
+  | { type: 'sanitized_preview'; payload: ReturnType<typeof buildSanitizedContext> }
+  | { type: 'perception'; stepId: string; status: PerceptionStepStatus };
 
 function countBy<T>(items: readonly T[], keyOf: (item: T) => string): Record<string, number> {
   const counts: Record<string, number> = {};
@@ -126,6 +127,17 @@ export interface SessionDeps {
 
 interface PendingGraph {
   resolve: (message: GraphMessage) => void;
+  reject: (err: Error) => void;
+}
+
+/** The content-script port closed mid-task (tab closed, navigated, reloaded, or the extension was
+ * reloaded under it). Rejects every in-flight wait so the step loop unwinds and stops instead of
+ * awaiting a graph or action result that can never arrive. */
+class PageDisconnectedError extends Error {
+  constructor() {
+    super('PAGE_DISCONNECTED');
+    this.name = 'PageDisconnectedError';
+  }
 }
 
 export class Session {
@@ -137,7 +149,8 @@ export class Session {
   private readonly vault = new Vault();
   private readonly ledger = new Ledger();
   private pendingGraph: PendingGraph | null = null;
-  private pendingActions = new Map<string, { resolveOk: (ok: boolean, reason?: string) => void }>();
+  private pendingActions = new Map<string, { resolveOk: (ok: boolean, reason?: string) => void; reject: (err: Error) => void }>();
+  private pageDisconnected = false;
   private lastGraphMessage: GraphMessage | null = null;
   private allSeenNodes = new Map<string, WireScreenNode>();
   private history: { step_id: string; actions: { op: string }[]; outcome: string }[] = [];
@@ -208,17 +221,32 @@ export class Session {
     this.pendingActions.delete(actionId);
   }
 
+  /** Wired to the content port's `onDisconnect` by whoever owns it (entrypoints/sidepanel). */
+  onContentDisconnected(): void {
+    if (this.pageDisconnected) return;
+    this.pageDisconnected = true;
+    const err = new PageDisconnectedError();
+    this.pendingGraph?.reject(err);
+    this.pendingGraph = null;
+    for (const pending of this.pendingActions.values()) pending.reject(err);
+    this.pendingActions.clear();
+  }
+
   cancel(): void {
     this.controller.send({ type: 'cancel' });
     this.vault.clear();
     this.deps.onEvent({ type: 'stopped', reason: 'CANCELLED' });
   }
 
+  private isFinished(): boolean {
+    return TERMINAL_STATES.has(this.controller.getState());
+  }
+
   private emitState(): void {
     this.deps.onEvent({ type: 'state', state: this.controller.getState() });
   }
 
-  private stop(reason: BudgetReasonCode): void {
+  private stop(reason: BudgetReasonCode | 'PAGE_DISCONNECTED'): void {
     this.controller.send({ type: 'stop' });
     this.vault.clear();
     this.emitState();
@@ -226,15 +254,17 @@ export class Session {
   }
 
   private requestGraph(): Promise<GraphMessage> {
-    return new Promise((resolve) => {
-      this.pendingGraph = { resolve };
+    if (this.pageDisconnected) return Promise.reject(new PageDisconnectedError());
+    return new Promise((resolve, reject) => {
+      this.pendingGraph = { resolve, reject };
       this.deps.contentPort.requestExtract();
     });
   }
 
   private dispatchAndAwait(actionId: string, action: Parameters<ContentPortClient['dispatchAction']>[1]): Promise<{ ok: boolean; reason?: string }> {
-    return new Promise((resolve) => {
-      this.pendingActions.set(actionId, { resolveOk: (ok, reason) => resolve({ ok, reason }) });
+    if (this.pageDisconnected) return Promise.reject(new PageDisconnectedError());
+    return new Promise((resolve, reject) => {
+      this.pendingActions.set(actionId, { resolveOk: (ok, reason) => resolve({ ok, reason }), reject });
       this.deps.contentPort.dispatchAction(actionId, action);
     });
   }
@@ -245,7 +275,13 @@ export class Session {
     this.emitState();
     this.controller.send({ type: 'prepared' });
     this.emitState();
-    await this.stepLoop(task);
+    try {
+      await this.stepLoop(task);
+    } catch (err) {
+      if (!(err instanceof PageDisconnectedError)) throw err;
+      const state = this.controller.getState();
+      if (state !== 'CANCELLED' && state !== 'STOPPED' && state !== 'DONE') this.stop('PAGE_DISCONNECTED');
+    }
   }
 
   private async stepLoop(task: string): Promise<void> {
@@ -296,7 +332,11 @@ export class Session {
       const imagePathDisabled = graphMessage.hostileDynamic || this.deps.ablation === 'dom_only';
 
       t = this.now();
-      const viewport = { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio, scrollY: window.scrollY, docH: document.documentElement.scrollHeight };
+      // The PAGE's viewport, as measured by the content script. This loop runs in the side panel,
+      // whose own `window` is the ~400px-wide panel — using it sent the model the panel's size and
+      // made vision treat most of the page as off-screen. The panel-window fallback exists only for
+      // callers (unit tests) whose fake graph messages carry no viewport.
+      const viewport = graphMessage.viewport ?? { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio, scrollY: window.scrollY, docH: document.documentElement.scrollHeight };
       const perceptionResult = this.deps.perception && !imagePathDisabled
         ? await runPerceptionStep(graphMessage.nodes, {
             client: this.deps.perception.client,
@@ -325,8 +365,19 @@ export class Session {
             ablation: this.deps.ablation,
           })
         : null;
+      // Perception can now wait on the user (grant-gate.ts), and Stop during that wait — or during
+      // any perception await — used to fall through to sanitize and a server call anyway: the
+      // controller's abort only covers a call already in flight.
+      if (this.isFinished()) return;
       this.controller.send({ type: 'perceived' });
       timings.perceive = this.now() - t;
+      const perceptionStatus: PerceptionStepStatus | undefined = perceptionResult
+        ? perceptionResult.status
+        : this.deps.perception
+          ? { capture: 'disabled', disabledReason: graphMessage.hostileDynamic ? 'hostile-dynamic' : 'dom_only', worker: 'not-called', level: 'L0', regionsRequested: 0 }
+          : undefined;
+      if (perceptionStatus) this.deps.onEvent({ type: 'perception', stepId, status: perceptionStatus });
+      const perceptionEvidence = perceptionStatus ? { status: perceptionStatus, screenLabel: perceptionResult?.screenLabel } : undefined;
 
       // T-6.8: NER (profile L, real now) needs an async model call in the perception worker
       // (WebGPU-only) — `buildSanitizedContext` itself must stay synchronous (40+ existing unit
@@ -433,15 +484,19 @@ export class Session {
       try {
         guarded = await guard(context, this.policy, this.vault, { imageRescan: imageRescanDeps, canaries: this.deps.canaries });
         this.controller.send({ type: 'guard_pass' });
+        // The GUARDED payload — the exact bytes `sendToGateway` gets. Guard step 5 may re-compose
+        // or drop the image; recording the pre-guard `context` made the ledger and "Show exact
+        // bytes sent" display an image that was never sent (seen on real DigiLocker pages).
         this.ledger.record({
           stepId,
-          payload: context,
+          payload: guarded,
           timings,
           guardVerdict: { ok: true },
           policyVersion: this.policy.version,
           entityCountsByClass: countBy(context.redactions, (r) => r.class),
           entityCountsByChannel: countBy(context.redactions.flatMap((r) => r.sources), (s) => s),
           coverage: context.coverage,
+          perception: perceptionEvidence,
         });
         // DR-2 (phase_7_demo_submission.md): the sanitized preview must stay visible even if the
         // network is down — but the panel only ever learned about a step's payload from the
@@ -449,7 +504,7 @@ export class Session {
         // blank on a network failure even though the sanitized context was already built and
         // guard-passed by this point. Emitted here, before the network call, so a SERVER_ERROR
         // below still leaves the last sanitized payload on screen (found and fixed T-7.4, 2026-09-19).
-        this.deps.onEvent({ type: 'sanitized_preview', payload: context });
+        this.deps.onEvent({ type: 'sanitized_preview', payload: guarded });
       } catch (err) {
         const blocked = err instanceof GuardBlockedError ? err : new GuardBlockedError('SCHEMA');
         this.controller.send({ type: 'guard_block' });
@@ -462,6 +517,7 @@ export class Session {
           entityCountsByClass: countBy(context.redactions, (r) => r.class),
           entityCountsByChannel: countBy(context.redactions.flatMap((r) => r.sources), (s) => s),
           coverage: context.coverage,
+          perception: perceptionEvidence,
         });
         this.emitState();
         this.deps.onEvent({ type: 'guard_blocked', rule: blocked.rule, entity: blocked.entity });
@@ -470,6 +526,7 @@ export class Session {
       }
       timings.guard = this.now() - t;
 
+      if (this.isFinished()) return;
       t = this.now();
       this.controller.send({ type: 'sent' });
       this.emitState();

@@ -1,4 +1,5 @@
-// phase_4_vision.md §6.2 / T-4.10 — the per-frame 120ms deadline. "Work that misses it is
+// phase_4_vision.md §6.2 / T-4.10 — the per-frame deadline (design value 120 ms; the host now
+// passes 1500 ms — see `PERCEPTION_DEADLINE_MS` in host/perception-client/run-step.ts for why). "Work that misses it is
 // abandoned and its regions stay grey — fail-closed, not fail-slow." This runs each queued job
 // against a shared deadline and returns which regions were actually analysed vs. abandoned, so the
 // caller can report the latter as `timedOut` (never silently as cleared — the whole point of the

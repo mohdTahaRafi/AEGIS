@@ -4,6 +4,7 @@
 // further expression that reads `.value` as a string for that element at all.
 
 import type { EntityType } from '@aegis/recognizers';
+import { classifyFieldSemantics, type FieldSemantics } from './field-semantics';
 
 export type ProtectedClass = Extract<EntityType, 'PASSWORD' | 'OTP' | 'CARD_NUMBER' | 'CARD_CVV' | 'SECRET'>;
 
@@ -22,11 +23,13 @@ function isMaskedCss(el: Element): boolean {
 
 /**
  * Design.md §6.1's Channel D signal table, restricted to the five protected classes. Uses only
- * attributes/CSS — never `.value` as a string (masked-glyph detection reads `.value` but only to
- * test a shape, via a regex, immediately, with the result discarded; nothing binds the string to
- * a variable outside this function's stack frame — see T-3.9's source-level AC).
+ * attributes/CSS/field-bound label text — never `.value` as a string (masked-glyph detection reads
+ * `.value` but only to test a shape, via a regex, immediately, with the result discarded; nothing
+ * binds the string to a variable outside this function's stack frame — see T-3.9's source-level
+ * AC). The final, semantic check is what keeps a "Password"-labelled field protected after a
+ * show-password toggle switches it to `type=text`.
  */
-export function classifyProtected(el: Element): ProtectedClass | undefined {
+export function classifyProtected(el: Element, semantics: FieldSemantics | undefined = classifyFieldSemantics(el)): ProtectedClass | undefined {
   if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return undefined;
 
   const autocomplete = (el.getAttribute('autocomplete') ?? '').toLowerCase();
@@ -40,5 +43,5 @@ export function classifyProtected(el: Element): ProtectedClass | undefined {
   if (autocomplete.includes('cc-csc')) return 'CARD_CVV';
   if (SECRET_WORDING_RE.test(nameOrId)) return 'SECRET';
 
-  return undefined;
+  return semantics?.protectedClass;
 }

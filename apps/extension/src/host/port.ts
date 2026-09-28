@@ -9,6 +9,7 @@ import { PORT_NAME, isContentToHostMessage } from '../shared/messages';
 
 export interface HostPort {
   postMessage(message: HostToContentMessage): void;
+  disconnect?(): void;
   onMessage: { addListener(cb: (message: unknown) => void): void };
   onDisconnect: { addListener(cb: () => void): void };
 }

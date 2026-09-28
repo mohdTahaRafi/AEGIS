@@ -5,12 +5,15 @@
 export interface ResourceBarProps {
   backend: 'webgpu' | 'wasm' | null;
   modelsLoadedMB: number;
+  /** Per-model providers or why WebGPU was refused, e.g. "YuNet wasm · CLIP wasm". */
+  detail?: string;
 }
 
-export function ResourceBar({ backend, modelsLoadedMB }: ResourceBarProps) {
+export function ResourceBar({ backend, modelsLoadedMB, detail }: ResourceBarProps) {
   return (
     <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#444', padding: '4px 0', borderBottom: '1px solid #eee' }}>
       <span>vision: {backend ?? 'not loaded'}</span>
+      {detail && <span data-testid="backend-detail">{detail}</span>}
       <span>models: {modelsLoadedMB.toFixed(1)} MB</span>
     </div>
   );

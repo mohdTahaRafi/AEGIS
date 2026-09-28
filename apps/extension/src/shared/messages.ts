@@ -17,6 +17,10 @@ export interface WireChannelDSignal {
   entity: EntityType;
   score: number;
   valueRead: boolean;
+  /** Other entities the field's own label names ("Email / Mobile") — see `ChannelDSignal`. */
+  alternatives?: EntityType[];
+  /** Closed-vocabulary name of the evidence that decided `entity` (never page text). */
+  source?: string;
 }
 
 /** design.md §5.5/§3.2 — free text on the page, distinct from field values (T-3.10's NER input,
@@ -122,6 +126,22 @@ export interface GraphMessage {
    * `content/observe/volatility.ts`'s `HostileDynamicTracker`. Drives the host's image-path
    * disable + eventual stop-with-explanation (`host/session.ts`). */
   hostileDynamic: boolean;
+  /** The page's own viewport, measured in the page. The host runs in the side panel, whose
+   * `window` is the panel, not the page — this is the only source of the page's real size. */
+  viewport?: PageViewport;
+}
+
+export interface PageViewport {
+  w: number;
+  h: number;
+  dpr: number;
+  scrollY: number;
+  docH: number;
+}
+
+function isPageViewport(value: unknown): value is PageViewport {
+  if (!isRecord(value)) return false;
+  return (['w', 'h', 'dpr', 'scrollY', 'docH'] as const).every((k) => typeof value[k] === 'number' && Number.isFinite(value[k]));
 }
 
 export interface ActionResultMessage {
@@ -165,6 +185,17 @@ export function isPermissionRevokedMessage(value: unknown): value is PermissionR
   return isRecord(value) && value.type === 'permission-revoked' && typeof value.origin === 'string';
 }
 
+/** Background → panel: the user invoked the toolbar action on `tabId`, so Chrome has just granted
+ * `activeTab` there (see shared/invocation.ts). A panel waiting on that grant retries its capture. */
+export interface ActionInvokedMessage {
+  type: 'action-invoked';
+  tabId: number;
+}
+
+export function isActionInvokedMessage(value: unknown): value is ActionInvokedMessage {
+  return isRecord(value) && value.type === 'action-invoked' && typeof value.tabId === 'number' && Number.isInteger(value.tabId);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -195,7 +226,8 @@ export function isContentToHostMessage(value: unknown): value is ContentToHostMe
       Array.isArray(value.removed) &&
       Array.isArray(value.textRuns) &&
       typeof value.privacyEpoch === 'number' &&
-      typeof value.hostileDynamic === 'boolean'
+      typeof value.hostileDynamic === 'boolean' &&
+      (value.viewport === undefined || isPageViewport(value.viewport))
     );
   }
   if (value.type === 'action-result') {

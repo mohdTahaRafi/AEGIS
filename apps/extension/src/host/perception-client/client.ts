@@ -33,18 +33,35 @@ export class WorkerTerminatedError extends Error {
  * (AC-7's "kill the perception worker mid-step"), every pending request rejects with
  * `WorkerTerminatedError` rather than hanging forever — the caller (builder/guard) is expected to
  * treat that as "no image, no vision candidates," never as a retryable transient error. */
+export type WorkerProblem = { kind: 'crashed' } | { kind: 'error'; code: string };
+
 export class PerceptionClient {
   private readonly pending = new Map<string, { resolve: (msg: FromWorker) => void; reject: (err: Error) => void }>();
+  private readonly problemListeners: ((problem: WorkerProblem) => void)[] = [];
   private terminated = false;
+  private terminatedByCaller = false;
 
   constructor(private readonly worker: WorkerLike) {
     this.worker.addEventListener('message', (event) => this.handleMessage(event.data));
     this.worker.addEventListener('error', () => this.handleTermination());
   }
 
+  /** Jobless worker errors and worker crashes used to be dropped here with no trace — the panel
+   * subscribes so a dead or failing perception path is visible instead of silently DOM-only. */
+  onProblem(listener: (problem: WorkerProblem) => void): void {
+    this.problemListeners.push(listener);
+  }
+
+  private notify(problem: WorkerProblem): void {
+    for (const listener of this.problemListeners) listener(problem);
+  }
+
   private handleMessage(msg: FromWorker): void {
     const jobId = 'jobId' in msg ? msg.jobId : undefined;
-    if (jobId === undefined) return; // 'ready'/'stats' without a matching request are informational only
+    if (jobId === undefined) {
+      if (msg.t === 'error') this.notify({ kind: 'error', code: msg.code });
+      return; // 'ready'/'stats' without a matching request are informational only
+    }
     const entry = this.pending.get(jobId);
     if (!entry) return;
     this.pending.delete(jobId);
@@ -56,6 +73,7 @@ export class PerceptionClient {
   }
 
   private handleTermination(): void {
+    if (!this.terminated && !this.terminatedByCaller) this.notify({ kind: 'crashed' });
     this.terminated = true;
     for (const entry of this.pending.values()) entry.reject(new WorkerTerminatedError());
     this.pending.clear();
@@ -119,6 +137,7 @@ export class PerceptionClient {
   }
 
   terminate(): void {
+    this.terminatedByCaller = true;
     this.worker.terminate();
     this.handleTermination();
   }

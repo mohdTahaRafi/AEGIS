@@ -56,6 +56,16 @@ class SessionCreate(BaseModel):
     client: Client
 
 
+class Mode(Enum):
+    """
+    The gateway's own serving mode (config.py's AEGIS_MODE), told to the client at session open so the panel can show real connection state instead of a placeholder (T-2.39).
+    """
+
+    live = 'live'
+    record = 'record'
+    replay = 'replay'
+
+
 class Limits(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
@@ -159,4 +169,8 @@ class SessionCreated(BaseModel):
         description='UUIDv4-shaped. A pattern, not format:uuid, so the standalone Ajv validator needs no runtime format module.',
     )
     model: constr(max_length=80)
+    mode: Mode = Field(
+        ...,
+        description="The gateway's own serving mode (config.py's AEGIS_MODE), told to the client at session open so the panel can show real connection state instead of a placeholder (T-2.39).",
+    )
     limits: Limits

@@ -113,18 +113,25 @@ function candidatesFromNodeValue(node: WireScreenNode, value: string): Candidate
   }));
 }
 
-function candidateFromDomSignal(node: WireScreenNode, value: string | undefined): Candidate | null {
-  if (!node.domSignal) return null;
-  return {
-    entity: node.domSignal.entity,
+/** Channel D: the field's semantic type (plus any alternatives its label names), independent of
+ * whether the value parses. A value-readable field that is empty yields nothing — there is no
+ * value to seal, and minting an empty string would hand the model a ref that fills a field with
+ * nothing. Its type still reaches fusion the moment the user types anything, malformed or not. */
+function candidatesFromDomSignal(node: WireScreenNode, value: string | undefined): Candidate[] {
+  if (!node.domSignal) return [];
+  const { entity, score, valueRead, alternatives = [] } = node.domSignal;
+  if (valueRead && node.field && !value) return [];
+  return [entity, ...alternatives].map((e, rank) => ({
+    entity: e,
     box: node.box,
-    score: node.domSignal.score,
-    channel: 'dom',
-    source: `dom:${node.domSignal.entity.toLowerCase()}`,
+    score,
+    channel: 'dom' as const,
+    source: `dom:${e.toLowerCase()}`,
     nodeId: node.id,
     value,
-    presenceOnly: !node.domSignal.valueRead,
-  };
+    presenceOnly: !valueRead,
+    semanticRank: rank,
+  }));
 }
 
 /** Channel T + (when profile L supplied real spans upstream) Channel N over a free-text run,
@@ -385,8 +392,7 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
   if (!pixelOnly) {
     for (const node of escapedNodes) {
       if (node.state.volatile) continue;
-      const domCandidate = candidateFromDomSignal(node, node.field?.value);
-      if (domCandidate) candidates.push(domCandidate);
+      candidates.push(...candidatesFromDomSignal(node, node.field?.value));
       if (node.field?.valueRead && node.field.value) {
         candidates.push(...candidatesFromNodeValue(node, node.field.value));
       }

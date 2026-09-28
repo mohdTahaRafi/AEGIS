@@ -151,6 +151,7 @@ export class TopFrameSession {
       privacyEpoch: this.epochTracker.privacyEpoch,
       reason,
       hostileDynamic: this.hostileDynamicTracker.isHostileDynamic(Date.now()),
+      viewport: { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio, scrollY: window.scrollY, docH: document.documentElement.scrollHeight },
     });
   }
 

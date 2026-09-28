@@ -124,18 +124,18 @@
       "dtype": "float32 in, int8-quantized weights (onnxruntime.quantization.quantize_dynamic, QInt8)",
       "preferredBackend": "auto",
       "resident": false,
-      "notes": "Real ORT introspection + accuracy check (2026-09-25): exported via torch.onnx.export from open_clip's ViT-B-32-quickgelu/openai vision tower, wrapped to L2-normalize its own output so the browser never needs to. int8-quantized (fp32 source was 351,604,555 bytes; this is dynamic-range INT8, ~4x smaller). Verified against the unquantized fp32 export on a real generated QR-code image and a plain-color control: both models classify the QR code top-1 'QR code' (softmax 0.197 fp32 vs 0.199 int8) and the plain image top-1 'plain background' (0.132 vs 0.121) \u2014 no observed accuracy loss from quantization. [A] no fixed download URL exists for this artifact (it is generated, not fetched from a stable third-party host) \u2014 `scripts/fetch-models.ts` only verifies the sha256 of what's already on disk here; regenerating from scratch on a fresh checkout requires re-running both export scripts with network access to Hugging Face Hub (open_clip's own weight download), not `fetch-models.ts` alone. See docs/HISTORY.md's 2026-09-25 T-4.5/T-4.6 entry."
+      "notes": "Real ORT introspection + accuracy check (2026-09-27, corrects an earlier note here that cited a 2026-09-25 event with no matching docs/HISTORY.md entry and no file ever on disk \u2014 that claim was never actually run; this one is): exported via torch.onnx.export from open_clip's ViT-B-32-quickgelu/openai vision tower, wrapped to L2-normalize its own output so the browser never needs to. int8-quantized (fp32 source was 351,604,555 bytes; this is dynamic-range INT8, ~4x smaller). Verified against a real generated QR-code image and a plain-color control using CLIP's own preprocessing: top-1 'QR code' (cosine 0.316) for the QR image and top-1 'plain background' (cosine 0.228) for the plain image, both clearly separated from the other 13 prompt labels. [A] no fixed download URL exists for this artifact (it is generated, not fetched from a stable third-party host) \u2014 `scripts/fetch-models.ts` only verifies the sha256 of what's already on disk here; regenerating from scratch on a fresh checkout requires re-running both export scripts with network access to Hugging Face Hub (open_clip's own weight download), not `fetch-models.ts` alone. See docs/HISTORY.md's 2026-09-27 T-4.5/T-4.6 entry."
     },
     {
       "id": "vit-prompts-b32",
       "role": "vit-prompts",
       "file": "vit-prompts.bin",
-      "sha256": "e1a8968eba0269c36d56f89fefdaa340604a6b77198f77ca1f8d1f13d25417b6",
-      "bytes": 30947,
+      "sha256": "4bc4eecc655897ad2b48f2b79a965cd6fc888b8608b7f7ba422af70403d105e1",
+      "bytes": 41291,
       "source": "generated locally: tools/models/export_vit_prompts.py --model ViT-B-32-quickgelu --pretrained openai (design.md \u00a76.4's precomputed text-prompt embeddings, T-4.5)",
       "license": "MIT (OpenAI CLIP weights, via open_clip_torch's 'openai' pretrained tag)",
       "resident": false,
-      "notes": "15 prompt embeddings (PROMPT_VOCABULARY in perception/models/vit-encoder.ts, label-for-label matched), dim=512, L2-normalized, custom binary format (magic 'AEGISVPB1') parsed by the browser at load time \u2014 see export_vit_prompts.py's header comment for the exact layout. Paired with vit-vision-clip-b32; same regeneration caveat as that entry."
+      "notes": "20 prompt embeddings (PROMPT_VOCABULARY in perception/models/vit-encoder.ts, label-for-label matched; each the normalized mean of a prompt ensemble, regenerated 2026-09-28), dim=512, L2-normalized, custom binary format (magic 'AEGISVPB1') parsed by the browser at load time \u2014 see export_vit_prompts.py's header comment for the exact layout. Paired with vit-vision-clip-b32; same regeneration caveat as that entry."
     }
   ]
 }

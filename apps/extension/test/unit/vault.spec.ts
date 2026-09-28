@@ -132,3 +132,20 @@ describe('Vault.resolveFor (T-3.28 — all six conditions)', () => {
     expect(vault.resolveFor(ref, baseTarget())).toEqual({ ok: true, value: '234567890123' });
   });
 });
+
+describe('Vault.mint — malformed values of numeric entities (semantic-first redaction)', () => {
+  it('distinct non-numeric values in PHONE fields never collapse into one ref', () => {
+    const vault = new Vault();
+    const ctx = { originKey: 'o', stepId: 's-1', class: 'HIGH' as const };
+    const a = vault.mint('PHONE', 'abc', ctx);
+    const b = vault.mint('PHONE', 'xyz', ctx);
+    expect(a).not.toBe(b);
+    expect([...vault.normalizedValues()].sort()).toEqual(['abc', 'xyz']);
+  });
+
+  it('numeric-shaped values still fold to digits, so formatting variants share a ref', () => {
+    const vault = new Vault();
+    const ctx = { originKey: 'o', stepId: 's-1', class: 'HIGH' as const };
+    expect(vault.mint('PHONE', '+91 98765-43210', ctx)).toBe(vault.mint('PHONE', '919876543210', ctx));
+  });
+});

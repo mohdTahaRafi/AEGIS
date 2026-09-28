@@ -39,11 +39,13 @@ export async function detectTextEntitiesInRegion(
   regionCrop: OffscreenCanvas,
   regionId: string,
   sourceBox: Box,
+  stats?: { linesDetected: number; linesRecognized: number },
 ): Promise<Candidate[]> {
   const [srcX, srcY] = sourceBox;
   const candidates: Candidate[] = [];
 
   const lines = await detectText(models.detSession, ort_, regionCrop);
+  if (stats) stats.linesDetected += lines.length;
   for (const line of lines) {
     const [lx, ly, lw, lh] = line.box;
     const w = Math.max(1, Math.round(lw));
@@ -52,6 +54,7 @@ export async function detectTextEntitiesInRegion(
     lineCanvas.getContext('2d')!.drawImage(regionCrop, lx, ly, lw, lh, 0, 0, w, h);
 
     const recognized = await recognizeLine(models.recSession, ort_, lineCanvas, models.vocabulary);
+    if (stats) stats.linesRecognized += 1;
     if (!hasReadableContent(recognized.text)) continue;
 
     const box: Box = [srcX + lx, srcY + ly, lw, lh];

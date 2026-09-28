@@ -38,11 +38,15 @@
     },
     "sessionCreated": {
       "type": "object",
-      "required": ["session_id", "model", "limits"],
+      "required": ["session_id", "model", "mode", "limits"],
       "additionalProperties": false,
       "properties": {
         "session_id": { "$ref": "common.schema.json#/$defs/sessionId" },
         "model": { "type": "string", "maxLength": 80 },
+        "mode": {
+          "enum": ["live", "record", "replay"],
+          "description": "The gateway's own serving mode (config.py's AEGIS_MODE), told to the client at session open so the panel can show real connection state instead of a placeholder (T-2.39)."
+        },
         "limits": {
           "type": "object",
           "required": ["max_steps", "max_image_px"],

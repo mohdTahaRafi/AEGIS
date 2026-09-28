@@ -5,7 +5,7 @@
 // which need DOM/policy evidence the vault module doesn't have, then calls into the vault.
 
 import type { EntityType } from '@aegis/recognizers';
-import { AADHAAR_LEXICON, ADDRESS_LEXICON, matchesLexicon, PAN_LEXICON, PASSPORT_LEXICON } from '@aegis/recognizers';
+import { AADHAAR_LEXICON, ADDRESS_LEXICON, fieldEntitiesFromText, matchesLexicon, PAN_LEXICON, PASSPORT_LEXICON } from '@aegis/recognizers';
 import type { Policy } from '@aegis/policy';
 import { isPresenceOnly } from '@aegis/policy';
 import type { Vault, ResolveFailureCode } from '../privacy/vault';
@@ -18,6 +18,11 @@ function typeMatches(entity: EntityType, node: WireScreenNode): boolean {
   const autocomplete = (node.field?.autocomplete ?? '').toLowerCase();
   const inputType = (node.field?.inputType ?? '').toLowerCase();
   const nameOrLabel = `${node.name}`;
+
+  // The same field-bound semantics that classified the field for redaction (Channel D) are the
+  // target's strongest type evidence.
+  if (node.domSignal && (node.domSignal.entity === entity || node.domSignal.alternatives?.includes(entity))) return true;
+  if (fieldEntitiesFromText(nameOrLabel).includes(entity)) return true;
 
   switch (entity) {
     case 'EMAIL':

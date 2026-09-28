@@ -424,3 +424,126 @@ describe('Session — CAPTCHA detection (T-6.13, FR-8/NG-8)', () => {
     expect(events.some((e) => e.type === 'stopped' && e.reason === 'CAPTCHA_DETECTED')).toBe(false);
   });
 });
+
+describe('Session — content port lost mid-task (tab navigated/closed, extension reloaded under it)', () => {
+  it('stops with PAGE_DISCONNECTED instead of waiting forever for a graph that can never arrive', async () => {
+    const sendToGateway = vi.fn();
+    const { session, events } = buildSession(sendToGateway, () => {});
+    const run = session.start('log in');
+    await new Promise((r) => setTimeout(r, 0));
+    session.onContentDisconnected();
+
+    await run;
+    expect(session.getState()).toBe('STOPPED');
+    expect(events).toContainEqual({ type: 'stopped', reason: 'PAGE_DISCONNECTED' });
+    expect(sendToGateway).not.toHaveBeenCalled();
+  });
+
+  it('also unblocks a step waiting on an action result', async () => {
+    const sendToGateway = vi.fn().mockResolvedValue({ step_id: 's-1', actions: [{ op: 'click', node: 'n-1' }] });
+    const { session, events } = buildSession(sendToGateway, (sent, emit) => {
+      const msg = sent as { type: string };
+      if (msg.type === 'extract') emit({ type: 'graph', frame: 'f-0', nodes: [NODE], removed: [], textRuns: [], privacyEpoch: 0, reason: 'initial', hostileDynamic: false });
+      if (msg.type === 'dispatch-action') queueMicrotask(() => session.onContentDisconnected());
+    });
+
+    await session.start('log in');
+    expect(session.getState()).toBe('STOPPED');
+    expect(events).toContainEqual({ type: 'stopped', reason: 'PAGE_DISCONNECTED' });
+  });
+});
+
+describe('Session — viewport is the page\'s, not the side panel\'s', () => {
+  it('uses the viewport the content script measured in the page', async () => {
+    const pageViewport = { w: 1280, h: 720, dpr: 2, scrollY: 40, docH: 2400 };
+    const sendToGateway = vi.fn().mockResolvedValue({ step_id: 's-1', actions: [{ op: 'done', summary: 'ok' }] });
+    const { session } = buildSession(sendToGateway, (sent, emit) => {
+      if ((sent as { type: string }).type === 'extract') {
+        emit({ type: 'graph', frame: 'f-0', nodes: [NODE], removed: [], textRuns: [], privacyEpoch: 0, reason: 'initial', hostileDynamic: false, viewport: pageViewport });
+      }
+    });
+
+    await session.start('log in');
+    const payload = (session.getLedger().latest() as { payload: { viewport: unknown } }).payload;
+    expect(payload.viewport).toEqual({ w: 1280, h: 720, dpr: 2, scroll_y: 40, doc_h: 2400 });
+  });
+});
+
+// Perception can wait on the user (grant-gate.ts: "click the AEGIS icon on this tab"). Stop during
+// that wait — or during any perception await — used to fall through to sanitize and a server call
+// anyway, because the controller's abort only covers a call already in flight.
+describe('Session — Stop while perception is waiting', () => {
+  const IMAGE_NODE: WireScreenNode = { ...NODE, id: 'n-img', role: 'img', name: 'Scanned document', affordances: [], box: [0, 40, 300, 200] };
+
+  function imageGraphResponder(sent: unknown, emit: (m: unknown) => void): void {
+    if ((sent as { type: string }).type === 'extract') {
+      emit({ type: 'graph', frame: 'f-0', nodes: [NODE, IMAGE_NODE], removed: [], textRuns: [], privacyEpoch: 0, reason: 'initial', hostileDynamic: false });
+    }
+  }
+
+  it('sends nothing to the gateway once the task is cancelled mid-capture', async () => {
+    const sendToGateway = vi.fn().mockResolvedValue({ step_id: 's-1', actions: [{ op: 'done', summary: 'ok' }] });
+    // eslint-disable-next-line prefer-const
+    let session!: Session;
+    const capture = vi.fn(async () => {
+      session.cancel();
+      return { ok: false as const, reason: 'permission' as const };
+    });
+    const built = buildSession(sendToGateway, imageGraphResponder, { perception: { client: {} as PerceptionClient, capture } });
+    session = built.session;
+
+    await session.start('log in');
+
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(sendToGateway).not.toHaveBeenCalled();
+    expect(session.getState()).toBe('CANCELLED');
+    expect(session.getLedger().export()).toHaveLength(0);
+  });
+});
+
+// "Show exact bytes sent" and the ledger must show what `sendToGateway` actually received. Guard
+// step 5 re-scans the composed image and drops it (fail closed) when a hit survives a recompose —
+// the ledger used to record the pre-guard context, so it showed an image that was never sent
+// (found on real DigiLocker pages, Chrome 144, 2026-09-28).
+describe('Session — the ledger records the guarded payload, i.e. exactly what was sent', () => {
+  const IMAGE_NODE: WireScreenNode = { ...NODE, id: 'n-img', role: 'img', name: 'Scanned document', affordances: [], box: [0, 40, 300, 200] };
+
+  function imageGraphResponder(sent: unknown, emit: (m: unknown) => void): void {
+    if ((sent as { type: string }).type === 'extract') {
+      emit({ type: 'graph', frame: 'f-0', nodes: [NODE, IMAGE_NODE], removed: [], textRuns: [], privacyEpoch: 0, reason: 'initial', hostileDynamic: false });
+    }
+  }
+
+  function perceptionWithRescanHits(hits: unknown[]) {
+    const client = {
+      perceive: vi.fn(async () => ({ t: 'perceived', jobId: 'j', candidates: [], timings: {}, timedOut: [] })),
+      compose: vi.fn(async () => ({ t: 'composed', jobId: 'j', webp: new Uint8Array([82, 73, 70, 70]).buffer, coverage: { cleared: 0.5, redacted: 0, unanalysed: 0.5 } })),
+      rescan: vi.fn(async () => ({ t: 'rescanned', jobId: 'j', hits })),
+      ner: vi.fn(async () => ({ t: 'nerResult', jobId: 'j', spans: [] })),
+    } as unknown as PerceptionClient;
+    return { client, capture: async () => ({ ok: true as const, bitmap: { width: 1024, height: 768, close: () => {} } as unknown as ImageBitmap }) };
+  }
+
+  it('an image the rescan drops is absent from both the sent payload and the ledger', async () => {
+    const sendToGateway = vi.fn().mockResolvedValue({ step_id: 's-1', actions: [{ op: 'done', summary: 'ok' }] });
+    const hit = { entity: 'AADHAAR', box: [10, 50, 80, 12], score: 0.9, channel: 'text-ocr' };
+    const { session, events } = buildSession(sendToGateway, imageGraphResponder, { perception: perceptionWithRescanHits([hit]) });
+    await session.start('log in');
+
+    const sent = sendToGateway.mock.calls[0]![0] as { image: unknown };
+    expect(sent.image).toBeNull();
+    expect(session.getLedger().latest()!.payload.image).toBeNull();
+    const preview = events.find((e) => e.type === 'sanitized_preview') as Extract<SessionEvent, { type: 'sanitized_preview' }>;
+    expect(preview.payload.image).toBeNull();
+  });
+
+  it('a clean image is in both, byte-identical', async () => {
+    const sendToGateway = vi.fn().mockResolvedValue({ step_id: 's-1', actions: [{ op: 'done', summary: 'ok' }] });
+    const { session } = buildSession(sendToGateway, imageGraphResponder, { perception: perceptionWithRescanHits([]) });
+    await session.start('log in');
+
+    const sent = sendToGateway.mock.calls[0]![0] as { image: { data: string } | null };
+    expect(sent.image).not.toBeNull();
+    expect(session.getLedger().latest()!.payload.image).toEqual(sent.image);
+  });
+});

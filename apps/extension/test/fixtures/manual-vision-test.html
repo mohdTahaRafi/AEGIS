@@ -1,0 +1,27 @@
+<!doctype html>
+<!-- Manual test page for the ViT/CLIP screen classifier and face detector (T-4.5/T-4.6/T-4.4) —
+     uses real <img> elements so the vision pipeline actually treats these as candidates, unlike
+     the eval corpus's inline-<svg> placeholders (see docs/HISTORY.md's 2026-09-27 T-4.6 entry). -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>AEGIS manual vision test</title>
+  </head>
+  <body>
+    <h1>Manual vision test</h1>
+    <p>Aadhaar on record: 2345 6789 0124</p>
+    <p>Email: jane.citizen@example.com</p>
+
+    <h2>Face</h2>
+    <img src="demo-profile-photo.png" width="240" height="240" alt="profile photo" />
+
+    <h2>QR code</h2>
+    <img src="qr-code-sample.png" width="300" height="300" alt="qr code" />
+
+    <h2>ID document</h2>
+    <img src="sample-id-card.png" width="320" height="200" alt="sample id card" />
+
+    <h2>Signature</h2>
+    <img src="sample-signature.png" width="300" height="120" alt="signature" />
+  </body>
+</html>

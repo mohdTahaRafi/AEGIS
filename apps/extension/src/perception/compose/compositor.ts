@@ -39,8 +39,36 @@ export interface ComposeOutput {
 
 const NON_RESOLVABLE_LABELS = new Set(['FACE', 'ID_DOCUMENT', 'SIGNATURE', 'QR_CODE']);
 
-function boxArea([, , w, h]: Box): number {
-  return Math.max(0, w) * Math.max(0, h);
+const CLEARED = 1;
+const REDACTED = 2;
+
+/** Marks `box` (source-pixel units) on a width×height mask of the output frame, clipped to it. */
+function paint(mask: Uint8Array, width: number, height: number, [x, y, w, h]: Box, scale: number, value: number): void {
+  const x0 = Math.max(0, Math.floor(x * scale));
+  const x1 = Math.min(width, Math.ceil((x + Math.max(0, w)) * scale));
+  const y0 = Math.max(0, Math.floor(y * scale));
+  const y1 = Math.min(height, Math.ceil((y + Math.max(0, h)) * scale));
+  if (x1 <= x0) return;
+  for (let row = y0; row < y1; row++) mask.fill(value, row * width + x0, row * width + x1);
+}
+
+/** Coverage fractions of the frame actually sent. Measured on a mask rather than by summing box
+ * areas: real pages yield overlapping and partly off-frame boxes, and summed areas reached 57× the
+ * frame on Wikipedia — an out-of-range payload the guard's schema check then blocked outright.
+ * Redaction boxes take precedence, matching the draw order below. */
+export function measureCoverage(width: number, height: number, scale: number, cleared: readonly Box[], redacted: readonly Box[]): ComposeOutput['coverage'] {
+  const total = width * height;
+  if (total === 0) return { cleared: 0, redacted: 0, unanalysed: 0 };
+  const mask = new Uint8Array(total);
+  for (const box of cleared) paint(mask, width, height, box, scale, CLEARED);
+  for (const box of redacted) paint(mask, width, height, box, scale, REDACTED);
+  let clearedPx = 0;
+  let redactedPx = 0;
+  for (let i = 0; i < total; i++) {
+    if (mask[i] === CLEARED) clearedPx++;
+    else if (mask[i] === REDACTED) redactedPx++;
+  }
+  return { cleared: clearedPx / total, redacted: redactedPx / total, unanalysed: (total - clearedPx - redactedPx) / total };
 }
 
 export function compose(input: ComposeInput): ComposeOutput {
@@ -57,19 +85,15 @@ export function compose(input: ComposeInput): ComposeOutput {
   ctx.fillRect(0, 0, width, height);
 
   const mergedCleared = mergeUp(cleared);
-  let clearedArea = 0;
   for (const [x, y, w, h] of mergedCleared) {
     ctx.drawImage(bitmap, x, y, w, h, x * scale, y * scale, w * scale, h * scale);
-    clearedArea += boxArea([x, y, w, h]);
   }
 
-  let redactedArea = 0;
   ctx.fillStyle = '#000000';
   for (const region of regions) {
     for (const box of region.boxes) {
       const [x, y, w, h] = box;
       ctx.fillRect(x * scale, y * scale, w * scale, h * scale);
-      redactedArea += boxArea(box);
 
       const label = unlabelled ? null : region.placeholder ?? (NON_RESOLVABLE_LABELS.has(region.entity) ? region.entity : null);
       if (label && w * scale >= MIN_LABEL_BOX_PX && h * scale >= MIN_LABEL_BOX_PX / 2) {
@@ -78,16 +102,9 @@ export function compose(input: ComposeInput): ComposeOutput {
     }
   }
 
-  const totalArea = width * height * (1 / (scale * scale)); // back to source-pixel units
-  const unanalysedArea = Math.max(0, totalArea - clearedArea - redactedArea);
-
   return {
     canvas,
-    coverage: {
-      cleared: totalArea > 0 ? clearedArea / totalArea : 0,
-      redacted: totalArea > 0 ? redactedArea / totalArea : 0,
-      unanalysed: totalArea > 0 ? unanalysedArea / totalArea : 0,
-    },
+    coverage: measureCoverage(width, height, scale, mergedCleared, regions.flatMap((r) => r.boxes)),
   };
 }
 

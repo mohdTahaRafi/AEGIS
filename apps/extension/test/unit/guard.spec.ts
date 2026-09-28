@@ -124,3 +124,60 @@ describe('brand (T-3.25)', () => {
     expect(isBranded(branded)).toBe(true);
   });
 });
+
+describe('vault-leak sweep — short sealed values (semantic-first redaction seals "123", "abc")', () => {
+  const nodeWith = (name: string, box: [number, number, number, number]) => ({
+    id: 'n-1',
+    role: 'textbox',
+    name,
+    box,
+    frame: 'f-0',
+    z: 0,
+    state: { focused: false, disabled: false, readonly: false, required: false, has_value: true, value_len: 3, occluded: false, volatile: false },
+    affordances: ['type' as const],
+  });
+
+  it('does not block because a short sealed value appears inside a number, an id or a placeholder', async () => {
+    const vault = new Vault();
+    const ref = vault.mint('AADHAAR', '123', { originKey: 'o', stepId: 's-1', class: 'CRITICAL' });
+    const payload = fakePayload({
+      nodes: [{ ...nodeWith('Aadhaar', [123, 1234, 312, 40]), value: { kind: 'placeholder', ref: ref as never, entity: 'AADHAAR', len: 3 } }],
+      viewport: { w: 1123, h: 600, dpr: 1, scroll_y: 0, doc_h: 1230 },
+    });
+    await expect(guard(payload, defaultPolicy, vault)).resolves.toBeDefined();
+  });
+
+  it('does not block on a short value that is only a substring of a longer word', async () => {
+    const vault = new Vault();
+    vault.mint('EMAIL', 'abc', { originKey: 'o', stepId: 's-1', class: 'HIGH' });
+    const payload = fakePayload({ text: [{ id: 't-1', box: [0, 0, 10, 10], text: 'The alphabet starts abcdef' }] });
+    await expect(guard(payload, defaultPolicy, vault)).resolves.toBeDefined();
+  });
+
+  it('still blocks when the short value itself leaks as a token in page text', async () => {
+    const vault = new Vault();
+    vault.mint('EMAIL', 'abc', { originKey: 'o', stepId: 's-1', class: 'HIGH' });
+    const payload = fakePayload({ text: [{ id: 't-1', box: [0, 0, 10, 10], text: 'Welcome back, abc!' }] });
+    await expect(guard(payload, defaultPolicy, vault)).rejects.toThrow(GuardBlockedError);
+  });
+
+  it('still blocks when the short value leaks through the task or a node name', async () => {
+    const vault = new Vault();
+    vault.mint('AADHAAR', '123', { originKey: 'o', stepId: 's-1', class: 'CRITICAL' });
+    await expect(guard(fakePayload({ task: 'type 123 in the box' }), defaultPolicy, vault)).rejects.toThrow(GuardBlockedError);
+    await expect(guard(fakePayload({ nodes: [nodeWith('Aadhaar 123', [0, 0, 1, 1])] }), defaultPolicy, vault)).rejects.toThrow(GuardBlockedError);
+  });
+});
+
+describe('pattern re-sweep — geometry is not page text', () => {
+  it('does not block on a float box coordinate whose fraction is a Verhoeff-valid 12-digit run', async () => {
+    // Real, from passportindia.gov.in's scrolling ticker (2026-09-28).
+    const payload = fakePayload({ text: [{ id: 't-1', box: [-319.9978942871094, 109, 2399.562255859375, 19.5], text: 'Check the revised fee' }] });
+    await expect(guard(payload, defaultPolicy, new Vault())).resolves.toBeDefined();
+  });
+
+  it('still blocks a valid Aadhaar that reached page text unsubstituted', async () => {
+    const payload = fakePayload({ text: [{ id: 't-1', box: [0, 0, 10, 10], text: `Aadhaar ${validAadhaar()}` }] });
+    await expect(guard(payload, defaultPolicy, new Vault())).rejects.toThrow(GuardBlockedError);
+  });
+});

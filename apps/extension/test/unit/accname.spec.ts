@@ -103,3 +103,20 @@ describe('computeAccessibleName — text content truncation', () => {
     expect(computeAccessibleName(target)).toBe('hello world');
   });
 });
+
+describe('computeAccessibleName — a field value never becomes part of its name', () => {
+  it('a wrapping label does not pick up a nested textarea’s prefilled content', () => {
+    document.body.innerHTML = '<label>Address <textarea id="t">12 MG Road, Pune</textarea></label>';
+    expect(computeAccessibleName(document.getElementById('t')!)).toBe('Address');
+  });
+
+  it('a wrapping label does not pick up a nested select’s options', () => {
+    document.body.innerHTML = '<label>State <select id="s"><option>Kerala</option><option>Goa</option></select></label>';
+    expect(computeAccessibleName(document.getElementById('s')!)).toBe('State');
+  });
+
+  it('an unlabelled textarea gets no name from its own content', () => {
+    document.body.innerHTML = '<textarea id="t">my secret notes</textarea>';
+    expect(computeAccessibleName(document.getElementById('t')!)).toBe('');
+  });
+});

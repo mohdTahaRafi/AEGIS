@@ -4,7 +4,7 @@
 import type { StepRecord } from '../host/session';
 
 export interface MetricsBarProps {
-  backend: 'live' | 'replay' | 'not connected';
+  backend: 'live' | 'record' | 'replay' | 'not connected';
   steps: StepRecord[];
 }
 

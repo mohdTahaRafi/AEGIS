@@ -47,6 +47,24 @@ describe('built manifests (T-2.3 AC)', () => {
   }, 30_000);
 });
 
+describe('built Chrome manifest — screenshot capture permission (production vision path)', () => {
+  // `tabs.captureVisibleTab` rejects a per-origin host grant (reproduced in Chromium 153: "Either
+  // the '<all_urls>' or 'activeTab' permission is required"). Without `activeTab` the production
+  // build can never capture, and every step silently degrades to DOM-only.
+  it('declares activeTab, never requires host permissions, and keeps <all_urls> optional only', () => {
+    const manifest = build('chrome');
+    expect(manifest.permissions as string[]).toContain('activeTab');
+    expect(manifest.host_permissions).toBeUndefined();
+    expect(manifest.optional_host_permissions).toEqual(['<all_urls>']);
+  }, 30_000);
+
+  // `activeTab` is granted only through `action.onClicked` (entrypoints/background.ts), which
+  // needs a declared `action` — without the key, `browser.action` does not exist at all.
+  it('declares an action, so the toolbar click can reach action.onClicked', () => {
+    expect(build('chrome').action).toEqual({ default_title: 'AEGIS' });
+  }, 30_000);
+});
+
 describe('built manifests — platform shim parity (design.md §14, T-6.1/T-6.2)', () => {
   it('the Firefox manifest carries browser_specific_settings.gecko.id', () => {
     const manifest = build('firefox');

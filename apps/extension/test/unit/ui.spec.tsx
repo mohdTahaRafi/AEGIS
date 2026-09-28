@@ -8,6 +8,7 @@ import { MetricsBar } from '../../src/ui/MetricsBar';
 import { ReportView } from '../../src/ui/ReportView';
 import { ConfirmAction } from '../../src/ui/ConfirmAction';
 import { GuardBlockCard } from '../../src/ui/GuardBlockCard';
+import { GrantRequest } from '../../src/ui/GrantRequest';
 import { RedactionSummary } from '../../src/ui/RedactionSummary';
 import { PayloadViewer } from '../../src/ui/PayloadViewer';
 import { ResourceBar } from '../../src/ui/ResourceBar';
@@ -33,6 +34,7 @@ const ALL_PANEL_STATES: PanelState[] = [
   'idle',
   'running',
   'awaiting-confirmation',
+  'awaiting-grant',
   'blocked',
   'error',
   'done',
@@ -237,5 +239,33 @@ describe('ResourceBar (T-4.22/T-4.23)', () => {
   it('shows "not loaded" before the worker has reported a backend', () => {
     const el = mount(<ResourceBar backend={null} modelsLoadedMB={0} />);
     expect(el.textContent).toContain('not loaded');
+  });
+});
+
+describe('GrantRequest — the step waits for a real toolbar invocation, never silently DOM-only', () => {
+  it('explains a grant lost on a cross-site navigation with both origins, and offers waive/stop', () => {
+    const onContinueWithout = vi.fn();
+    const onStop = vi.fn();
+    const el = mount(
+      <GrantRequest
+        explanation={{ kind: 'lost-on-navigation', grantedOrigin: 'https://www.practo.com', currentOrigin: 'https://accounts.practo.com' }}
+        onContinueWithout={onContinueWithout}
+        onStop={onStop}
+      />,
+    );
+    expect(el.textContent).toContain('https://www.practo.com');
+    expect(el.textContent).toContain('https://accounts.practo.com');
+    expect(el.textContent).toContain('AEGIS icon in Chrome');
+    expect(el.textContent).toContain('Nothing has been sent for this step yet');
+    const buttons = [...el.querySelectorAll('button')];
+    buttons.find((b) => b.textContent === 'Continue without screenshots')!.click();
+    buttons.find((b) => b.textContent === 'Stop')!.click();
+    expect(onContinueWithout).toHaveBeenCalledTimes(1);
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it('has no "allow" button of its own — a click in the panel cannot grant activeTab', () => {
+    const el = mount(<GrantRequest explanation={{ kind: 'never-invoked' }} onContinueWithout={() => {}} onStop={() => {}} />);
+    expect([...el.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Continue without screenshots', 'Stop']);
   });
 });
