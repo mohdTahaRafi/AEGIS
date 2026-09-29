@@ -13,12 +13,20 @@ def window_history(history: list[dict]) -> list[dict]:
     return history[-HISTORY_WINDOW:]
 
 
-def render_history(history: list[dict]) -> str:
+def _render_action(action: dict, aliases: dict[str, str]) -> str:
+    op = action.get("op", "?")
+    node = action.get("node")
+    # The element by this step's alias when it is still listed: the model can see what it already
+    # typed where (without it, a filled box looked untouched and the same reply was typed again).
+    return f"{op} {aliases[node]}" if isinstance(node, str) and node in aliases else op
+
+
+def render_history(history: list[dict], aliases: dict[str, str] | None = None) -> str:
     windowed = window_history(history)
     if not windowed:
         return "(none)"
     lines = []
     for entry in windowed:
-        ops = ", ".join(a.get("op", "?") for a in entry.get("actions", []))
+        ops = ", ".join(_render_action(a, aliases or {}) for a in entry.get("actions", []))
         lines.append(f"{entry['step_id']}: {ops} -> {entry['outcome']}")
     return "\n".join(lines)
