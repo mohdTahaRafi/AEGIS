@@ -57,61 +57,121 @@ curl -H "Authorization: Bearer demo-token" http://127.0.0.1:8000/healthz
 ```
 
 **Environment variables:**
-- `AEGIS_MODE` — `replay` (offline) or `inference` (live model)
+- `AEGIS_MODE` — `replay` (offline), `live` (model), or `record` (live, and save responses for replay)
 - `AEGIS_RECORD_DIR` — directory with pre-recorded `.json` files
 - `AEGIS_TOKEN` — bearer token for auth
 - `AEGIS_GATEWAY_PORT` — default 8000
 
 ## 3. Live (Production)
 
-Requires vLLM + GPU + model weights (~15 GB). This is the full topology.
+The server model is an open-weights Qwen VLM on **Groq's free tier** (R-1 decision, see
+[docs/planning/bugs/R-1-vlm-endpoint.md](../docs/planning/bugs/R-1-vlm-endpoint.md)). Groq
+exposes an OpenAI-compatible `/chat/completions`, so the gateway only changes its URL, model name
+and key. No paid API, no GPU.
 
-### Prerequisites
-- NVIDIA GPU with ≥24GB VRAM (H100, A100, or better)
-- vLLM Docker image pulled: `vllm/vllm-openai:latest`
-- Model weights for an open-weights model (e.g., Llama 2 70B)
+| | Endpoint | Model id | Status |
+|---|---|---|---|
+| **A. Groq free tier (demo + dev)** | `https://api.groq.com/openai/v1` | `qwen/qwen3.8-27b` | Gateway → Groq works (live check 2026-09-28, image step passed 2/3, third was rate-limited). **Preview** model. Reports in `tools/vlm/reports/r1-2026-09-28-groq*.json` |
+| **Offline fallback** | Gateway `AEGIS_MODE=replay` (section 2) | — | Recorded from option A in R-6. Use it whenever Groq throttles |
+| B. Self-hosted vLLM | `http://<gpu-host>:8000/v1` | `Qwen/Qwen3-VL-8B-Instruct` | Not used: needs a GPU, outside the free-tier constraint. Kept for reference |
+| ~~OpenRouter free~~ | ~~`https://openrouter.ai/api/v1`~~ | ~~`qwen/qwen3.8-27b:free`~~ | Ruled out 2026-09-28: 1/30 calls succeeded (shared-pool 429s) |
+| ~~Hugging Face → Featherless~~ | ~~`router.huggingface.co/v1`~~ | ~~`Qwen/Qwen3-VL-8B-Instruct:featherless-ai`~~ | Superseded 2026-09-28: free credits ran out. Kept in `tools/vlm/reports/r1-2026-09-28-hf-featherless.json` |
 
-### Setup
+`qwen/qwen3.8-27b` is the only image-input model Groq serves (checked against
+`GET /openai/v1/models` and console.groq.com/docs/vision on 2026-09-28).
+
+### A. Groq free tier
+
+1. **Key.** Create one at console.groq.com → API Keys (free tier, no billing). Put it in
+   `server/deploy/model.env`, which is gitignored; never commit it or paste it anywhere else. If a
+   key is ever exposed, delete it in the console, create a new one and replace it in the file.
+   ```bash
+   cp server/deploy/model.env.example server/deploy/model.env
+   chmod 600 server/deploy/model.env        # then set AEGIS_MODEL_API_KEY=gsk_...
+   ```
+2. **Gateway.** The settings in `model.env.example` are the ones Groq needs: bearer key,
+   image content part, `json_object` output, no `chat_template_kwargs`, one bounded retry.
+   ```bash
+   cd server/gateway
+   set -a; . ../deploy/model.env; set +a
+   AEGIS_TOKEN=$(openssl rand -hex 32) .venv/bin/uvicorn aegis_gateway.main:app --port 8787
+   ```
+3. **Checks.** Everything sent is synthetic. Each call spends from the shared daily budget
+   (below), so run them before a demo, not on a loop:
+   ```bash
+   python3 tools/vlm/smoke.py --runs 10 --json-out tools/vlm/reports/r1-$(date +%F)-groq.json
+   AEGIS_TOKEN=<same token> python3 server/gateway/scripts/r2_live_check.py --runs 3
+   AEGIS_TOKEN=<same token> python3 server/gateway/scripts/r3_live_check.py --runs 10
+   ```
+
+**Gateway variables** (all optional; defaults in `server/gateway/src/aegis_gateway/config.py`):
+`AEGIS_MODEL_API_KEY` (never logged; kept out of `repr`), `AEGIS_MODEL_VISION` (`true`; `false` is
+refused at startup: every step's redacted screenshot goes to the vision model),
+`AEGIS_MODEL_MAX_TOKENS` (`512`), `AEGIS_MODEL_RESPONSE_FORMAT` (`json_object`),
+`AEGIS_MODEL_CHAT_TEMPLATE_KWARGS` (`false`), `AEGIS_MODEL_MAX_RETRIES` (`1`),
+`AEGIS_MODEL_RETRY_MAX_WAIT_S` (`10`).
+
+**How failures look.** An upstream failure is a `503 MODEL_UNAVAILABLE` whose message names the
+reason: `upstream_429`, `upstream_4xx`, `upstream_5xx`, `unreachable` or `bad_body`. For
+`upstream_429` it also carries Groq's `Retry-After`, and the side panel shows e.g.
+`SERVER_ERROR: MODEL_UNAVAILABLE upstream_429 retry in 204 s`. A timeout is `504 MODEL_TIMEOUT`.
+The gateway retries once only when Groq's `retry-after` is ≤ 10 s, or when the connection dropped;
+never after a timeout, and never on a longer wait. The logs (one JSON line per event:
+`model_call`, `model_retry`, `model_error`, `step_processed`) carry no body and no key.
+
+**Free-tier limits** (docs, and the `x-ratelimit-*` headers): 30 RPM, 1,000 RPD, 8,000 TPM, and
+**200,000 tokens per day, per organization** (every key in the org shares it, and the window
+rolls). A step with an image is ~2.4 k prompt tokens, so the whole team gets **~80 image steps a
+day**, and every measurement run spends from the same pool. On 2026-09-28 the R-1 probe runs used
+it all up: the live gateway checks then got `tokens per day (TPD): Limit 200000, Used 199490`
+with `Retry-After` of several minutes. Per minute, about 3 image steps fit.
+
+**Measured 2026-09-28** (client: a laptop on Wi-Fi, end to end, network included; full numbers in
+[R-1](../docs/planning/bugs/R-1-vlm-endpoint.md)):
+- **Latency** (n=10, smoke probe): total p50 1.60 s / p95 17.47 s per successful call.
+- **Vision:** WebP (what the extension sends) 11/14 exact code-word reads; PNG 6/6.
+- **Grounding:** landscape 1280×720, 24/24 points inside the target (5 distinct targets) in 0–1000
+  **of the longer side**; portrait 720×1280, **0/4 under every convention**. Don't rely on `click_point` for
+  portrait viewports (R-12).
+- **Structured output:** `json_object` works; `strict: true` json_schema is rejected.
+
+**Before a demo:** check `GET /openai/v1/models` still lists the model (Preview models "may be
+discontinued without notice"), and that the day's budget isn't spent. If Groq is down or
+throttling, switch to `AEGIS_MODE=replay` (section 2).
+
+**Privacy.** Only the guarded payload leaves the device, as with any server: the extension
+sanitizes and composes the image before egress, and the gateway only relays it. Groq receives the
+same sanitized JSON and WebP a self-hosted vLLM would. By default Groq does not retain inference
+data, except temporary logging (up to 30 days) when troubleshooting errors or investigating
+abuse. **To remove that exception, enable Zero Data Retention:** in the console.groq.com
+settings, open **Data Controls** → turn on Zero Data Retention (it also disables
+batch and fine-tuning). Whether it is on for the team account has **not** been verified; check it
+there and note the date here once it is.
+
+### B. Self-hosted vLLM (reference only)
+
+Not part of the R-1 decision. Requires an NVIDIA GPU with ≥ 24 GB VRAM and the `vllm/vllm-openai` image.
 
 ```bash
 cd server
-
-# Build gateway image
 podman build -f deploy/gateway.Dockerfile -t aegis-gateway:latest .
 
-# Start Caddy (reverse proxy)
-podman run -d \
-  --name caddy \
-  -p 443:443 \
-  -p 80:80 \
-  -v $(pwd)/deploy/Caddyfile:/etc/caddy/Caddyfile \
-  caddy:latest
-
-# Start vLLM
-podman run -d \
-  --name vllm \
-  --gpus all \
+podman run -d --name vllm --gpus all -p 8001:8000 \
   -e VLLM_API_KEY=vllm-secret-key \
-  -p 8001:8000 \
   vllm/vllm-openai:latest \
-  --model meta-llama/Llama-2-70b-chat-hf \
-  --dtype float16 \
-  --max-model-len 2048
+  --model Qwen/Qwen3-VL-8B-Instruct \
+  --max-model-len 16384 \
+  --limit-mm-per-prompt '{"image":1}'
 
-# Start gateway
-podman run -d \
-  --name gateway \
-  -e AEGIS_MODE=inference \
-  -e AEGIS_MODEL_URL=http://vllm:8000 \
-  -e AEGIS_MODEL_API_KEY=vllm-secret-key \
+podman run -d --name gateway -p 8000:8000 \
+  -e AEGIS_MODE=live \
+  -e AEGIS_MODEL_URL=http://vllm:8000/v1 \
+  -e AEGIS_MODEL_NAME=Qwen/Qwen3-VL-8B-Instruct \
   -e AEGIS_TOKEN=$(openssl rand -hex 32) \
-  -e AEGIS_GATEWAY_PORT=8000 \
-  -p 8000:8000 \
   aegis-gateway:latest
 
-# Verify all running
-podman ps
 curl http://127.0.0.1:8000/healthz
+python3 ../tools/vlm/smoke.py --base-url http://127.0.0.1:8001/v1 --model Qwen/Qwen3-VL-8B-Instruct
 ```
 
 ### Docker Compose (Full Stack)
