@@ -1,0 +1,459 @@
+{
+  "date": "2026-09-28T17:38:37+00:00",
+  "base_url": "https://api.groq.com/openai/v1",
+  "model": "qwen/qwen3.8-27b",
+  "client_host": "mightylord77-IdeaPad-Slim-5-14IMH9 Linux 7.0.0-34-generic",
+  "extra_body": {
+    "reasoning_effort": "none"
+  },
+  "image": {
+    "format": "webp",
+    "size": [
+      1280,
+      720
+    ],
+    "bytes": 11052
+  },
+  "text": {
+    "status": 200,
+    "seconds": 0.29,
+    "answer": "ok",
+    "reasoning_chars": 0,
+    "served_model": "qwen/qwen3.8-27b",
+    "served_provider": null,
+    "pass": true
+  },
+  "vision": {
+    "status": 200,
+    "seconds": 0.45,
+    "expected": "ZYOJF-44",
+    "answer": "ZYOJF-44",
+    "pass": true
+  },
+  "grounding": {
+    "status": 200,
+    "seconds": 0.44,
+    "raw": "{\"x\": 779, \"y\": 357}",
+    "truth_px": [
+      1000.0,
+      460.0
+    ],
+    "truth_rel1000": [
+      781,
+      639
+    ],
+    "inside_if_px": false,
+    "inside_if_rel1000": false
+  },
+  "trials": {
+    "n": 10,
+    "vision": {
+      "n_ok": 6,
+      "n_pass": 5,
+      "answers": [
+        {
+          "expected": "XGRFS-92",
+          "answer": "XGRFS-92",
+          "pass": true
+        },
+        {
+          "expected": "HZBCO-69",
+          "answer": "URLError: <urlopen error _ssl.c:983: The handshake operation timed out>",
+          "pass": false
+        },
+        {
+          "expected": "EOHHC-10",
+          "answer": "EOHHC-10",
+          "pass": true
+        },
+        {
+          "expected": "JJYND-88",
+          "answer": "RemoteDisconnected: Remote end closed connection without response",
+          "pass": false
+        },
+        {
+          "expected": "DGKFR-36",
+          "answer": "DGKFR-36",
+          "pass": true
+        },
+        {
+          "expected": "HJBEL-52",
+          "answer": "HJBEL-52",
+          "pass": true
+        },
+        {
+          "expected": "CTSGB-94",
+          "answer": "CTSG-94",
+          "pass": false
+        },
+        {
+          "expected": "GSCRH-14",
+          "answer": "GSCRH-14",
+          "pass": true
+        },
+        {
+          "expected": "ORLHM-52",
+          "answer": "URLError: <urlopen error [Errno -3] Temporary failure in name resolution>",
+          "pass": false
+        },
+        {
+          "expected": "RTOIZ-24",
+          "answer": "RemoteDisconnected: Remote end closed connection without response",
+          "pass": false
+        }
+      ],
+      "seconds": [
+        11.52,
+        209.44,
+        1.1,
+        20.9,
+        1.54,
+        7.86,
+        6.0,
+        4.91,
+        20.02,
+        26.48
+      ]
+    },
+    "grounding": {
+      "n_ok": 7,
+      "n_parsed": 7,
+      "n_inside_if_px": 0,
+      "n_inside_if_rel1000": 0,
+      "raw": [
+        "URLError: <urlopen error [Errno 104] Connection reset by peer>",
+        "{\"x\": 779, \"y\": 359}",
+        "{\"x\": 779, \"y\": 362}",
+        "{\"x\": 779, \"y\": 360}",
+        "{\"x\": 781, \"y\": 359}",
+        "RemoteDisconnected: Remote end closed connection without response",
+        "{\"x\": 779, \"y\": 360}",
+        "RemoteDisconnected: Remote end closed connection without response",
+        "{\"x\": 779, \"y\": 360}",
+        "{\"x\": 779, \"y\": 360}"
+      ],
+      "seconds": [
+        47.95,
+        5.61,
+        2.35,
+        3.42,
+        5.16,
+        23.09,
+        1.84,
+        16.16,
+        1.0,
+        2.08
+      ]
+    }
+  },
+  "kwargs": {
+    "none": {
+      "status": 200,
+      "seconds": 0.48,
+      "accepted": true,
+      "answer": "ok",
+      "reasoning_chars": 0,
+      "completion_tokens": 2,
+      "thinking_off": true,
+      "error": null
+    },
+    "chat_template_kwargs": {
+      "status": 400,
+      "seconds": 1.24,
+      "accepted": false,
+      "answer": null,
+      "reasoning_chars": 0,
+      "completion_tokens": null,
+      "thinking_off": false,
+      "error": "{\"error\":{\"message\":\"property 'chat_template_kwargs' is unsupported\",\"type\":\"invalid_request_error\"}}\n"
+    },
+    "openrouter_reasoning": {
+      "status": 400,
+      "seconds": 1.01,
+      "accepted": false,
+      "answer": null,
+      "reasoning_chars": 0,
+      "completion_tokens": null,
+      "thinking_off": false,
+      "error": "{\"error\":{\"message\":\"property 'reasoning' is unsupported\",\"type\":\"invalid_request_error\"}}\n"
+    },
+    "groq_reasoning_effort": {
+      "status": 200,
+      "seconds": 1.93,
+      "accepted": true,
+      "answer": "ok",
+      "reasoning_chars": 0,
+      "completion_tokens": 2,
+      "thinking_off": true,
+      "error": null
+    }
+  },
+  "structured": {
+    "json_schema": {
+      "status": 400,
+      "seconds": 6.41,
+      "parsed": false,
+      "shape_ok": false,
+      "raw": "{\"error\":{\"message\":\"invalid JSON schema for response_format: 'plan': /properties/actions/items/required: `required` is required to be supplied and to be an array including every key in properties. The following properties must be listed in `required`: node\",\"type\":\"invalid_request_error\",\"param\":\"response_format\",\"schema_path\":\"/properties/actions/items/required\",\"schema_path_segments\":[\"$\",\"prop"
+    },
+    "json_object": {
+      "status": 200,
+      "seconds": 0.4,
+      "parsed": true,
+      "shape_ok": true,
+      "raw": "{\"step_id\": \"s-3\", \"actions\": [{\"op\": \"click\", \"node\": \"n-81\"}]}"
+    },
+    "json_schema_enforced": {
+      "status": 400,
+      "seconds": 0.51,
+      "conforms": false,
+      "raw": "{\"error\":{\"message\":\"Failed to validate JSON. Please adjust your prompt. See 'failed_generation' for more details.\",\"type\":\"invalid_request_error\",\"code\":\"json_validate_failed\",\"failed_generation\":\"\"}}\n"
+    }
+  },
+  "gateway": {
+    "as_sent_today": {
+      "status": 400,
+      "seconds": 0.72,
+      "parsed": false,
+      "has_step_id_and_actions": false,
+      "raw": "{\"error\":{\"message\":\"property 'chat_template_kwargs' is unsupported\",\"type\":\"invalid_request_error\"}}\n"
+    },
+    "strict_without_template_kwargs": {
+      "status": 400,
+      "seconds": 0.55,
+      "parsed": false,
+      "has_step_id_and_actions": false,
+      "raw": "{\"error\":{\"message\":\"invalid JSON schema for response_format: 'action_plan': /$defs/expect/required: `required` is required to be supplied and to be an array including every key in properties. The following properties must be listed in `required`: box_tolerance_px, name, role\",\"type\":\"invalid_request_error\",\"param\":\"response_format\",\"schema_path\":\"/$defs/expect/required\",\"schema_path_segments\":[\"$"
+    },
+    "best_effort_without_template_kwargs": {
+      "status": 200,
+      "seconds": 2.82,
+      "parsed": true,
+      "has_step_id_and_actions": true,
+      "raw": "{\"actions\": [{\"op\": \"stop\", \"reason\": \"cannot_proceed\"}], \"step_id\": \"s-3\"}"
+    }
+  },
+  "latency": {
+    "warmup": {
+      "ok": true,
+      "ttft_s": 1.682181935000699,
+      "total_s": 1.8862852949969238,
+      "usage": {
+        "queue_time": 0.78914634,
+        "prompt_tokens": 2414,
+        "prompt_time": 0.166883799,
+        "completion_tokens": 120,
+        "completion_time": 0.235378746,
+        "total_tokens": 2534,
+        "total_time": 0.402262545
+      },
+      "chars": 284,
+      "reasoning_chars": 0,
+      "retries_429": 0
+    },
+    "runs": [
+      {
+        "ok": true,
+        "ttft_s": 1.801637757998833,
+        "total_s": 2.0690146409979207,
+        "usage": {
+          "queue_time": 0.107973253,
+          "prompt_tokens": 2414,
+          "prompt_time": 0.171765503,
+          "completion_tokens": 120,
+          "completion_time": 0.227611716,
+          "total_tokens": 2534,
+          "total_time": 0.399377219
+        },
+        "chars": 284,
+        "reasoning_chars": 0,
+        "retries_429": 1
+      },
+      {
+        "ok": true,
+        "ttft_s": 17.230661386995052,
+        "total_s": 17.474541821997263,
+        "usage": {
+          "queue_time": 0.10141954,
+          "prompt_tokens": 2414,
+          "prompt_time": 0.172150616,
+          "completion_tokens": 120,
+          "completion_time": 0.228361892,
+          "total_tokens": 2534,
+          "total_time": 0.400512508
+        },
+        "chars": 284,
+        "reasoning_chars": 0,
+        "retries_429": 1
+      },
+      {
+        "ok": true,
+        "ttft_s": 1.4078862369933631,
+        "total_s": 1.6252557459956734,
+        "usage": {
+          "queue_time": 0.177334644,
+          "prompt_tokens": 2414,
+          "prompt_time": 0.181527341,
+          "completion_tokens": 120,
+          "completion_time": 0.227594744,
+          "total_tokens": 2534,
+          "total_time": 0.409122085
+        },
+        "chars": 284,
+        "reasoning_chars": 0,
+        "retries_429": 1
+      },
+      {
+        "ok": true,
+        "ttft_s": 1.333735597996565,
+        "total_s": 1.5736774719989626,
+        "usage": {
+          "queue_time": 0.101586382,
+          "prompt_tokens": 2414,
+          "prompt_time": 0.171902912,
+          "completion_tokens": 120,
+          "completion_time": 0.246096364,
+          "total_tokens": 2534,
+          "total_time": 0.417999276
+        },
+        "chars": 284,
+        "reasoning_chars": 0,
+        "retries_429": 1
+      },
+      {
+        "ok": true,
+        "ttft_s": 0.8416349920007633,
+        "total_s": 1.1255398010034696,
+        "usage": {
+          "queue_time": 0.112616132,
+          "prompt_tokens": 2414,
+          "prompt_time": 0.172917033,
+          "completion_tokens": 120,
+          "completion_time": 0.228030665,
+          "total_tokens": 2534,
+          "total_time": 0.400947698
+        },
+        "chars": 284,
+        "reasoning_chars": 0,
+        "retries_429": 1
+      },
+      {
+        "ok": true,
+        "ttft_s": 0.720513143001881,
+        "total_s": 0.9649621569988085,
+        "usage": {
+          "queue_time": 0.112715504,
+          "prompt_tokens": 2414,
+          "prompt_time": 0.169712641,
+          "completion_tokens": 120,
+          "completion_time": 0.227926626,
+          "total_tokens": 2534,
+          "total_time": 0.397639267
+        },
+        "chars": 284,
+        "reasoning_chars": 0,
+        "retries_429": 1
+      },
+      {
+        "ok": true,
+        "ttft_s": 5.915571162004198,
+        "total_s": 6.19143048299884,
+        "usage": {
+          "queue_time": 0.112969739,
+          "prompt_tokens": 2414,
+          "prompt_time": 0.173163867,
+          "completion_tokens": 120,
+          "completion_time": 0.227927796,
+          "total_tokens": 2534,
+          "total_time": 0.401091663
+        },
+        "chars": 284,
+        "reasoning_chars": 0,
+        "retries_429": 1
+      },
+      {
+        "ok": true,
+        "ttft_s": 1.404734848998487,
+        "total_s": 1.601623850998294,
+        "usage": {
+          "queue_time": 0.110770275,
+          "prompt_tokens": 2414,
+          "prompt_time": 0.166245369,
+          "completion_tokens": 120,
+          "completion_time": 0.229359964,
+          "total_tokens": 2534,
+          "total_time": 0.395605333
+        },
+        "chars": 284,
+        "reasoning_chars": 0,
+        "retries_429": 1
+      },
+      {
+        "ok": true,
+        "ttft_s": 0.6612877229999867,
+        "total_s": 0.8795948179977131,
+        "usage": {
+          "queue_time": 0.115052275,
+          "prompt_tokens": 2414,
+          "prompt_time": 0.17380624,
+          "completion_tokens": 120,
+          "completion_time": 0.250021749,
+          "total_tokens": 2534,
+          "total_time": 0.423827989
+        },
+        "chars": 284,
+        "reasoning_chars": 0,
+        "retries_429": 1
+      },
+      {
+        "ok": true,
+        "ttft_s": 0.9050236830007634,
+        "total_s": 1.17537047299993,
+        "usage": {
+          "queue_time": 0.112322069,
+          "prompt_tokens": 2414,
+          "prompt_time": 0.168479757,
+          "completion_tokens": 120,
+          "completion_time": 0.230020002,
+          "total_tokens": 2534,
+          "total_time": 0.398499759
+        },
+        "chars": 284,
+        "reasoning_chars": 0,
+        "retries_429": 1
+      }
+    ],
+    "n_ok": 10,
+    "n": 10,
+    "ttft_s": {
+      "p50": 1.404734848998487,
+      "p95": 17.230661386995052,
+      "min": 0.6612877229999867,
+      "max": 17.230661386995052
+    },
+    "total_s": {
+      "p50": 1.601623850998294,
+      "p95": 17.474541821997263,
+      "min": 0.8795948179977131,
+      "max": 17.474541821997263
+    },
+    "mean_total_s": 3.4681011263986874
+  },
+  "served_models": [
+    "qwen/qwen3.8-27b"
+  ],
+  "served_providers": [],
+  "rate_limited_429_total": 19,
+  "rate_limit_headers_last": {
+    "x-ratelimit-limit-requests": "1000",
+    "x-ratelimit-limit-tokens": "8000",
+    "x-ratelimit-remaining-requests": "965",
+    "x-ratelimit-remaining-tokens": "938",
+    "x-ratelimit-reset-requests": "50m24s",
+    "x-ratelimit-reset-tokens": "58.697s"
+  },
+  "retry_policy": {
+    "max_retries": 8,
+    "wait_s": 15.0
+  }
+}

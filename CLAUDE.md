@@ -99,6 +99,25 @@ Never hand-edit generated files; regenerate and commit.
 Do **not** build: mobile, multi-language UI, payments, RBAC/auth beyond a session, model training
 or fine-tuning, blockchain, a second database, Kubernetes, or anything not in the demo script.
 
+### 8. Show every fix in a run the user can watch
+A fix to how the extension or the agent behaves is not done until it has been shown working in a
+**visible** browser run on the user's screen — headless runs and unit tests alone do not count.
+- **Visible runs:** `eval/.venv/bin/python tools/e2e/probe_site.py <url> "<task>" --watch`
+  opens a real Chromium window (DISPLAY :0) with the built extension: the page on the left, the
+  AEGIS panel's live run log in its own window on the right, confirmation cards shown before they
+  are allowed, the full run log opened at the end (`--hold N` keeps the windows up N seconds).
+  Rebuild first (`npx wxt build --mode development` in `apps/extension`).
+- **The user's own Chrome:** the Playwright MCP server (`playwright`, extension mode) drives the
+  user's real tabs and sessions — use it to look at what the user sees (their tabs, the page a bug
+  happened on). Chrome does not let it into another extension's pages or its permission prompts,
+  so it cannot click inside the AEGIS panel; the task runs themselves go through `--watch`.
+- Run on **real websites**, not the `demo/` pages: public pages that need no login (Wikipedia, a
+  shop's search and product pages, …). Never banking/financial sites, never a purchase, payment,
+  sign-up or message send — read, search, navigate and report only.
+- Use the live gateway (real model) for these runs; the scripted upstream `tools/e2e/fake_vlm.py`
+  is for debugging only, and a run that used it must say so.
+- Report which run showed which fix, and what was on screen (steps, screenshots sent, results).
+
 ## Commands
 
 See [docs/CURRENT_BUILD.md](docs/CURRENT_BUILD.md) for the commands that actually work today.

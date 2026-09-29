@@ -1,0 +1,160 @@
+{
+  "date": "2026-09-28T11:43:20+00:00",
+  "base_url": "https://router.huggingface.co/v1",
+  "model": "Qwen/Qwen3-VL-8B-Instruct:featherless-ai",
+  "client_host": "mightylord77-IdeaPad-Slim-5-14IMH9 Linux 7.0.0-34-generic",
+  "image": {
+    "format": "webp",
+    "size": [
+      1280,
+      720
+    ],
+    "bytes": 11726
+  },
+  "vision": {
+    "status": 200,
+    "seconds": 3.03,
+    "expected": "EWYAQ-12",
+    "answer": "EWYAQ-12",
+    "pass": true
+  },
+  "grounding": {
+    "status": 200,
+    "seconds": 3.62,
+    "raw": "{\"x\": 787, \"y\": 637}",
+    "truth_px": [
+      1000.0,
+      460.0
+    ],
+    "truth_rel1000": [
+      781,
+      639
+    ],
+    "inside_if_px": false,
+    "inside_if_rel1000": true
+  },
+  "kwargs": {
+    "status": 200,
+    "accepted": true,
+    "error": null
+  },
+  "structured": {
+    "json_schema": {
+      "status": 200,
+      "seconds": 2.62,
+      "parsed": true,
+      "shape_ok": true,
+      "raw": "{\"step_id\": \"s-3\", \"actions\": [{\"op\": \"click\", \"node\": \"n-81\"}]}"
+    },
+    "json_object": {
+      "status": 200,
+      "seconds": 2.94,
+      "parsed": true,
+      "shape_ok": true,
+      "raw": "{\"step_id\": \"s-3\", \"actions\": [{\"op\": \"click\", \"node\": \"n-81\"}]}"
+    }
+  },
+  "latency": {
+    "warmup": {
+      "ok": true,
+      "ttft_s": 4.470870845998434,
+      "total_s": 5.348530194998602,
+      "usage": {
+        "prompt_tokens": 2469,
+        "completion_tokens": 46,
+        "total_tokens": 2515,
+        "cached_tokens": 0
+      },
+      "chars": 133
+    },
+    "runs": [
+      {
+        "ok": true,
+        "ttft_s": 1.565771258003224,
+        "total_s": 3.342924929002038,
+        "usage": {
+          "prompt_tokens": 1587,
+          "completion_tokens": 38,
+          "total_tokens": 1625,
+          "cached_tokens": 0
+        },
+        "chars": 131
+      },
+      {
+        "ok": true,
+        "ttft_s": 1.6576429689994256,
+        "total_s": 2.8929671330006386,
+        "usage": {
+          "prompt_tokens": 1587,
+          "completion_tokens": 43,
+          "total_tokens": 1630,
+          "cached_tokens": 0
+        },
+        "chars": 131
+      },
+      {
+        "ok": true,
+        "ttft_s": 2.043157390002307,
+        "total_s": 3.4252205550001236,
+        "usage": {
+          "prompt_tokens": 1587,
+          "completion_tokens": 43,
+          "total_tokens": 1630,
+          "cached_tokens": 0
+        },
+        "chars": 131
+      },
+      {
+        "ok": false,
+        "status": 402,
+        "error": "{\"error\":\"You have depleted your monthly included credits. Purchase pre-paid credits to continue using Inference Providers. Alternatively, subscribe to PRO to get 20x more included usage.\"}"
+      },
+      {
+        "ok": false,
+        "status": 402,
+        "error": "{\"error\":\"You have depleted your monthly included credits. Purchase pre-paid credits to continue using Inference Providers. Alternatively, subscribe to PRO to get 20x more included usage.\"}"
+      },
+      {
+        "ok": false,
+        "status": 402,
+        "error": "{\"error\":\"You have depleted your monthly included credits. Purchase pre-paid credits to continue using Inference Providers. Alternatively, subscribe to PRO to get 20x more included usage.\"}"
+      },
+      {
+        "ok": false,
+        "status": 402,
+        "error": "{\"error\":\"You have depleted your monthly included credits. Purchase pre-paid credits to continue using Inference Providers. Alternatively, subscribe to PRO to get 20x more included usage.\"}"
+      },
+      {
+        "ok": false,
+        "status": 402,
+        "error": "{\"error\":\"You have depleted your monthly included credits. Purchase pre-paid credits to continue using Inference Providers. Alternatively, subscribe to PRO to get 20x more included usage.\"}"
+      },
+      {
+        "ok": false,
+        "status": 402,
+        "error": "{\"error\":\"You have depleted your monthly included credits. Purchase pre-paid credits to continue using Inference Providers. Alternatively, subscribe to PRO to get 20x more included usage.\"}"
+      },
+      {
+        "ok": false,
+        "status": 402,
+        "error": "{\"error\":\"You have depleted your monthly included credits. Purchase pre-paid credits to continue using Inference Providers. Alternatively, subscribe to PRO to get 20x more included usage.\"}"
+      }
+    ],
+    "n_ok": 3,
+    "n": 10,
+    "ttft_s": {
+      "p50": 1.6576429689994256,
+      "p95": 2.043157390002307,
+      "min": 1.565771258003224,
+      "max": 2.043157390002307
+    },
+    "total_s": {
+      "p50": 3.342924929002038,
+      "p95": 3.4252205550001236,
+      "min": 2.8929671330006386,
+      "max": 3.4252205550001236
+    },
+    "mean_total_s": 3.2203708723342666
+  },
+  "provider": "featherless-ai"
+}

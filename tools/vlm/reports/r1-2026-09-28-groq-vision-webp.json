@@ -1,0 +1,113 @@
+{
+  "date": "2026-09-28T18:23:57+00:00",
+  "base_url": "https://api.groq.com/openai/v1",
+  "model": "qwen/qwen3.8-27b",
+  "client_host": "mightylord77-IdeaPad-Slim-5-14IMH9 Linux 7.0.0-34-generic",
+  "extra_body": {
+    "reasoning_effort": "none"
+  },
+  "image": {
+    "format": "webp",
+    "size": [
+      1280,
+      720
+    ],
+    "bytes": 11970
+  },
+  "text": {
+    "status": 200,
+    "seconds": 0.66,
+    "answer": "ok",
+    "reasoning_chars": 0,
+    "served_model": "qwen/qwen3.8-27b",
+    "served_provider": null,
+    "pass": true
+  },
+  "trials": {
+    "n": 6,
+    "vision": {
+      "n_ok": 6,
+      "n_pass": 5,
+      "answers": [
+        {
+          "expected": "NFJLJ-37",
+          "answer": "NFJLJ-37",
+          "pass": true
+        },
+        {
+          "expected": "TQQEZ-88",
+          "answer": "TQQUEZ-88",
+          "pass": false
+        },
+        {
+          "expected": "GGXEK-58",
+          "answer": "GGXEK-58",
+          "pass": true
+        },
+        {
+          "expected": "MSRLK-64",
+          "answer": "MSRLK-64",
+          "pass": true
+        },
+        {
+          "expected": "XLLTJ-14",
+          "answer": "XLLTJ-14",
+          "pass": true
+        },
+        {
+          "expected": "JQTOG-63",
+          "answer": "JQTOG-63",
+          "pass": true
+        }
+      ],
+      "seconds": [
+        0.73,
+        1.56,
+        0.9,
+        0.9,
+        0.77,
+        1.6
+      ]
+    },
+    "grounding": {
+      "n_ok": 6,
+      "n_parsed": 6,
+      "n_inside_if_px": 0,
+      "n_inside_if_rel1000": 0,
+      "n_inside_if_rel1000_long_side": 6,
+      "raw": [
+        "{\"x\": 779, \"y\": 359}",
+        "{\"x\": 779, \"y\": 359}",
+        "{\"x\": 779, \"y\": 359}",
+        "{\"x\": 779, \"y\": 362}",
+        "{\"x\": 779, \"y\": 359}",
+        "{\"x\": 779, \"y\": 359}"
+      ],
+      "seconds": [
+        1.17,
+        0.75,
+        0.7,
+        1.92,
+        2.25,
+        5.19
+      ]
+    }
+  },
+  "served_models": [
+    "qwen/qwen3.8-27b"
+  ],
+  "served_providers": [],
+  "rate_limited_429_total": 11,
+  "rate_limit_headers_last": {
+    "x-ratelimit-limit-requests": "1000",
+    "x-ratelimit-limit-tokens": "8000",
+    "x-ratelimit-remaining-requests": "962",
+    "x-ratelimit-remaining-tokens": "1063",
+    "x-ratelimit-reset-requests": "54m43.2s",
+    "x-ratelimit-reset-tokens": "52.027s"
+  },
+  "retry_policy": {
+    "max_retries": 6,
+    "wait_s": 15.0
+  }
+}

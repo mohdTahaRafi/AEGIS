@@ -1,0 +1,95 @@
+{
+  "date": "2026-09-28T18:31:00+00:00",
+  "what": "Live gateway -> Groq checks (server/gateway/scripts/r2_live_check.py, r3_live_check.py), gateway in AEGIS_MODE=live with AEGIS_LOG_PAYLOADS=true, settings from server/deploy/model.env (json_object, no chat_template_kwargs, max_tokens 512, 1 bounded retry).",
+  "base_url": "https://api.groq.com/openai/v1",
+  "model": "qwen/qwen3.8-27b",
+  "client_host": "mightylord77-IdeaPad-Slim-5-14IMH9 Linux 7.0.0-34-generic",
+  "key": "rotated key from server/deploy/model.env (the exposed key was not used for any test call)",
+  "r2_image_only_target": {
+    "runs": 3,
+    "http_200": 2,
+    "picked_target_n_b2": 2,
+    "http_503_upstream_429": 1,
+    "plans": [
+      [
+        {
+          "op": "click",
+          "node": "n-b2"
+        }
+      ],
+      [
+        {
+          "op": "click",
+          "node": "n-b2"
+        },
+        {
+          "op": "done",
+          "summary": "Clicked the green button (n-b2) which is positioned below the red ZEBRA-42 banner."
+        }
+      ]
+    ],
+    "seconds_200": [
+      0.6,
+      6.8
+    ],
+    "note": "Run 3's 6.8 s includes one gateway retry: model_retry reason=upstream_429 wait_s=3.0, then model_call attempt=1 status 200 in 1.64 s. Run 1's 429 asked retry-after 12 s > AEGIS_MODEL_RETRY_MAX_WAIT_S 10, so it failed fast."
+  },
+  "r3_text_login_first_batch": {
+    "runs": 10,
+    "pause_s": 15,
+    "http_503_upstream_429": 10,
+    "retry_after_s": [
+      205,
+      178,
+      131,
+      115,
+      114,
+      99,
+      84,
+      53,
+      38,
+      23,
+      12
+    ]
+  },
+  "r3_text_login_second_batch": {
+    "runs": 10,
+    "pause_s": 20,
+    "http_200": 1,
+    "http_503_upstream_429": 9,
+    "plans_200": [
+      [
+        {
+          "op": "type",
+          "node": "n-u",
+          "ref": "⟪USERNAME#1⟫"
+        }
+      ]
+    ],
+    "note": "The one 200 typed the bare ref USERNAME#1, wrapped by the gateway to ⟪USERNAME#1⟫, but did not also click Sign in (0/1 as the task asked).",
+    "retry_after_s": [
+      253,
+      296,
+      315,
+      336,
+      356,
+      390,
+      399,
+      420,
+      440
+    ]
+  },
+  "rate_limit_cause": "Groq 429 body, read with one direct request after the runs: 'Rate limit reached for model qwen/qwen3.8-27b ... on tokens per day (TPD): Limit 200000, Used 199490, Requested 982.' The TPD limit is per organization, so it includes the 2026-09-28 R-1 probe runs made with the previous key. Per-minute headers at the same time: remaining 8000/8000 tokens.",
+  "privacy_log_scan": {
+    "gateway_log_lines_with_key": 0,
+    "gateway_log_lines_with_gsk_prefix": 0,
+    "gateway_log_lines_with_webp_base64": 0,
+    "payload_log_lines": 23,
+    "payload_lines_with_image_redacted_marker": 3
+  },
+  "not_measured": [
+    "r3 10/10 success",
+    "r2 3/3 success",
+    "live latency through the gateway at n>=10"
+  ]
+}

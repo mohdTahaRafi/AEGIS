@@ -1,0 +1,295 @@
+{
+  "date": "2026-09-28T18:21:35+00:00",
+  "base_url": "https://api.groq.com/openai/v1",
+  "model": "qwen/qwen3.8-27b",
+  "client_host": "mightylord77-IdeaPad-Slim-5-14IMH9 Linux 7.0.0-34-generic",
+  "extra_body": {
+    "reasoning_effort": "none"
+  },
+  "image": {
+    "format": "webp",
+    "size": [
+      1280,
+      720
+    ],
+    "bytes": 11484
+  },
+  "text": {
+    "status": 200,
+    "seconds": 0.52,
+    "answer": "ok",
+    "reasoning_chars": 0,
+    "served_model": "qwen/qwen3.8-27b",
+    "served_provider": null,
+    "pass": true
+  },
+  "grounding_grid": {
+    "landscape": {
+      "size": [
+        1280,
+        720
+      ],
+      "n": 4,
+      "n_parsed": 4,
+      "n_inside": {
+        "px": 0,
+        "rel1000": 0,
+        "rel1000_long_side": 4
+      },
+      "fit": {
+        "x": {
+          "a": 1.277,
+          "b": 3.3,
+          "a_x1000": 1277,
+          "max_residual_px": 4.0
+        },
+        "y": {
+          "a": 1.2755,
+          "b": 2.9,
+          "a_x1000": 1275,
+          "max_residual_px": 2.0
+        }
+      },
+      "answers": [
+        {
+          "target": "red circle",
+          "truth_px": [
+            192,
+            158
+          ],
+          "status": 200,
+          "seconds": 0.51,
+          "raw": "{\"x\": 150, \"y\": 120}",
+          "model_xy": [
+            150.0,
+            120.0
+          ],
+          "inside": {
+            "px": false,
+            "rel1000": false,
+            "rel1000_long_side": true
+          },
+          "err_px": {
+            "px": 56.6,
+            "rel1000": 71.6,
+            "rel1000_long_side": 4.4
+          }
+        },
+        {
+          "target": "blue square",
+          "truth_px": [
+            1050,
+            130
+          ],
+          "status": 200,
+          "seconds": 0.73,
+          "raw": "{\"x\": 819, \"y\": 101}",
+          "model_xy": [
+            819.0,
+            101.0
+          ],
+          "inside": {
+            "px": false,
+            "rel1000": false,
+            "rel1000_long_side": true
+          },
+          "err_px": {
+            "px": 232.8,
+            "rel1000": 57.3,
+            "rel1000_long_side": 1.8
+          }
+        },
+        {
+          "target": "purple circle",
+          "truth_px": [
+            384,
+            562
+          ],
+          "status": 200,
+          "seconds": 0.71,
+          "raw": "{\"x\": 295, \"y\": 438}",
+          "model_xy": [
+            295.0,
+            438.0
+          ],
+          "inside": {
+            "px": false,
+            "rel1000": false,
+            "rel1000_long_side": true
+          },
+          "err_px": {
+            "px": 152.6,
+            "rel1000": 246.7,
+            "rel1000_long_side": 6.5
+          }
+        },
+        {
+          "target": "orange square",
+          "truth_px": [
+            922,
+            446
+          ],
+          "status": 200,
+          "seconds": 1.5,
+          "raw": "{\"x\": 721, \"y\": 348}",
+          "model_xy": [
+            721.0,
+            348.0
+          ],
+          "inside": {
+            "px": false,
+            "rel1000": false,
+            "rel1000_long_side": true
+          },
+          "err_px": {
+            "px": 223.6,
+            "rel1000": 195.4,
+            "rel1000_long_side": 1.0
+          }
+        }
+      ]
+    },
+    "portrait": {
+      "size": [
+        720,
+        1280
+      ],
+      "n": 4,
+      "n_parsed": 4,
+      "n_inside": {
+        "px": 0,
+        "rel1000": 0,
+        "rel1000_long_side": 0
+      },
+      "fit": {
+        "x": {
+          "a": 0.6915,
+          "b": 39.6,
+          "a_x1000": 692,
+          "max_residual_px": 4.8
+        },
+        "y": {
+          "a": 1.8862,
+          "b": -199.2,
+          "a_x1000": 1886,
+          "max_residual_px": 484.2
+        }
+      },
+      "answers": [
+        {
+          "target": "red circle",
+          "truth_px": [
+            108,
+            282
+          ],
+          "status": 200,
+          "seconds": 1.02,
+          "raw": "{\"x\": 93, \"y\": 399}",
+          "model_xy": [
+            93.0,
+            399.0
+          ],
+          "inside": {
+            "px": false,
+            "rel1000": false,
+            "rel1000_long_side": false
+          },
+          "err_px": {
+            "px": 118.0,
+            "rel1000": 232.4,
+            "rel1000_long_side": 229.0
+          }
+        },
+        {
+          "target": "blue square",
+          "truth_px": [
+            590,
+            230
+          ],
+          "status": 200,
+          "seconds": 1.33,
+          "raw": "{\"x\": 789, \"y\": 328}",
+          "model_xy": [
+            789.0,
+            328.0
+          ],
+          "inside": {
+            "px": false,
+            "rel1000": false,
+            "rel1000_long_side": false
+          },
+          "err_px": {
+            "px": 221.8,
+            "rel1000": 191.1,
+            "rel1000_long_side": 460.8
+          }
+        },
+        {
+          "target": "purple circle",
+          "truth_px": [
+            216,
+            998
+          ],
+          "status": 200,
+          "seconds": 0.54,
+          "raw": "{\"x\": 262, \"y\": 378}",
+          "model_xy": [
+            262.0,
+            378.0
+          ],
+          "inside": {
+            "px": false,
+            "rel1000": false,
+            "rel1000_long_side": false
+          },
+          "err_px": {
+            "px": 621.7,
+            "rel1000": 514.9,
+            "rel1000_long_side": 527.8
+          }
+        },
+        {
+          "target": "orange square",
+          "truth_px": [
+            518,
+            794
+          ],
+          "status": 200,
+          "seconds": 10.36,
+          "raw": "{\"x\": 698, \"y\": 539}",
+          "model_xy": [
+            698.0,
+            539.0
+          ],
+          "inside": {
+            "px": false,
+            "rel1000": false,
+            "rel1000_long_side": false
+          },
+          "err_px": {
+            "px": 312.1,
+            "rel1000": 105.2,
+            "rel1000_long_side": 389.6
+          }
+        }
+      ]
+    }
+  },
+  "served_models": [
+    "qwen/qwen3.8-27b"
+  ],
+  "served_providers": [],
+  "rate_limited_429_total": 6,
+  "rate_limit_headers_last": {
+    "x-ratelimit-limit-requests": "1000",
+    "x-ratelimit-limit-tokens": "8000",
+    "x-ratelimit-remaining-requests": "975",
+    "x-ratelimit-remaining-tokens": "1858",
+    "x-ratelimit-reset-requests": "36m0s",
+    "x-ratelimit-reset-tokens": "46.065s"
+  },
+  "retry_policy": {
+    "max_retries": 6,
+    "wait_s": 15.0
+  }
+}
