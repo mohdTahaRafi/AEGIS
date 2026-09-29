@@ -3,10 +3,13 @@
 // its type signature makes the rule mechanical rather than a review checklist item: `detail` is
 // `number | boolean | undefined`, so a caller cannot accidentally pass a string of page content.
 
+import type { PreflightFailureReason } from './messages';
+
 export type LogCode =
   | 'port_connected'
   | 'port_disconnected'
   | 'port_message_malformed'
+  | 'port_handler_failed'
   | 'port_sender_untrusted'
   | 'extract_started'
   | 'extract_completed'
@@ -30,9 +33,16 @@ export interface LogEvent {
 }
 
 /** `detail` accepts a closed set of small strings (reason codes, enum values) — never free text. */
+// Every PreflightFailureReason, as a Record so adding a reason without listing it here is a type
+// error. (NODE_VOLATILE was missing: logging it threw inside the action handler, which then never
+// answered the host, so a `type` into a live editor hung the task — found on Gmail, 2026-09-29.)
+const PREFLIGHT_REASONS: Record<PreflightFailureReason, true> = {
+  NODE_UNRESOLVED: true, FACET_ROLE: true, FACET_NAME: true, HIT_TEST_FAILED: true, DISABLED: true,
+  CONTAINER_MISMATCH: true, LEASE_EXPIRED: true, NODE_VOLATILE: true, INTERNAL_ERROR: true,
+};
+
 const ALLOWED_STRING_DETAILS = new Set<string>([
-  // PreflightFailureReason
-  'NODE_UNRESOLVED', 'FACET_ROLE', 'FACET_NAME', 'HIT_TEST_FAILED', 'DISABLED', 'CONTAINER_MISMATCH', 'LEASE_EXPIRED',
+  ...Object.keys(PREFLIGHT_REASONS),
   // controller states (design.md §10.1)
   'IDLE', 'PREPARING', 'OBSERVING', 'PERCEIVING', 'SANITIZING', 'GUARDING', 'BLOCK', 'SENDING',
   'AWAITING_SERVER', 'VALIDATING', 'RECONCILING', 'ACTING', 'SETTLING', 'DONE', 'ERROR', 'CANCELLED', 'STOPPED',

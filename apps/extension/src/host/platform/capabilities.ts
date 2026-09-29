@@ -31,6 +31,37 @@ export async function ensureHostPermission(permissions: PermissionsApi, origin: 
   return granted ? 'requested-and-granted' : 'denied';
 }
 
+export const ALL_SITES = '<all_urls>';
+
+export interface TaskPermissions {
+  state: HostPermissionState;
+  /** Chrome's `captureVisibleTab` accepts only `<all_urls>` or an activeTab grant (a click on the
+   * AEGIS icon on that very tab) — a per-site host permission is NOT enough. Without all sites, a
+   * tab the task moves into (one its own click opened) can be read but not captured, so vision,
+   * which every step requires, stops until the user clicks the icon there. */
+  allSites: boolean;
+}
+
+/**
+ * At Run (a user gesture): all sites if already granted; otherwise asks for it once (the browser's
+ * own prompt), and if that is declined falls back to this site only (`ensureHostPermission`).
+ * Host access only lets AEGIS inject into and capture the tab a task runs in — the page is still
+ * sanitized and guarded before anything leaves the device.
+ */
+export async function ensureTaskPermissions(permissions: PermissionsApi, origin: string): Promise<TaskPermissions> {
+  if (await permissions.contains({ origins: [ALL_SITES] })) return { state: 'granted', allSites: true };
+  try {
+    if (await permissions.request({ origins: [ALL_SITES] })) return { state: 'requested-and-granted', allSites: true };
+  } catch {
+    // No user gesture left, or the browser refused to prompt: fall through to this site only.
+  }
+  try {
+    return { state: await ensureHostPermission(permissions, origin), allSites: false };
+  } catch {
+    return { state: 'denied', allSites: false };
+  }
+}
+
 export interface RuntimeMessaging {
   addMessageListener(cb: (message: unknown) => void): void;
 }

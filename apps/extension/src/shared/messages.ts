@@ -31,6 +31,9 @@ export interface WireTextRun {
   text: string;
   /** T-6.7 — see `content/detect/spans.ts`'s `TextRun.volatile` doc comment. */
   volatile?: boolean;
+  /** The entity the run's DOM-associated label names (`<dt>Mobile</dt><dd>…</dd>`), so the value
+   * is redacted by what it IS, whatever its format. See `spans.ts`'s `labelEntityFor`. */
+  labelEntity?: EntityType;
 }
 
 export interface WireScreenNodeState {
@@ -90,7 +93,9 @@ export type PreflightFailureReason =
   | 'DISABLED'
   | 'CONTAINER_MISMATCH'
   | 'LEASE_EXPIRED'
-  | 'NODE_VOLATILE';
+  | 'NODE_VOLATILE'
+  /** The content script threw while handling the action: reported, never left unanswered. */
+  | 'INTERNAL_ERROR';
 
 export interface WireActionExpect {
   role?: string;
@@ -104,7 +109,13 @@ export type WireAction =
   | { op: 'type'; node: string; text: string; clearFirst?: boolean; expect?: WireActionExpect }
   | { op: 'select'; node: string; option: string; expect?: WireActionExpect }
   | { op: 'scroll'; direction: 'up' | 'down' | 'left' | 'right'; amount?: 'small' | 'page' | 'end'; node?: string }
-  | { op: 'click_point'; x: number; y: number; label: string };
+  | { op: 'click_point'; x: number; y: number; label: string }
+  | { op: 'press_key'; key: PressKey; node?: string }
+  | { op: 'hover'; node: string }
+  | { op: 'double_click'; node: string; expect?: WireActionExpect };
+
+/** The protocol's `press_key` keys (action-plan.schema.json). */
+export type PressKey = 'Enter' | 'Tab' | 'Escape' | 'Backspace' | 'Delete' | 'Space' | 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight' | 'PageUp' | 'PageDown' | 'Home' | 'End';
 
 export interface DispatchActionMessage {
   type: 'dispatch-action';
@@ -112,7 +123,21 @@ export interface DispatchActionMessage {
   action: WireAction;
 }
 
-export type HostToContentMessage = { type: 'extract' } | DispatchActionMessage | { type: 'ping' };
+/** Wait until the page is visually complete (see content/observe/ready.ts), at most `maxMs`. */
+export interface AwaitReadyMessage {
+  type: 'await-ready';
+  requestId: string;
+  maxMs: number;
+}
+
+/** On-screen rectangles of character spans of text runs (see content/detect/spans.ts). */
+export interface MeasureSpansMessage {
+  type: 'measure-spans';
+  requestId: string;
+  spans: { runId: string; start: number; end: number }[];
+}
+
+export type HostToContentMessage = { type: 'extract' } | DispatchActionMessage | { type: 'ping' } | AwaitReadyMessage | MeasureSpansMessage;
 
 export interface GraphMessage {
   type: 'graph';
@@ -160,12 +185,29 @@ export interface NavigatedMessage {
   type: 'navigated';
 }
 
+export interface SpanBoxesMessage {
+  type: 'span-boxes';
+  requestId: string;
+  /** Per requested span, in order: its rectangles (empty when it could not be measured). */
+  boxes: [number, number, number, number][][];
+}
+
+export interface PageReadyMessage {
+  type: 'page-ready';
+  requestId: string;
+  waitedMs: number;
+  pendingImages: number;
+  timedOut: boolean;
+}
+
 export type ContentToHostMessage =
   | { type: 'ready'; frame: string }
   | GraphMessage
   | ActionResultMessage
   | SettledMessage
   | NavigatedMessage
+  | PageReadyMessage
+  | SpanBoxesMessage
   | { type: 'pong' };
 
 export const PORT_NAME = 'aegis-content-host';
@@ -200,8 +242,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-const HOST_TO_CONTENT_TYPES = new Set(['extract', 'dispatch-action', 'ping']);
-const CONTENT_TO_HOST_TYPES = new Set(['ready', 'graph', 'action-result', 'settled', 'navigated', 'pong']);
+const HOST_TO_CONTENT_TYPES = new Set(['extract', 'dispatch-action', 'ping', 'await-ready', 'measure-spans']);
+const CONTENT_TO_HOST_TYPES = new Set(['ready', 'graph', 'action-result', 'settled', 'navigated', 'pong', 'page-ready', 'span-boxes']);
 
 /**
  * Validated, not merely typed: a message arrives as `unknown` off a port, and a malformed one
@@ -212,6 +254,12 @@ export function isHostToContentMessage(value: unknown): value is HostToContentMe
   if (!HOST_TO_CONTENT_TYPES.has(value.type)) return false;
   if (value.type === 'dispatch-action') {
     return typeof value.actionId === 'string' && isRecord(value.action) && typeof (value.action as { op?: unknown }).op === 'string';
+  }
+  if (value.type === 'measure-spans') {
+    return typeof value.requestId === 'string' && Array.isArray(value.spans) && value.spans.every((sp) => isRecord(sp) && typeof sp.runId === 'string' && typeof sp.start === 'number' && typeof sp.end === 'number');
+  }
+  if (value.type === 'await-ready') {
+    return typeof value.requestId === 'string' && typeof value.maxMs === 'number' && Number.isFinite(value.maxMs);
   }
   return true;
 }
@@ -238,6 +286,12 @@ export function isContentToHostMessage(value: unknown): value is ContentToHostMe
   }
   if (value.type === 'ready') {
     return typeof value.frame === 'string';
+  }
+  if (value.type === 'span-boxes') {
+    return typeof value.requestId === 'string' && Array.isArray(value.boxes);
+  }
+  if (value.type === 'page-ready') {
+    return typeof value.requestId === 'string' && typeof value.waitedMs === 'number' && typeof value.pendingImages === 'number' && typeof value.timedOut === 'boolean';
   }
   return true;
 }

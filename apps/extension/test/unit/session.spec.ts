@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
+import { StepFailedError } from '../../src/host/egress/gateway-client';
 import { ContentPortClient, type HostPort } from '../../src/host/port';
 import { Session, type SessionEvent } from '../../src/host/session';
 import type { PerceptionClient } from '../../src/host/perception-client/client';
@@ -53,6 +54,7 @@ function buildSession(
     onActionResult: (m) => session.onActionResult(m.actionId, m.ok, m.reason),
   });
   session = new Session({
+    sleep: async () => {},
     contentPort,
     sendToGateway,
     guardOrigin: 'http://localhost:5600',
@@ -126,9 +128,23 @@ describe('Session — sanitized preview survives a network failure (T-7.4, DR-2)
     // by 'sanitized_preview', is never subsequently cleared for this failed step.
     expect(events.slice(previewIndex + 1).some((e) => e.type === 'step')).toBe(false);
 
-    // The session still ends up stopped with SERVER_ERROR — the fix doesn't paper over the
-    // failure, it just keeps the already-built local privacy pipeline's output visible through it.
-    expect(events.some((e) => e.type === 'stopped' && e.reason === 'SERVER_ERROR')).toBe(true);
+    // An unreachable gateway is re-tried (it may be restarting); a gateway that stays down ends the
+    // task after several failed steps, each one reported as unreachable.
+    expect(events.some((e) => e.type === 'recovering' && e.what === 'server' && e.detail.includes('GATEWAY_UNREACHABLE'))).toBe(true);
+    expect(events.find((e) => e.type === 'stopped')).toMatchObject({ reason: 'RECOVERY_EXHAUSTED' });
+  });
+
+  it('a gateway StepFailedError puts its closed-vocabulary detail on the stopped event (R-1)', async () => {
+    const sendToGateway = vi.fn().mockRejectedValue(new StepFailedError(503, 'MODEL_UNAVAILABLE upstream_429 retry in 42 s'));
+    const { session, events } = buildSession(sendToGateway, graphResponder);
+
+    await session.start('click sign in');
+
+    expect(events.find((e) => e.type === 'stopped')).toEqual({
+      type: 'stopped',
+      reason: 'SERVER_ERROR',
+      detail: 'MODEL_UNAVAILABLE upstream_429 retry in 42 s',
+    });
   });
 });
 
@@ -198,7 +214,8 @@ describe('Session — canary check (design.md §7.6 step 6, T-5.8, phase_5_measu
 
     expect(sendToGateway).not.toHaveBeenCalled();
     expect(events.some((e) => e.type === 'guard_blocked' && e.rule === 'CANARY')).toBe(true);
-    expect(events).toContainEqual({ type: 'stopped', reason: 'BLOCKED' });
+    // Each blocked step is retried from a fresh look at the page; a page that stays blocked ends it.
+    expect(events.find((e) => e.type === 'stopped')).toMatchObject({ reason: 'RECOVERY_EXHAUSTED' });
   });
 
   it('without a canary list (the production default), the same page is not blocked by step 6', async () => {
@@ -229,14 +246,21 @@ describe('Session — hostile-dynamic mode (design.md §5.5, T-6.7)', () => {
     }
   }
 
-  it('stops with HOSTILE_DYNAMIC after a sustained streak of hostile-dynamic steps, never reaching DONE', async () => {
-    const sendToGateway = vi.fn().mockResolvedValue({ step_id: 's-x', actions: [{ op: 'click', node: 'n-1' }] });
+  it('a sustained mutation storm never gets a screenshot, but the task is not stopped for it', async () => {
+    const sendToGateway = vi
+      .fn()
+      .mockResolvedValueOnce({ step_id: 's-1', actions: [{ op: 'click', node: 'n-1' }] })
+      .mockResolvedValueOnce({ step_id: 's-2', actions: [{ op: 'click', node: 'n-1' }] })
+      .mockResolvedValueOnce({ step_id: 's-3', actions: [{ op: 'click', node: 'n-1' }] })
+      .mockResolvedValueOnce({ step_id: 's-4', actions: [{ op: 'click', node: 'n-1' }] })
+      .mockResolvedValue({ step_id: 's-5', actions: [{ op: 'done' }] });
     const { session, events } = buildSession(sendToGateway, hostileDynamicResponder);
 
     await session.start('click sign in');
 
-    expect(session.getState()).toBe('STOPPED');
-    expect(events).toContainEqual({ type: 'stopped', reason: 'HOSTILE_DYNAMIC' });
+    expect(session.getState()).toBe('DONE');
+    expect(events.some((e) => e.type === 'stopped')).toBe(false);
+    expect(sendToGateway.mock.calls.every((c) => (c[0] as { image: unknown }).image === null)).toBe(true);
   });
 
   it('a single hostile-dynamic reading does not stop the agent — a brief storm gets a chance to settle', async () => {
@@ -403,15 +427,33 @@ function captchaGraphResponder(sent: unknown, emit: (m: unknown) => void): void 
 }
 
 describe('Session — CAPTCHA detection (T-6.13, FR-8/NG-8)', () => {
-  it('stops with CAPTCHA_DETECTED and never calls the server at all', async () => {
+  it('hands the page to the user, never calls the server, and stops with CAPTCHA_DETECTED only if it is never solved', async () => {
     const sendToGateway = vi.fn().mockResolvedValue({ step_id: 's-1', actions: [{ op: 'done' }] });
     const { session, events } = buildSession(sendToGateway, captchaGraphResponder);
 
     await session.start('sign in');
 
+    expect(events.some((e) => e.type === 'waiting_user' && e.reason === 'captcha')).toBe(true);
     expect(session.getState()).toBe('STOPPED');
-    expect(events).toContainEqual({ type: 'stopped', reason: 'CAPTCHA_DETECTED' });
+    expect(events.find((e) => e.type === 'stopped')).toMatchObject({ reason: 'CAPTCHA_DETECTED' });
     expect(sendToGateway).not.toHaveBeenCalled();
+  });
+
+  it('continues by itself once the user has solved the CAPTCHA', async () => {
+    let extracts = 0;
+    const respond = (sent: unknown, emit: (m: unknown) => void) => {
+      const msg = sent as { type: string };
+      if (msg.type !== 'extract') return;
+      extracts += 1;
+      if (extracts <= 2) captchaGraphResponder(sent, emit);
+      else emit({ type: 'graph', frame: 'f-0', nodes: [NODE], removed: ['n-3'], textRuns: [], privacyEpoch: 0, reason: 'requested', hostileDynamic: false });
+    };
+    const sendToGateway = vi.fn().mockResolvedValue({ step_id: 's-2', actions: [{ op: 'done' }] });
+    const { session, events } = buildSession(sendToGateway, respond);
+    await session.start('sign in');
+    expect(events.some((e) => e.type === 'waiting_user')).toBe(true);
+    expect(sendToGateway).toHaveBeenCalledTimes(1);
+    expect(session.getState()).toBe('DONE');
   });
 
   it('a page with no CAPTCHA is completely unaffected', async () => {
@@ -524,17 +566,17 @@ describe('Session — the ledger records the guarded payload, i.e. exactly what 
     return { client, capture: async () => ({ ok: true as const, bitmap: { width: 1024, height: 768, close: () => {} } as unknown as ImageBitmap }) };
   }
 
-  it('an image the rescan drops is absent from both the sent payload and the ledger', async () => {
+  it('an image the rescan cannot clear is never sent, and neither is the step without it', async () => {
     const sendToGateway = vi.fn().mockResolvedValue({ step_id: 's-1', actions: [{ op: 'done', summary: 'ok' }] });
     const hit = { entity: 'AADHAAR', box: [10, 50, 80, 12], score: 0.9, channel: 'text-ocr' };
     const { session, events } = buildSession(sendToGateway, imageGraphResponder, { perception: perceptionWithRescanHits([hit]) });
     await session.start('log in');
 
-    const sent = sendToGateway.mock.calls[0]![0] as { image: unknown };
-    expect(sent.image).toBeNull();
-    expect(session.getLedger().latest()!.payload.image).toBeNull();
-    const preview = events.find((e) => e.type === 'sanitized_preview') as Extract<SessionEvent, { type: 'sanitized_preview' }>;
-    expect(preview.payload.image).toBeNull();
+    expect(sendToGateway).not.toHaveBeenCalled();
+    expect(events).toContainEqual({ type: 'guard_blocked', rule: 'IMAGE_RESCAN', entity: undefined });
+    expect(events.some((e) => e.type === 'sanitized_preview')).toBe(false);
+    // Each step is retried from a fresh capture; a page that never yields a clean one ends the task.
+    expect(session.getState()).toBe('STOPPED');
   });
 
   it('a clean image is in both, byte-identical', async () => {
@@ -545,5 +587,153 @@ describe('Session — the ledger records the guarded payload, i.e. exactly what 
     const sent = sendToGateway.mock.calls[0]![0] as { image: { data: string } | null };
     expect(sent.image).not.toBeNull();
     expect(session.getLedger().latest()!.payload.image).toEqual(sent.image);
+  });
+});
+
+// Vision is required on every step: each step sends a redacted screenshot through the local vision
+// models to the server model. A step is never sent text-only: without a screenshot nothing is sent,
+// and the step is tried again from a fresh observation.
+describe('Session — vision on every step', () => {
+  function textOnlyGraph(hostileDynamic = false) {
+    return (sent: unknown, emit: (m: unknown) => void): void => {
+      if ((sent as { type: string }).type === 'extract') {
+        emit({ type: 'graph', frame: 'f-0', nodes: [NODE], removed: [], textRuns: [], privacyEpoch: 0, reason: 'initial', hostileDynamic });
+      }
+    };
+  }
+
+  function client(perceive: () => Promise<unknown> = async () => ({ t: 'perceived', jobId: 'j', candidates: [], timings: {}, timedOut: [] })) {
+    return {
+      perceive: vi.fn(perceive),
+      compose: vi.fn(async () => ({ t: 'composed', jobId: 'j', webp: new Uint8Array([82, 73, 70, 70]).buffer, coverage: { cleared: 1, redacted: 0, unanalysed: 0 } })),
+      rescan: vi.fn(async () => ({ t: 'rescanned', jobId: 'j', hits: [] })),
+      ner: vi.fn(async () => ({ t: 'nerResult', jobId: 'j', spans: [] })),
+    } as unknown as PerceptionClient;
+  }
+
+  const captured = async () => ({ ok: true as const, bitmap: { width: 1024, height: 768, close: () => {} } as unknown as ImageBitmap });
+  const done = () => vi.fn().mockResolvedValue({ step_id: 's-1', actions: [{ op: 'done', summary: 'ok' }] });
+
+  it('sends a screenshot even when the page is plain text the DOM fully explains', async () => {
+    const sendToGateway = done();
+    const capture = vi.fn(captured);
+    const { session } = buildSession(sendToGateway, textOnlyGraph(), { perception: { client: client(), capture } });
+    await session.start('read the page');
+
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect((sendToGateway.mock.calls[0]![0] as { image: unknown }).image).not.toBeNull();
+    expect(session.getState()).toBe('DONE');
+  });
+
+  it('retries a transient capture failure within the step, then sends with the screenshot', async () => {
+    const sendToGateway = done();
+    const capture = vi.fn().mockResolvedValueOnce({ ok: false, reason: 'throttled' }).mockImplementation(captured);
+    const { session } = buildSession(sendToGateway, textOnlyGraph(), { perception: { client: client(), capture } });
+    await session.start('read the page');
+
+    expect(capture).toHaveBeenCalledTimes(2);
+    expect(sendToGateway).toHaveBeenCalledTimes(1);
+    expect((sendToGateway.mock.calls[0]![0] as { image: unknown }).image).not.toBeNull();
+  });
+
+  it('a page that replaces its document mid-capture is re-attached and captured again, not stopped', async () => {
+    const sendToGateway = done();
+    // eslint-disable-next-line prefer-const
+    let session!: Session;
+    const nextPage = new ContentPortClient(new ScriptedPort(textOnlyGraph()), {
+      onGraph: (m) => session.onGraph(m),
+      onActionResult: (m) => session.onActionResult(m.actionId, m.ok, m.reason),
+    });
+    const reconnect = vi.fn(async () => ({ contentPort: nextPage, origin: 'http://localhost:5600', title: 'Results' }));
+    const capture = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        session.onContentDisconnected();
+        return { ok: false, reason: 'not-visible' };
+      })
+      .mockImplementation(captured);
+    ({ session } = buildSession(sendToGateway, textOnlyGraph(), { perception: { client: client(), capture }, reconnect }));
+    await session.start('read the page');
+
+    expect(reconnect).toHaveBeenCalledTimes(1);
+    expect(capture).toHaveBeenCalledTimes(2);
+    const sent = sendToGateway.mock.calls[0]![0] as { image: unknown; page: { title: string } };
+    expect(sent.image).not.toBeNull();
+    expect(sent.page.title).toBe('Results');
+    expect(session.getState()).toBe('DONE');
+  });
+
+  it('a lasting capture failure never sends the step without a screenshot', async () => {
+    const sendToGateway = done();
+    const capture = vi.fn(async () => ({ ok: false as const, reason: 'permission' as const }));
+    const { session, events } = buildSession(sendToGateway, textOnlyGraph(), { perception: { client: client(), capture } });
+    await session.start('read the page');
+
+    expect(sendToGateway).not.toHaveBeenCalled();
+    // Not transient within a step (no in-step retry); every step tries again from a fresh look.
+    expect(capture).toHaveBeenCalledTimes(5);
+    expect(events).toContainEqual({ type: 'recovering', what: 'vision', detail: 'no redacted screenshot yet (capture permission): nothing was sent; observing the page again' });
+    expect(session.getState()).toBe('STOPPED');
+  });
+
+  it('a vision worker that fails is retried within the step, and the step is sent once it answers', async () => {
+    const sendToGateway = done();
+    let calls = 0;
+    const worker = client(async () => {
+      calls += 1;
+      if (calls <= 2) throw new Error('worker crashed');
+      return { t: 'perceived', jobId: 'j', candidates: [], timings: {}, timedOut: [] };
+    });
+    const { session, events } = buildSession(sendToGateway, textOnlyGraph(), { perception: { client: worker, capture: vi.fn(captured) } });
+    await session.start('read the page');
+
+    expect(worker.perceive).toHaveBeenCalledTimes(3);
+    expect(sendToGateway).toHaveBeenCalledTimes(1);
+    expect((sendToGateway.mock.calls[0]![0] as { image: unknown }).image).not.toBeNull();
+    expect(events.filter((e) => e.type === 'recovering' && e.what === 'vision' && e.detail.startsWith('screenshot attempt'))).toHaveLength(2);
+    expect(session.getState()).toBe('DONE');
+  });
+
+  it('a vision worker that never answers sends nothing at all', async () => {
+    const sendToGateway = done();
+    const worker = client(async () => {
+      throw new Error('worker crashed');
+    });
+    const { session } = buildSession(sendToGateway, textOnlyGraph(), { perception: { client: worker, capture: vi.fn(captured) } });
+    await session.start('read the page');
+
+    expect(worker.perceive).toHaveBeenCalledTimes(4 * 5);
+    expect(sendToGateway).not.toHaveBeenCalled();
+    expect(session.getState()).toBe('STOPPED');
+  });
+
+  it('a page that keeps changing is screenshotted anyway, checked from the pixels alone', async () => {
+    const sendToGateway = done();
+    const capture = vi.fn(captured);
+    const worker = client(async () => ({ t: 'perceived', jobId: 'j', candidates: [], timings: {}, timedOut: [], analysis: { faces: 'ok', text: 'ok', images: 'ok', unanalysed: [] } }));
+    const { session } = buildSession(sendToGateway, textOnlyGraph(true), { perception: { client: worker, capture } });
+    await session.start('read the page');
+
+    expect(capture).toHaveBeenCalledTimes(1);
+    // No DOM text box exempts any line from the whole-frame OCR pass.
+    expect((worker.perceive as ReturnType<typeof vi.fn>).mock.calls[0]![4]).toEqual([]);
+    expect((sendToGateway.mock.calls[0]![0] as { image: unknown }).image).not.toBeNull();
+    expect(session.getState()).toBe('DONE');
+  });
+
+  it('a pixel-only check that could not cover the whole frame is not sent: captured again', async () => {
+    const sendToGateway = done();
+    const capture = vi.fn(captured);
+    const perceive = vi
+      .fn()
+      .mockResolvedValueOnce({ t: 'perceived', jobId: 'j', candidates: [], timings: {}, timedOut: [], analysis: { faces: 'ok', text: 'failed', images: 'ok', unanalysed: [] } })
+      .mockResolvedValue({ t: 'perceived', jobId: 'j', candidates: [], timings: {}, timedOut: [], analysis: { faces: 'ok', text: 'ok', images: 'ok', unanalysed: [] } });
+    const worker = client(perceive);
+    const { session } = buildSession(sendToGateway, textOnlyGraph(true), { perception: { client: worker, capture } });
+    await session.start('read the page');
+
+    expect(capture).toHaveBeenCalledTimes(2);
+    expect(sendToGateway).toHaveBeenCalledTimes(1);
+    expect((sendToGateway.mock.calls[0]![0] as { image: unknown }).image).not.toBeNull();
   });
 });

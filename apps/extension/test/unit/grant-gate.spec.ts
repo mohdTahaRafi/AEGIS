@@ -13,7 +13,7 @@ function harness(opts: { origin?: string; record?: InvocationRecord | null; capt
   let record: InvocationRecord | null = opts.record ?? null;
   const origin = opts.origin ?? 'https://accounts.practo.com';
   const invokedListeners = new Set<() => void>();
-  const prompts: Array<{ explanation: GrantExplanation; settle: (o: 'waived' | 'cancelled') => void; dismissed: boolean }> = [];
+  const prompts: Array<{ explanation: GrantExplanation; settle: (o: 'retry' | 'cancelled') => void; dismissed: boolean }> = [];
   const scripted = [...(opts.captures ?? [])];
   const deps: GrantGateDeps & { capture: ReturnType<typeof vi.fn> } = {
     capture: vi.fn(async () => scripted.shift() ?? (granted ? OK : DENIED)),
@@ -71,30 +71,31 @@ describe('createGatedCapture — a refused capture waits for the user instead of
     const pending = gated();
     await h.flush();
     expect(h.prompts[0]!.explanation).toEqual({ kind: 'lost-on-navigation', grantedOrigin: 'https://www.practo.com', currentOrigin: 'https://accounts.practo.com' });
-    h.prompts[0]!.settle('waived');
+    h.prompts[0]!.settle('cancelled');
     expect(await pending).toEqual({ ok: false, reason: 'grant-lost-navigation', detail: DENIED.ok ? undefined : DENIED.detail });
   });
 
-  it('"continue without screenshots" returns the real failure and is not asked again this task', async () => {
-    const h = harness();
-    const gated = createGatedCapture(h.deps);
-    const first = gated();
+  it('access allowed from the card retries the capture at once', async () => {
+    const h = harness({ captures: [DENIED, OK] });
+    const pending = createGatedCapture(h.deps)();
     await h.flush();
-    h.prompts[0]!.settle('waived');
-    expect(await first).toMatchObject({ ok: false, reason: 'permission' });
-    expect(await gated()).toMatchObject({ ok: false, reason: 'permission' });
-    expect(h.prompts).toHaveLength(1);
+    h.prompts[0]!.settle('retry');
+    expect(await pending).toBe(OK);
+    expect(h.deps.capture).toHaveBeenCalledTimes(2);
   });
 
-  it('a waiver still lets a later real grant be used (every step still tries the capture)', async () => {
+  it('there is no waiver: every later capture that is refused asks again', async () => {
     const h = harness();
     const gated = createGatedCapture(h.deps);
     const first = gated();
     await h.flush();
-    h.prompts[0]!.settle('waived');
+    h.prompts[0]!.settle('cancelled');
     await first;
+    const second = gated();
+    await h.flush();
+    expect(h.prompts).toHaveLength(2);
     h.click();
-    expect(await gated()).toBe(OK);
+    expect(await second).toBe(OK);
   });
 
   it('Stop resolves the wait with the failure; no retry', async () => {

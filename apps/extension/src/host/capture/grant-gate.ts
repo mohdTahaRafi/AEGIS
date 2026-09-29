@@ -1,15 +1,15 @@
 // A capture Chrome refuses for lack of the activeTab grant used to degrade the step to DOM-only
 // and carry on to the model — so a tab whose grant had been withdrawn by a cross-origin navigation
 // (shared/invocation.ts) silently ran a whole task without vision. Now the step pauses BEFORE
-// anything is sent and asks the user to invoke AEGIS on the task's tab; the only ways past are that
-// invocation (then the capture is retried, and its real result used), an explicit "continue without
-// screenshots" for this task, or Stop. Nothing here can make a capture succeed — only Chrome's own
-// grant can — and a waived or cancelled wait still returns the real failure reason.
+// anything is sent and asks the user to invoke AEGIS on the task's tab, or to allow AEGIS on all
+// sites from the card (a host permission, which also covers screenshots); either way the capture is
+// then retried and its real result used. There is no "continue without screenshots": every step
+// carries one. Stop ends the wait with the real failure reason.
 
 import { explainGrant, type GrantExplanation, type InvocationRecord } from '../../shared/invocation';
 import type { CaptureFailureReason, CaptureResult } from './classify';
 
-export type GrantPromptOutcome = 'invoked' | 'waived' | 'cancelled';
+export type GrantPromptOutcome = 'invoked' | 'retry' | 'cancelled';
 
 export interface GrantGateDeps {
   /** One real capture attempt of the task tab. */
@@ -18,9 +18,9 @@ export interface GrantGateDeps {
   currentOrigin(): Promise<string | null>;
   /** Subscribes to toolbar invocations on the task's tab; returns the unsubscribe. */
   onInvoked(cb: () => void): () => void;
-  /** Shows the "invoke AEGIS on this tab" prompt; the UI settles it with waive/cancel. Returns a
-   * function that removes the prompt. */
-  prompt(explanation: GrantExplanation, settle: (outcome: 'waived' | 'cancelled') => void): () => void;
+  /** Shows the "invoke AEGIS on this tab" prompt; the UI settles it with `retry` (the user granted
+   * access from the card) or `cancelled`. Returns a function that removes the prompt. */
+  prompt(explanation: GrantExplanation, settle: (outcome: 'retry' | 'cancelled') => void): () => void;
   now(): number;
   sleep(ms: number): Promise<void>;
 }
@@ -57,7 +57,6 @@ function waitForInvocation(explanation: GrantExplanation, since: number, deps: G
 }
 
 export function createGatedCapture(deps: GrantGateDeps): () => Promise<CaptureResult> {
-  let waived = false;
   return async () => {
     let startedAt = deps.now();
     let result = await deps.capture();
@@ -68,10 +67,8 @@ export function createGatedCapture(deps: GrantGateDeps): () => Promise<CaptureRe
         reason: explanation.kind === 'lost-on-navigation' ? 'grant-lost-navigation' : result.reason,
         detail: result.detail,
       };
-      if (waived) return failure;
       const outcome = await waitForInvocation(explanation, startedAt, deps);
-      if (outcome === 'waived') waived = true;
-      if (outcome !== 'invoked') return failure;
+      if (outcome === 'cancelled') return failure;
       const wait = startedAt + MIN_CAPTURE_INTERVAL_MS - deps.now();
       if (wait > 0) await deps.sleep(wait);
       startedAt = deps.now();

@@ -39,8 +39,9 @@ const DIAGNOSTICS: PerceiveDiagnostics = {
   modelErrors: [],
 };
 
-function fakeBitmap(): ImageBitmap {
-  return { close: vi.fn() } as unknown as ImageBitmap;
+// Sized like the tests' 800x600 viewport, i.e. a capture at devicePixelRatio 1.
+function fakeBitmap(width = 800, height = 600): ImageBitmap {
+  return { close: vi.fn(), width, height } as unknown as ImageBitmap;
 }
 
 function clientReturning(perceived: Extract<FromWorker, { t: 'perceived' }> | Error): PerceptionClient {
@@ -63,11 +64,14 @@ function deps(capture: () => Promise<Awaited<ReturnType<Parameters<typeof runPer
 }
 
 describe('runPerceptionStep — capture outcomes are reported, never swallowed', () => {
-  it('reports not-needed (and never captures) when no vision node exists and coverage is high', async () => {
-    const d = deps(async () => ({ ok: true, bitmap: fakeBitmap() }), clientReturning(new Error('unused')));
+  it('captures and runs full-frame vision every step, even on a page the DOM text fully explains', async () => {
+    const client = clientReturning({ t: 'perceived', jobId: 'j', candidates: [], timings: {}, timedOut: [], diagnostics: DIAGNOSTICS } as unknown as Extract<FromWorker, { t: 'perceived' }>);
+    const d = { ...deps(async () => ({ ok: true, bitmap: fakeBitmap() }), client), reobserveGeometry: async () => [TEXT] };
     const result = await runPerceptionStep([TEXT], d);
-    expect(d.capture).not.toHaveBeenCalled();
-    expect(result.status).toMatchObject({ capture: 'not-needed', worker: 'not-called', regionsRequested: 0 });
+    expect(d.capture).toHaveBeenCalledTimes(1);
+    expect(client.perceive).toHaveBeenCalledWith(expect.anything(), [{ id: 'full-frame', box: [0, 0, 800, 600], kind: 'full' }], expect.any(Number), true, expect.any(Array));
+    expect(result.captured).toBe(true);
+    expect(result.status).toMatchObject({ capture: 'ok', worker: 'ok', level: 'L1', regionsRequested: 0 });
   });
 
   it("reports the real Chromium permission error as 'permission' and sends no image", async () => {
@@ -87,6 +91,28 @@ describe('runPerceptionStep — capture outcomes are reported, never swallowed',
     const result = await runPerceptionStep([TEXT, IMG], d);
     expect(result.status.capture).toBe('geometry-changed');
     expect(bitmap.close).toHaveBeenCalled();
+  });
+
+  it('a HiDPI capture that cannot be resized to CSS pixels yields no image (fails closed)', async () => {
+    const bitmap = fakeBitmap(1600, 1200);
+    vi.stubGlobal('createImageBitmap', vi.fn().mockRejectedValue(new Error('no')));
+    const d = deps(async () => ({ ok: true, bitmap }), clientReturning(new Error('unused')));
+    const result = await runPerceptionStep([TEXT, node('n-2', 'img', [300, 300, 200, 200])], d);
+    vi.unstubAllGlobals();
+    expect(result.captured).toBe(false);
+    expect(result.status.capture).toBe('decode');
+    expect(bitmap.close).toHaveBeenCalled();
+  });
+
+  it('a HiDPI capture is resized to the CSS viewport before any box is applied', async () => {
+    const resized = fakeBitmap(800, 600);
+    const resize = vi.fn().mockResolvedValue(resized);
+    vi.stubGlobal('createImageBitmap', resize);
+    const client = clientReturning(new Error('stop after resize'));
+    const d = deps(async () => ({ ok: true, bitmap: fakeBitmap(1600, 1200) }), client);
+    await runPerceptionStep([TEXT, node('n-2', 'img', [300, 300, 200, 200])], d);
+    vi.unstubAllGlobals();
+    expect(resize).toHaveBeenCalledWith(expect.anything(), { resizeWidth: 800, resizeHeight: 600, resizeQuality: 'high' });
   });
 
   it('a worker failure mid-perceive yields no image and worker: failed instead of throwing out of the step', async () => {
@@ -115,7 +141,11 @@ describe('runPerceptionStep — capture outcomes are reported, never swallowed',
     expect(result.status).toMatchObject({ capture: 'ok', worker: 'ok', regionsRequested: 1 });
     expect(result.status.diagnostics).toEqual(DIAGNOSTICS);
     expect(result.visionCandidates.map((c) => c.source)).toEqual(['vision:face', 'ocr:pattern:aadhaar+verhoeff']);
-    expect(result.visionCandidates.every((c) => c.nodeId === 'n-2')).toBe(true);
+    // A picture-level finding belongs to its picture; text read from pixels is keyed by its own
+    // box, so two values read in one picture stay two redactions.
+    expect(result.visionCandidates[0]!.nodeId).toBe('n-2');
+    expect(result.visionCandidates[1]!.nodeId).toBeUndefined();
+    expect(result.visionCandidates[1]!.textRunId).toBe('ocr-full-frame:20,100,150,20');
   });
 });
 

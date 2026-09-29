@@ -2,11 +2,11 @@
 // (architecture §8.1), so they bypass the guard entirely; only the per-step payload goes through
 // `EgressClient.sendStep`, which refuses anything not `GuardedPayload`-branded.
 //
-// `client`'s detector/backend/capability fields describe machinery Phase 4 builds (the perception
-// worker, WebGPU/WASM backend selection) — Phase 2 has none of it running yet, so these are
-// honest placeholders, not a real capability probe.
+// `client` carries capability metadata only (no page data): the policy id and that steps may
+// carry a redacted L1 image.
 
 import type { SessionCreate, SessionCreated } from '@aegis/protocol';
+import { defaultPolicy } from '@aegis/policy';
 import { createEgressClient } from './client';
 import type { GuardedPayload } from './brand';
 
@@ -14,6 +14,51 @@ export interface GatewayClient {
   openSession(): Promise<SessionCreated>;
   sendStep(sessionId: string, payload: GuardedPayload, signal: AbortSignal): Promise<unknown>;
   closeSession(sessionId: string): Promise<void>;
+}
+
+/** A failed step call, described only by the gateway's closed-vocabulary error envelope (its code
+ * and, for MODEL_UNAVAILABLE, the reason) plus `Retry-After`. Never free text from the response,
+ * so `detail` is safe to show in the panel. */
+export class StepFailedError extends Error {
+  constructor(
+    readonly status: number,
+    readonly detail: string,
+    /** The gateway's own `retryable` flag (its error envelope), and its `Retry-After` in seconds. */
+    readonly retryable = false,
+    readonly retryAfterS?: number,
+  ) {
+    super(`STEP_FAILED: ${status}${detail ? ` ${detail}` : ''}`);
+    this.name = 'StepFailedError';
+  }
+}
+
+const ERROR_CODE = /^[A-Z_]{1,40}$/;
+// The reason, plus the gateway's optional detail: built only from numbers, HTTP statuses and
+// the upstream's `[a-z_]` error code (e.g. "upstream_too_large (input 9046 tokens > limit 7000 per
+// minute)", "upstream_auth (401 invalid_api_key)"), and matched here against that same alphabet.
+const UNAVAILABLE_REASON = /^Model unavailable: ([a-z0-9_]{1,30})(?: \(([a-z0-9_ >]{1,60})\))?$/;
+
+async function stepFailure(response: Response): Promise<StepFailedError> {
+  const parts: string[] = [];
+  let retryable = false;
+  try {
+    const body = (await response.json()) as { error?: { code?: unknown; message?: unknown; retryable?: unknown } };
+    retryable = body.error?.retryable === true;
+    const code = body.error?.code;
+    if (typeof code === 'string' && ERROR_CODE.test(code)) {
+      parts.push(code);
+      const message = body.error?.message;
+      const match = typeof message === 'string' ? UNAVAILABLE_REASON.exec(message) : null;
+      if (match?.[1]) parts.push(match[1]);
+      if (match?.[2]) parts.push(`(${match[2]})`);
+    }
+  } catch {
+    // Not the gateway's envelope (a proxy error page, an empty body): the status alone.
+  }
+  const retryAfter = Number(response.headers.get('retry-after'));
+  const hasRetryAfter = Number.isFinite(retryAfter) && retryAfter > 0;
+  if (hasRetryAfter) parts.push(`retry in ${Math.round(retryAfter)} s`);
+  return new StepFailedError(response.status, parts.join(' '), retryable, hasRetryAfter ? retryAfter : undefined);
 }
 
 function defaultSessionCreate(browserName: 'chrome' | 'firefox'): SessionCreate {
@@ -24,8 +69,8 @@ function defaultSessionCreate(browserName: 'chrome' | 'firefox'): SessionCreate 
       extension_version: '0.1.0',
       backend: 'wasm',
       detectors: {},
-      policy: 'phase2-none',
-      capabilities: { l1_image: false, l2_crop: false, click_point: true },
+      policy: `${defaultPolicy.id}@${defaultPolicy.version}`,
+      capabilities: { l1_image: true, l2_crop: false, click_point: true },
     },
   };
 }
@@ -50,7 +95,7 @@ export function createGatewayClient(baseUrl: string, browserName: 'chrome' | 'fi
 
     async sendStep(sessionId, payload, signal) {
       const response = await egress.sendStep(payload, `${baseUrl}/v1/sessions/${sessionId}/steps`, signal, token);
-      if (!response.ok) throw new Error(`STEP_FAILED: ${response.status}`);
+      if (!response.ok) throw await stepFailure(response);
       return response.json();
     },
 

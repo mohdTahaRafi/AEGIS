@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { brand } from '../../src/host/egress/brand';
-import { createGatewayClient } from '../../src/host/egress/gateway-client';
+import { StepFailedError, createGatewayClient } from '../../src/host/egress/gateway-client';
 import type { SanitizedContext } from '@aegis/protocol';
 
 function fakePayload(): SanitizedContext {
@@ -52,6 +52,51 @@ describe('GatewayClient (design.md §4.1 — sessions carry no page data)', () =
 
     const [url] = fetchImpl.mock.calls[0]!;
     expect(url).toBe('http://localhost:8787/v1/sessions/sid-1/steps');
+  });
+
+  it('sendStep() failure keeps only the closed-vocabulary error code, reason and Retry-After (R-1)', async () => {
+    const envelope = { error: { code: 'MODEL_UNAVAILABLE', message: 'Model unavailable: upstream_429', request_id: 'r-1', retryable: true } };
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify(envelope), { status: 503, headers: { 'retry-after': '42' } }));
+    const client = createGatewayClient('http://localhost:8787', 'chrome', fetchImpl);
+    const error = await client.sendStep('sid-1', brand(fakePayload()), new AbortController().signal).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(StepFailedError);
+    expect((error as StepFailedError).status).toBe(503);
+    expect((error as StepFailedError).detail).toBe('MODEL_UNAVAILABLE upstream_429 retry in 42 s');
+    expect((error as Error).message).toBe('STEP_FAILED: 503 MODEL_UNAVAILABLE upstream_429 retry in 42 s');
+  });
+
+  it('sendStep() failure keeps the gateway\'s safe detail for a permanent upstream error (not retryable)', async () => {
+    const message = 'Model unavailable: upstream_too_large (input 9046 tokens > limit 7000 per minute)';
+    const envelope = { error: { code: 'MODEL_UNAVAILABLE', message, request_id: 'r-1', retryable: false } };
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify(envelope), { status: 502 }));
+    const client = createGatewayClient('http://localhost:8787', 'chrome', fetchImpl);
+    const error = (await client.sendStep('sid-1', brand(fakePayload()), new AbortController().signal).catch((e: unknown) => e)) as StepFailedError;
+    expect(error.retryable).toBe(false);
+    expect(error.detail).toBe('MODEL_UNAVAILABLE upstream_too_large (input 9046 tokens > limit 7000 per minute)');
+  });
+
+  it('sendStep() failure drops a detail outside the gateway\'s closed alphabet', async () => {
+    const message = 'Model unavailable: upstream_4xx (Name: Asha Verma)';
+    const envelope = { error: { code: 'MODEL_UNAVAILABLE', message, request_id: 'r-1', retryable: false } };
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify(envelope), { status: 502 }));
+    const client = createGatewayClient('http://localhost:8787', 'chrome', fetchImpl);
+    const error = (await client.sendStep('sid-1', brand(fakePayload()), new AbortController().signal).catch((e: unknown) => e)) as StepFailedError;
+    expect(error.detail).toBe('MODEL_UNAVAILABLE');
+  });
+
+  it('sendStep() failure never copies free text from the response into the error', async () => {
+    const envelope = { error: { code: 'PLAN_INVALID', message: 'node "Asha Verma" was not sent', request_id: 'r-1', retryable: false } };
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify(envelope), { status: 422 }));
+    const client = createGatewayClient('http://localhost:8787', 'chrome', fetchImpl);
+    const error = (await client.sendStep('sid-1', brand(fakePayload()), new AbortController().signal).catch((e: unknown) => e)) as StepFailedError;
+    expect(error.detail).toBe('PLAN_INVALID');
+    expect(error.message).not.toContain('Asha');
+  });
+
+  it('sendStep() failure with a non-envelope body keeps just the status', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response('<html>Bad Gateway</html>', { status: 502 }));
+    const client = createGatewayClient('http://localhost:8787', 'chrome', fetchImpl);
+    await expect(client.sendStep('sid-1', brand(fakePayload()), new AbortController().signal)).rejects.toThrow(/^STEP_FAILED: 502$/);
   });
 
   it('closeSession() never throws even if the DELETE fails', async () => {

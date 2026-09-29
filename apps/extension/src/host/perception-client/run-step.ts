@@ -5,11 +5,10 @@
 
 import type { Candidate } from '../privacy/types';
 import type { AblationArm } from '../../shared/ablation';
-import type { Box, PerceiveDiagnostics } from '../../shared/worker-protocol';
-import type { WireScreenNode } from '../../shared/messages';
+import type { Box, FrameAnalysis, PerceiveDiagnostics } from '../../shared/worker-protocol';
+import type { WireScreenNode, WireTextRun } from '../../shared/messages';
 import type { PerceptionClient } from './client';
-import { decideEscalation, type PayloadLevel } from '../privacy/context/escalation';
-import { structuralCoverage } from '../privacy/context/structural-coverage';
+import type { PayloadLevel } from '../privacy/context/escalation';
 import { computeGeometryDigest, GeometryDigestGuard } from '../capture/digest';
 import type { CaptureFailureReason, CaptureResult } from '../capture/classify';
 
@@ -21,7 +20,11 @@ import type { CaptureFailureReason, CaptureResult } from '../capture/classify';
 // typical crops on WASM (the crop budget still caps it at 8/16), adds at most ~1.5 s + one crop to a
 // step whose model round trip already takes seconds, and keeps the worst case bounded.
 export const PERCEPTION_DEADLINE_MS = 1500;
-const IMAGE_LONG_SIDE_MAX_PX = 1600;
+// The whole-frame passes (faces over the frame, text detection over the frame) always run; the
+// deadline bounds what follows them — classifying images and reading text the DOM never read.
+export const FRAME_DEADLINE_MS = 2500;
+// Bounds the image tokens per step (Groq: 8K tokens/min for the whole request).
+const IMAGE_LONG_SIDE_MAX_PX = 1280;
 
 export interface CaptureFn {
   (): Promise<CaptureResult>;
@@ -56,6 +59,14 @@ export interface PerceptionStepDeps {
    * (including `undefined`, the release default) leaves this function's normal DOM-node-driven
    * region selection untouched. */
   ablation?: AblationArm;
+  /** This step's DOM text runs: their boxes are text the recognizers already scan, which the
+   * whole-frame OCR pass then does not need to read again. */
+  textRuns?: readonly WireTextRun[];
+  /** The page would not hold still (its geometry changed across a capture, or it is in a mutation
+   * storm), so the frame cannot be tied to the DOM observed with it: it is captured anyway and
+   * checked from the pixels alone — no geometry check, and no DOM text box exempts a line from the
+   * whole-frame OCR pass (every line is read, or stays grey). */
+  pixelVerified?: boolean;
 }
 
 export interface PerceptionStepResult {
@@ -72,6 +83,24 @@ export interface PerceptionStepResult {
    * the geometry the resulting `image.scale` field records. */
   scale: number;
   status: PerceptionStepStatus;
+  /** What the worker's whole-frame passes covered (absent: an older worker, or no capture). */
+  analysis?: FrameAnalysis;
+}
+
+/** Text the DOM itself read: every text run, plus the small interactive elements (buttons, links,
+ * fields) whose names and values the recognizers scan. Large containers are left out — an
+ * ancestor's box covers pictures whose text the DOM never saw. */
+export function domTextBoxes(nodes: readonly WireScreenNode[], textRuns: readonly WireTextRun[], viewport: { w: number; h: number }): Box[] {
+  const maxArea = viewport.w * viewport.h * 0.25;
+  const boxes: Box[] = textRuns.filter((r) => !r.volatile).map((r) => [...r.box] as Box);
+  for (const n of nodes) {
+    if (n.role === 'img' || n.affordances.length === 0) continue;
+    const [, , w, h] = n.box;
+    if (w * h > maxArea) continue;
+    if (n.name.trim().length === 0 && !n.field) continue;
+    boxes.push([...n.box] as Box);
+  }
+  return boxes;
 }
 
 function isVisionNode(node: WireScreenNode): boolean {
@@ -93,6 +122,11 @@ export function prioritiseVisionNodes<T extends { box: readonly [number, number,
   return [...nodes].sort((a, b) => visibleArea(b.box, viewport) - visibleArea(a.box, viewport));
 }
 
+function withMovedCopies(before: readonly WireScreenNode[], after: readonly WireScreenNode[]): WireScreenNode[] {
+  const seen = new Set(before.map((n) => `${n.id}:${n.box.join(',')}`));
+  return [...before, ...after.filter((n) => !seen.has(`${n.id}:${n.box.join(',')}`))];
+}
+
 function geometryBoxesOf(nodes: readonly WireScreenNode[]): { id: string; box: readonly [number, number, number, number] }[] {
   return nodes.map((n) => ({ id: n.id, box: n.box }));
 }
@@ -100,11 +134,10 @@ function geometryBoxesOf(nodes: readonly WireScreenNode[]): { id: string; box: r
 export async function runPerceptionStep(nodes: readonly WireScreenNode[], deps: PerceptionStepDeps): Promise<PerceptionStepResult> {
   const pixelOnly = deps.ablation === 'pixel_only';
   const visionNodes = pixelOnly ? [] : nodes.filter(isVisionNode);
-  const explainedFraction = structuralCoverage(
-    nodes.map((n) => ({ box: n.box, requiresVision: isVisionNode(n) })),
-    deps.viewport,
-  );
-  const decision = pixelOnly ? { level: 'L1' as const, fullFrame: true, region: null } : decideEscalation({ explainedFraction, serverRequestedRegion: null });
+  // Vision runs on every step: always a full-frame capture (L1) whose redacted image goes to the
+  // server model, never the coverage-based L0 skip (`decideEscalation`) that sent text-heavy pages
+  // as text only.
+  const decision = { level: 'L1' as const, fullFrame: true };
 
   const scale = Math.min(1, IMAGE_LONG_SIDE_MAX_PX / Math.max(deps.viewport.w, deps.viewport.h));
   const regionsRequested = pixelOnly ? 1 : visionNodes.length;
@@ -118,24 +151,34 @@ export async function runPerceptionStep(nodes: readonly WireScreenNode[], deps: 
     status: { ...status, regionsRequested },
   });
 
-  const noCaptureNeeded = !pixelOnly && decision.level === 'L0' && visionNodes.length === 0;
-  if (noCaptureNeeded) {
-    return noVision({ capture: 'not-needed', worker: 'not-called', level: decision.level });
-  }
-
   const beforeDigest = await computeGeometryDigest(geometryBoxesOf(nodes));
   const captureResult = await deps.capture();
   if (!captureResult.ok) {
     return noVision({ capture: captureResult.reason, ...(captureResult.detail ? { captureDetail: captureResult.detail } : {}), worker: 'not-called', level: 'L0' });
   }
-  const bitmap = captureResult.bitmap;
+  // captureVisibleTab returns DEVICE pixels (CSS px × devicePixelRatio: HiDPI screens, browser
+  // zoom); every box downstream is CSS px. Resized once here, so crops, redaction boxes and
+  // clearance all land on the pixels they describe (A4). If it cannot be resized, no image.
+  let bitmap = captureResult.bitmap;
+  if (bitmap.width !== deps.viewport.w || bitmap.height !== deps.viewport.h) {
+    try {
+      const resized = await createImageBitmap(bitmap, { resizeWidth: deps.viewport.w, resizeHeight: deps.viewport.h, resizeQuality: 'high' });
+      bitmap.close();
+      bitmap = resized;
+    } catch {
+      bitmap.close();
+      return noVision({ capture: 'decode', worker: 'not-called', level: 'L0' });
+    }
+  }
 
   const freshNodes = await deps.reobserveGeometry();
-  const afterDigest = await computeGeometryDigest(geometryBoxesOf(freshNodes));
-  const digestVerdict = deps.digestGuard.check(beforeDigest, afterDigest);
-  if (digestVerdict !== 'ok') {
-    bitmap.close();
-    return noVision({ capture: 'geometry-changed', worker: 'not-called', level: 'L0' }, digestVerdict === 'degrade');
+  if (!deps.pixelVerified) {
+    const afterDigest = await computeGeometryDigest(geometryBoxesOf(freshNodes));
+    const digestVerdict = deps.digestGuard.check(beforeDigest, afterDigest);
+    if (digestVerdict !== 'ok') {
+      bitmap.close();
+      return noVision({ capture: 'geometry-changed', worker: 'not-called', level: 'L0' }, digestVerdict === 'degrade');
+    }
   }
 
   // T-6.9: pixel-only sends ONE whole-viewport region at `kind: 'crop'` (not `'full'`) so it goes
@@ -144,10 +187,13 @@ export async function runPerceptionStep(nodes: readonly WireScreenNode[], deps: 
   // `handlePerceive`), which would silently defeat "OCR the full frame." Reuses the literal id
   // `'full-frame'` so the existing `regionId !== 'full-frame' → nodeId` mapping below already
   // treats it as node-less, with no new special-casing needed there.
+  // Pixel-verified: a picture may have moved between the observation and the capture, so it is
+  // screened where it was seen before the capture AND where it was after.
+  const pictureNodes = deps.pixelVerified ? withMovedCopies(visionNodes, freshNodes.filter(isVisionNode)) : visionNodes;
   const regions = pixelOnly
     ? [{ id: 'full-frame', box: [0, 0, deps.viewport.w, deps.viewport.h] as Box, kind: 'crop' as const }]
     : [
-        ...prioritiseVisionNodes(visionNodes, deps.viewport).map((n) => ({ id: n.id, box: n.box as Box, kind: 'crop' as const })),
+        ...prioritiseVisionNodes(pictureNodes, deps.viewport).map((n) => ({ id: n.id, box: n.box as Box, kind: 'crop' as const })),
         ...(decision.fullFrame ? [{ id: 'full-frame', box: [0, 0, deps.viewport.w, deps.viewport.h] as Box, kind: 'full' as const }] : []),
       ];
 
@@ -155,8 +201,10 @@ export async function runPerceptionStep(nodes: readonly WireScreenNode[], deps: 
   // vision candidates", never a retry — `captured: false` also keeps `attachImage` from running.
   let perceived: Awaited<ReturnType<PerceptionClient['perceive']>>;
   try {
-    perceived = await deps.client.perceive(bitmap, regions, PERCEPTION_DEADLINE_MS, decision.fullFrame);
+    const textBoxes = pixelOnly || deps.pixelVerified ? [] : domTextBoxes(nodes, deps.textRuns ?? [], deps.viewport);
+    perceived = await deps.client.perceive(bitmap, regions, pixelOnly ? PERCEPTION_DEADLINE_MS : FRAME_DEADLINE_MS, decision.fullFrame, textBoxes);
   } catch {
+    bitmap.close(); // not transferred when the worker was down before the send
     return noVision({ capture: 'ok', worker: 'failed', level: 'L0' });
   }
 
@@ -168,7 +216,9 @@ export async function runPerceptionStep(nodes: readonly WireScreenNode[], deps: 
   const visionAnalyzedNodeIds = new Set(visionNodes.map((n) => n.id).filter((id) => !timedOutIds.has(id)));
 
   const visionCandidates: Candidate[] = perceived.candidates.map((c) => {
-    const nodeId = c.regionId && c.regionId !== 'full-frame' ? c.regionId : undefined;
+    // Text read from pixels is keyed by its own box, never folded into the picture's node: two
+    // values read in one picture (an email and a phone) stay two redactions with two values.
+    const nodeId = c.regionId && c.regionId !== 'full-frame' && c.channel !== 'text-ocr' ? c.regionId : undefined;
     // An OCR candidate with no owning node (pixel-only's whole-viewport region, or any future
     // caller in the same shape) needs SOME identity for fusion's `groupByOverlap` to key on —
     // otherwise every such candidate collapses into one shared, identity-less group (`groupKey`
@@ -176,7 +226,7 @@ export async function runPerceptionStep(nodes: readonly WireScreenNode[], deps: 
     // box is already unique per detected line and shared across multiple entities matched within
     // the same line (exactly the grouping a real DOM text run's `textRunId` would give it), so it
     // doubles as a synthetic run id with no new worker-protocol field needed.
-    const textRunId = c.channel === 'text-ocr' && !nodeId ? `ocr-full-frame:${c.box.join(',')}` : undefined;
+    const textRunId = nodeId ? undefined : c.channel === 'text-ocr' ? `ocr-full-frame:${c.box.join(',')}` : `pixel:${c.entity.toLowerCase()}:${c.box.join(',')}`;
     return {
       entity: c.entity,
       box: c.box,
@@ -200,6 +250,7 @@ export async function runPerceptionStep(nodes: readonly WireScreenNode[], deps: 
     visionAnalyzedNodeIds,
     scale,
     status: { capture: 'ok', worker: 'ok', level: decision.level, regionsRequested, diagnostics: perceived.diagnostics },
+    analysis: perceived.analysis,
   };
 }
 

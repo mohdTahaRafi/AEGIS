@@ -51,7 +51,11 @@ export type ControllerEvent =
   | { type: 'repair' }
   | { type: 'settled' }
   | { type: 'cancel' }
-  | { type: 'stop' };
+  | { type: 'stop' }
+  /** A step failed part-way (a crash, an unreachable page or server): back to OBSERVING, from any
+   * non-terminal state, so the next step starts from a fresh observation instead of the task
+   * ending. */
+  | { type: 'recover' };
 
 const TABLE: Partial<Record<`${ControllerState}:${ControllerEvent['type']}`, ControllerState>> = {
   'IDLE:start': 'PREPARING',
@@ -98,6 +102,9 @@ export function transition(state: ControllerState, event: ControllerEvent): Cont
   if (event.type === 'stop') {
     return TERMINAL_STATES.has(state) ? state : 'STOPPED';
   }
+  if (event.type === 'recover') {
+    return TERMINAL_STATES.has(state) ? state : 'OBSERVING';
+  }
   const next = TABLE[`${state}:${event.type}`];
   if (!next) throw new InvalidTransitionError(state, event);
   return next;
@@ -127,7 +134,7 @@ export class Controller {
   }
 
   send(event: ControllerEvent): ControllerState {
-    if ((event.type === 'cancel' || event.type === 'stop') && this.state === 'AWAITING_SERVER') {
+    if ((event.type === 'cancel' || event.type === 'stop' || event.type === 'recover') && this.state === 'AWAITING_SERVER') {
       this.abortController?.abort();
     }
     this.state = transition(this.state, event);

@@ -27,6 +27,46 @@ describe('captureTargetTab — pinned to the task tab and origin, never "whateve
     expect(capture).not.toHaveBeenCalled();
   });
 
+  it('brings a background task tab to the front for the capture, then puts the user\'s tab back', async () => {
+    const capture = vi.fn().mockResolvedValue('data:image/jpeg;base64,AAA');
+    const calls: string[] = [];
+    const api: TabsCaptureApi = {
+      ...tabs([{ active: false, windowId: 7, url: ON_TARGET }, { active: true, windowId: 7, url: ON_TARGET }, { active: true, windowId: 7, url: ON_TARGET }], capture),
+      query: vi.fn(async () => [{ id: 5 }]),
+      update: vi.fn(async (tabId: number) => {
+        calls.push(`front ${tabId}`);
+      }),
+    };
+    const wait = vi.fn(async () => {
+      calls.push('paint');
+    });
+    capture.mockImplementation(async () => {
+      calls.push('capture');
+      return 'data:image/jpeg;base64,AAA';
+    });
+
+    expect(await captureTargetTab(api, TARGET, wait)).toEqual({ ok: true, dataUrl: 'data:image/jpeg;base64,AAA' });
+    expect(api.query).toHaveBeenCalledWith({ active: true, windowId: 7 });
+    expect(calls).toEqual(['front 42', 'paint', 'capture', 'front 5']);
+  });
+
+  it('puts the user\'s tab back even when the capture fails', async () => {
+    const capture = vi.fn().mockRejectedValue(new Error('MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND'));
+    const update = vi.fn(async () => undefined);
+    const api: TabsCaptureApi = { ...tabs([{ active: false, windowId: 7, url: ON_TARGET }, { active: true, windowId: 7, url: ON_TARGET }], capture), query: async () => [{ id: 5 }], update };
+    expect(await captureTargetTab(api, TARGET, async () => {})).toMatchObject({ ok: false, reason: 'throttled' });
+    expect(update).toHaveBeenLastCalledWith(5, { active: true });
+  });
+
+  it('never brings forward a background tab that is on another site', async () => {
+    const capture = vi.fn();
+    const update = vi.fn(async () => undefined);
+    const api: TabsCaptureApi = { ...tabs([{ active: false, windowId: 7, url: 'https://other.example.test/' }], capture), query: async () => [{ id: 5 }], update };
+    expect(await captureTargetTab(api, TARGET, async () => {})).toMatchObject({ ok: false, reason: 'not-visible' });
+    expect(update).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalled();
+  });
+
   it('does not capture a task tab that has navigated to another site', async () => {
     const capture = vi.fn();
     const result = await captureTargetTab(tabs([{ active: true, windowId: 7, url: 'https://other.example.test/x' }], capture), TARGET);

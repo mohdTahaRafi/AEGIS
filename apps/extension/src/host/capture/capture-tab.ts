@@ -7,6 +7,11 @@
 // capture: a switch in between discards the frame (fail closed, step stays DOM-only). The same
 // holds for the task's ORIGIN: a tab that has moved to another site is no longer the page the task
 // (and its guard origin) is about, so it is not captured either.
+//
+// Vision is required on every step, so a task tab that is in the background (the user switched
+// tabs) is brought to the front just for the capture — the frame is still only ever taken while
+// the task tab IS the front tab, checked before and after — and the tab that was in front is put
+// back afterwards.
 
 import { classifyCaptureError, type CaptureFailureReason } from './classify';
 import { originOf } from '../../shared/invocation';
@@ -14,7 +19,13 @@ import { originOf } from '../../shared/invocation';
 export interface TabsCaptureApi {
   get(tabId: number): Promise<{ active: boolean; windowId: number; url?: string; status?: string; discarded?: boolean }>;
   captureVisibleTab(windowId: number, options: { format: 'jpeg'; quality: number }): Promise<string>;
+  /** Present: a background task tab is brought to the front for the capture. Absent: not captured. */
+  update?(tabId: number, props: { active: true }): Promise<unknown>;
+  query?(info: { active: true; windowId: number }): Promise<{ id?: number }[]>;
 }
+
+/** After switching tabs, before capturing: Chrome needs a frame or two to paint the tab. */
+export const ACTIVATE_PAINT_MS = 250;
 
 /** What the task was started on — fixed at Run, never re-derived from "the current tab". */
 export interface CaptureTarget {
@@ -71,8 +82,32 @@ function blocker(target: CaptureTarget, tab: TabState | null): CaptureFailureRea
 
 /** `detail` is Chromium's own error text with any quoted URL removed — for the panel only (never
  * the ledger or the network), so a failure is diagnosable rather than collapsed into a code. */
-export async function captureTargetTab(tabs: TabsCaptureApi, target: CaptureTarget): Promise<TabCaptureResult> {
-  const before = await readTab(tabs, target.tabId);
+export async function captureTargetTab(tabs: TabsCaptureApi, target: CaptureTarget, wait: (ms: number) => Promise<void> = sleep): Promise<TabCaptureResult> {
+  let before = await readTab(tabs, target.tabId);
+  let restoreTabId: number | undefined;
+  if (before && !before.active && tabs.update && tabs.query && originOf(before.url) === target.origin) {
+    const [front] = await tabs.query({ active: true, windowId: before.windowId }).catch(() => []);
+    restoreTabId = front?.id;
+    try {
+      await tabs.update(target.tabId, { active: true });
+      await wait(ACTIVATE_PAINT_MS);
+    } catch {
+      // The tab could not be brought forward: `before` below still says so, and nothing is taken.
+    }
+    before = await readTab(tabs, target.tabId);
+  }
+  try {
+    return await captureFront(tabs, target, before);
+  } finally {
+    if (restoreTabId !== undefined && restoreTabId !== target.tabId) await tabs.update!(restoreTabId, { active: true }).catch(() => undefined);
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function captureFront(tabs: TabsCaptureApi, target: CaptureTarget, before: TabState | null): Promise<TabCaptureResult> {
   const notCapturable = blocker(target, before);
   if (notCapturable || !before) return { ok: false, reason: notCapturable ?? 'no-tab', diag: diagnose(target, before) };
 
