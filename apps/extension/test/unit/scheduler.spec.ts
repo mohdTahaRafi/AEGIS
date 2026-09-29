@@ -73,15 +73,15 @@ describe('runWithDeadline (T-4.10, phase_4_vision.md §6.2 — 120ms hard deadli
 
 describe('crop budget (T-4.11 — 16 WebGPU / 8 WASM)', () => {
   it('reports the documented per-backend budgets', () => {
-    expect(cropBudgetFor('webgpu')).toBe(16);
-    expect(cropBudgetFor('wasm')).toBe(8);
+    expect(cropBudgetFor('webgpu')).toBe(24);
+    expect(cropBudgetFor('wasm')).toBe(12);
   });
 
   it('applyCropBudget admits up to the budget and reports the rest as dropped', () => {
-    const regions = Array.from({ length: 10 }, (_, i) => i);
+    const regions = Array.from({ length: 14 }, (_, i) => i);
     const { admitted, dropped } = applyCropBudget(regions, 'wasm');
-    expect(admitted).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
-    expect(dropped).toEqual([8, 9]);
+    expect(admitted).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(dropped).toEqual([12, 13]);
   });
 });
 

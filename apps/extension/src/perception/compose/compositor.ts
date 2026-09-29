@@ -8,7 +8,8 @@
 import { mergeUp, type Box } from './merge-up';
 
 export const GREY_FILL = '#8A8A8A';
-const MIN_LABEL_BOX_PX = 40;
+const MIN_LABEL_BOX_W_PX = 40;
+const MIN_LABEL_BOX_H_PX = 12;
 
 export interface RedactionBoxSet {
   entity: string;
@@ -30,6 +31,11 @@ export interface ComposeInput {
    * side's half — without it, the entity-type fallback label below (`FACE`, `ID_DOCUMENT`, ...)
    * would still visually leak the entity TYPE even with no ref in the JSON. Defaults to `false`. */
   unlabelled?: boolean;
+  /** Only after a COMPLETED whole-frame analysis (faces and text screened over every pixel — see
+   * `FrameAnalysis`): the capture is the default and `grey` marks what was not analysed. Without
+   * it, grey stays the default and only `cleared` is copied in. */
+  clearDefault?: boolean;
+  grey?: readonly Box[];
 }
 
 export interface ComposeOutput {
@@ -56,11 +62,12 @@ function paint(mask: Uint8Array, width: number, height: number, [x, y, w, h]: Bo
  * areas: real pages yield overlapping and partly off-frame boxes, and summed areas reached 57× the
  * frame on Wikipedia — an out-of-range payload the guard's schema check then blocked outright.
  * Redaction boxes take precedence, matching the draw order below. */
-export function measureCoverage(width: number, height: number, scale: number, cleared: readonly Box[], redacted: readonly Box[]): ComposeOutput['coverage'] {
+export function measureCoverage(width: number, height: number, scale: number, cleared: readonly Box[], redacted: readonly Box[], grey: readonly Box[] = []): ComposeOutput['coverage'] {
   const total = width * height;
   if (total === 0) return { cleared: 0, redacted: 0, unanalysed: 0 };
   const mask = new Uint8Array(total);
   for (const box of cleared) paint(mask, width, height, box, scale, CLEARED);
+  for (const box of grey) paint(mask, width, height, box, scale, 0);
   for (const box of redacted) paint(mask, width, height, box, scale, REDACTED);
   let clearedPx = 0;
   let redactedPx = 0;
@@ -72,7 +79,7 @@ export function measureCoverage(width: number, height: number, scale: number, cl
 }
 
 export function compose(input: ComposeInput): ComposeOutput {
-  const { bitmap, cleared, regions, scale, unlabelled = false } = input;
+  const { bitmap, cleared, regions, scale, unlabelled = false, clearDefault = false, grey = [] } = input;
   const width = Math.round(bitmap.width * scale);
   const height = Math.round(bitmap.height * scale);
   const canvas = new OffscreenCanvas(width, height);
@@ -84,19 +91,28 @@ export function compose(input: ComposeInput): ComposeOutput {
   ctx.fillStyle = GREY_FILL;
   ctx.fillRect(0, 0, width, height);
 
-  const mergedCleared = mergeUp(cleared);
-  for (const [x, y, w, h] of mergedCleared) {
-    ctx.drawImage(bitmap, x, y, w, h, x * scale, y * scale, w * scale, h * scale);
+  let mergedCleared: Box[];
+  if (clearDefault) {
+    ctx.drawImage(bitmap, 0, 0, bitmap.width, bitmap.height, 0, 0, width, height);
+    ctx.fillStyle = GREY_FILL;
+    for (const [x, y, w, h] of grey) ctx.fillRect(x * scale, y * scale, w * scale, h * scale);
+    mergedCleared = [[0, 0, bitmap.width, bitmap.height]];
+  } else {
+    mergedCleared = mergeUp(cleared);
+    for (const [x, y, w, h] of mergedCleared) {
+      ctx.drawImage(bitmap, x, y, w, h, x * scale, y * scale, w * scale, h * scale);
+    }
   }
 
-  ctx.fillStyle = '#000000';
   for (const region of regions) {
     for (const box of region.boxes) {
       const [x, y, w, h] = box;
+      // Per box: drawFittedLabel leaves fillStyle white, which filled every later box white.
+      ctx.fillStyle = '#000000';
       ctx.fillRect(x * scale, y * scale, w * scale, h * scale);
 
       const label = unlabelled ? null : region.placeholder ?? (NON_RESOLVABLE_LABELS.has(region.entity) ? region.entity : null);
-      if (label && w * scale >= MIN_LABEL_BOX_PX && h * scale >= MIN_LABEL_BOX_PX / 2) {
+      if (label && w * scale >= MIN_LABEL_BOX_W_PX && h * scale >= MIN_LABEL_BOX_H_PX) {
         drawFittedLabel(ctx, label, x * scale, y * scale, w * scale, h * scale);
       }
     }
@@ -104,12 +120,12 @@ export function compose(input: ComposeInput): ComposeOutput {
 
   return {
     canvas,
-    coverage: measureCoverage(width, height, scale, mergedCleared, regions.flatMap((r) => r.boxes)),
+    coverage: measureCoverage(width, height, scale, mergedCleared, regions.flatMap((r) => r.boxes), clearDefault ? grey : []),
   };
 }
 
 function drawFittedLabel(ctx: OffscreenCanvasRenderingContext2D, text: string, x: number, y: number, w: number, h: number): void {
-  let fontSize = Math.min(20, h * 0.4);
+  let fontSize = Math.min(16, h * 0.75);
   ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';

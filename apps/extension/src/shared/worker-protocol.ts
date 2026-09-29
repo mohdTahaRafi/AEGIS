@@ -82,7 +82,8 @@ export interface RegionDiagnostic {
   regionId: string;
   /** `budget`: dropped by the per-frame crop budget before any model ran. `deadline`: still queued
    * when the step deadline passed. `no-capability`: no model was available at all. */
-  outcome: 'analysed' | 'budget' | 'deadline' | 'no-capability';
+  /** `pixels`: past CLIP's budget, cleared by pixel structure and fully read text (see worker). */
+  outcome: 'analysed' | 'pixels' | 'budget' | 'deadline' | 'no-capability' | 'small' | 'blank';
   ms?: number;
   faces?: number;
   faceTopScore?: number;
@@ -91,7 +92,9 @@ export interface RegionDiagnostic {
   ocrEntities?: EntityType[];
   /** `label`/`score`: CLIP top-1. `entity`/`entityScore`: the best sensitive entity's pooled
    * probability, which is what `accepted` is decided on. */
-  vit?: { label: string; score: number; accepted: boolean; entity?: 'ID_DOCUMENT' | 'SIGNATURE' | 'QR_CODE'; entityScore?: number };
+  vit?: { label: string; score: number; accepted: boolean; entity?: 'ID_DOCUMENT' | 'SIGNATURE' | 'QR_CODE'; entityScore?: number; why?: string };
+  /** Identical pixels were analysed on an earlier step: that result was reused, no model ran. */
+  cached?: boolean;
 }
 
 /** Real counters from the worker's own model calls — each field is incremented only where a
@@ -102,10 +105,26 @@ export interface PerceiveDiagnostics {
   providers: { face?: Backend; vit?: Backend; ocrDet?: Backend; ocrRec?: Backend };
   available: { face: boolean; vit: boolean; ocr: boolean };
   inferences: { face: number; vitRegion: number; vitFullFrame: number; ocrDet: number; ocrRec: number };
+  /** Regions answered from the exact-pixel cache (region-cache.ts) instead of running models. */
+  cachedRegions?: number;
   ms: { face: number; vit: number; ocr: number; screenLabel: number; total: number };
   regions: RegionDiagnostic[];
   /** Load failures observed during this call (OCR loads lazily here, not at `init`). */
   modelErrors: { role: ModelSpec['role']; code: string }[];
+  /** The whole-frame passes: face tiles run, text lines found and what happened to them. */
+  frame?: { facePasses: number; faces: number; linesDetected: number; linesDomCovered: number; linesRecognized: number; linesUnread: number; ms: { faces: number; textDet: number; textRec: number } };
+}
+
+/** What the whole-frame analysis covered. When `faces` and `text` are both `ok`, every pixel of the
+ * frame was screened for faces and for text, so the compositor may show the capture by default
+ * and grey only `unanalysed` — pixels a model was meant to check and did not (an image CLIP had
+ * no time for, a text line OCR could not read in time). Anything else falls back to grey by
+ * default. */
+export interface FrameAnalysis {
+  faces: 'ok' | 'failed' | 'unavailable';
+  text: 'ok' | 'failed' | 'unavailable';
+  images: 'ok' | 'unavailable';
+  unanalysed: Box[];
 }
 
 export interface ModelLoadFailure {
@@ -123,7 +142,9 @@ export interface Coverage {
 
 export type ToWorker =
   | { t: 'init'; backendPref: 'auto' | 'webgpu' | 'wasm'; models: ModelSpec[]; profile: 'S' | 'L' }
-  | { t: 'perceive'; jobId: string; bitmap: ImageBitmap; regions: RegionJob[]; deadlineMs: number; fullFrame: boolean }
+  // `textBoxes`: boxes (CSS px) of text the DOM already read and the recognizers scan — the
+  // text a full-frame OCR pass does not need to read again.
+  | { t: 'perceive'; jobId: string; bitmap: ImageBitmap; regions: RegionJob[]; deadlineMs: number; fullFrame: boolean; textBoxes?: Box[] }
   | { t: 'ner'; jobId: string; chunks: { id: string; text: string }[] }
   // No bitmap/width/height here: `compose` operates on the capture already held by the worker
   // from the matching `perceive` call for this step (phase_4_vision.md §3.2 — "the worker holds
@@ -135,11 +156,14 @@ export type ToWorker =
   // `unlabelled` (T-6.9, the black-box ablation arm): draw every redaction as a plain black box,
   // no placeholder text and no entity-type fallback label either — optional, defaults to `false`
   // (every pre-T-6.9 caller unaffected).
-  | { t: 'compose'; jobId: string; regions: { entity: string; boxes: Box[]; placeholder: string | null }[]; cleared: Box[]; scale: number; unlabelled?: boolean }
+  // `clearDefault` (a completed whole-frame analysis only): the capture is drawn everywhere, then
+  // `grey` over unanalysed pixels, then the redactions; `cleared` is ignored.
+  | { t: 'compose'; jobId: string; regions: { entity: string; boxes: Box[]; placeholder: string | null }[]; cleared: Box[]; scale: number; unlabelled?: boolean; clearDefault?: boolean; grey?: Box[] }
   // `image`/`redactionBoxes` are the just-composed output and the boxes that produced it — the
   // worker needs the actual pixels to re-run face detection over the composed result
-  // (phase_4_vision.md §8); `halos` narrows where the (Phase 6) OCR half will look.
-  | { t: 'rescan'; jobId: string; image: ArrayBuffer; redactionBoxes: Box[]; halos: Box[] }
+  // (phase_4_vision.md §8); `halos` narrows where the OCR half looks (default: a ring around every
+  // redaction box). Boxes are CSS px; `scale` maps them onto the composed image.
+  | { t: 'rescan'; jobId: string; image: ArrayBuffer; redactionBoxes: Box[]; halos: Box[]; scale?: number }
   | { t: 'evict'; model: string }
   | { t: 'stats' };
 
@@ -161,9 +185,12 @@ export type FromWorker =
   // still posted `ready` and kept serving every model that did load.
   // `webgpuRejected`: a WebGPU adapter existed but was refused as CPU-emulated (the reason).
   | { t: 'ready'; backend: Backend; loaded: ModelInfo[]; failed: ModelLoadFailure[]; adapterInfo?: AdapterInfo; webgpuRejected?: string }
-  | { t: 'perceived'; jobId: string; candidates: Candidate[]; screenLabel?: { label: string; score: number }; timings: Record<string, number>; timedOut: Box[]; diagnostics: PerceiveDiagnostics }
+  | { t: 'perceived'; jobId: string; candidates: Candidate[]; screenLabel?: { label: string; score: number }; timings: Record<string, number>; timedOut: Box[]; diagnostics: PerceiveDiagnostics; analysis?: FrameAnalysis }
   | { t: 'nerResult'; jobId: string; spans: { id: string; start: number; end: number; entity: EntityType; score: number }[] }
   | { t: 'composed'; jobId: string; webp: ArrayBuffer; coverage: Coverage }
-  | { t: 'rescanned'; jobId: string; hits: Candidate[] }
+  // `hits`: faces found on the composed image. `ringText`: text read around the redaction boxes
+  // (with every box masked first, so the labels drawn inside them are never read); the host guard
+  // decides which of it is sensitive. It never leaves the device.
+  | { t: 'rescanned'; jobId: string; hits: Candidate[]; ringText?: { box: Box; text: string }[] }
   | { t: 'stats'; memoryEstimateMB: number; sessions: ModelInfo[] }
   | { t: 'error'; jobId?: string; code: string; detail?: string };

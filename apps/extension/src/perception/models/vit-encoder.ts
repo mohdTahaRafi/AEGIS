@@ -98,6 +98,8 @@ export interface RegionClassification {
    * that pooled probability. `null` only when no sensitive label exists in the prompt set. */
   entity: VisionEntity | null;
   entityScore: number;
+  /** Pooled probability of every sensitive entity (sum over the labels mapping to it). */
+  pooled?: Partial<Record<VisionEntity, number>>;
 }
 
 /** CLIP ViT-B/32's own trained logit scale is exp(4.6052) = 100, i.e. temperature 0.01 — the value
@@ -154,7 +156,47 @@ export function classifyByCosine(embedding: Float32Array, promptEmbeddings: Read
       entityScore = p;
     }
   }
-  return { label: topLabel, score: topScore, entity, entityScore };
+  return { label: topLabel, score: topScore, entity, entityScore, pooled: Object.fromEntries(pooled) };
+}
+
+/** What the pixels themselves show, independent of CLIP (perception/detect/verify.ts). */
+export interface RegionEvidence {
+  qr: boolean;
+  barcode: boolean;
+  signature: boolean;
+  /** OCR read identity-document wording or an ID number inside the region. */
+  idText: boolean;
+  /** A face was detected inside the region. */
+  face: boolean;
+  /** Text lines detected inside the region. */
+  lines: number;
+  /** width / height of the region on screen. */
+  aspect: number;
+}
+
+/** CLIP's zero-shot label alone is not enough to black out an image: on real pages it scored a
+ * charger photo as a QR code and banners as ID documents. A region is redacted as a sensitive
+ * entity only when the pixels agree — a QR code's finder patterns or a barcode's bars (conclusive
+ * on their own), a signature's ink strokes, or an ID document's own text/face-and-card layout. */
+export function confirmedEntity(result: RegionClassification | null, ev: RegionEvidence): { entity: VisionEntity; score: number; why: string } | null {
+  if (ev.qr) return { entity: 'QR_CODE', score: 0.95, why: 'qr-finder-patterns' };
+  if (ev.barcode) return { entity: 'QR_CODE', score: 0.9, why: 'barcode-bars' };
+  if (!result) return ev.idText && ev.face ? { entity: 'ID_DOCUMENT', score: 0.8, why: 'id-text+face' } : null;
+  const pooled = result.pooled ?? (result.entity ? { [result.entity]: result.entityScore } : {});
+  const id = pooled.ID_DOCUMENT ?? 0;
+  const sig = pooled.SIGNATURE ?? 0;
+  const cardShaped = ev.aspect >= 1.2 && ev.aspect <= 1.95;
+  if (id >= entityThreshold('ID_DOCUMENT')) {
+    if (ev.idText) return { entity: 'ID_DOCUMENT', score: Math.max(id, 0.8), why: 'clip+id-text' };
+    // A portrait on an advert banner is also a face with text: only a card/page-shaped (landscape)
+    // region with a face and text on it counts (Amazon's hero banner, 2026-09-29).
+    if (ev.face && ev.lines >= 2 && cardShaped && id >= 0.5) return { entity: 'ID_DOCUMENT', score: Math.max(id, 0.7), why: 'clip+face+text' };
+    if (id >= 0.7 && ev.lines >= 3 && cardShaped) return { entity: 'ID_DOCUMENT', score: id, why: 'clip+card-layout' };
+  } else if (ev.idText && ev.face && cardShaped) {
+    return { entity: 'ID_DOCUMENT', score: 0.75, why: 'id-text+face+card' };
+  }
+  if (sig >= 0.3 && ev.signature) return { entity: 'SIGNATURE', score: Math.max(sig, 0.6), why: 'clip+ink-strokes' };
+  return null;
 }
 
 const CLIP_INPUT_SIZE = 224;
@@ -212,8 +254,12 @@ export function parsePromptEmbeddings(buffer: ArrayBuffer): ReadonlyMap<PromptLa
   return out;
 }
 
+// CLIP's mean colour: after normalization the padding is exactly zero, i.e. carries no signal,
+// where black padding reads as a dark frame around every non-square crop.
+const CLIP_PAD = '#7B7568';
+
 async function embed(session: ort.InferenceSession, ort_: typeof ort, crop: ImageBitmap | OffscreenCanvas): Promise<Float32Array> {
-  const lb = letterbox(crop, CLIP_INPUT_SIZE);
+  const lb = letterbox(crop, CLIP_INPUT_SIZE, CLIP_PAD);
   const chw = normalizeForClip(toCHWFloat32(lb.canvas));
   const tensor = new ort_.Tensor('float32', chw, [1, 3, CLIP_INPUT_SIZE, CLIP_INPUT_SIZE]);
   const inputName = session.inputNames[0];

@@ -12,6 +12,7 @@ import type * as ort from 'onnxruntime-web';
 import type { Box } from '../../shared/worker-protocol';
 import { detectText } from '../models/ocr-det';
 import { recognizeLine } from '../models/ocr-rec';
+import { mergeUp } from '../compose/merge-up';
 
 const HALO_PX = 24;
 
@@ -71,4 +72,35 @@ export async function checkHalosForText(ort_: typeof ort, models: OcrRescanModel
   }
 
   return hits;
+}
+
+function clampToImage([x, y, w, h]: Box, width: number, height: number): Box | null {
+  const x0 = Math.max(0, x);
+  const y0 = Math.max(0, y);
+  const x1 = Math.min(width, x + w);
+  const y1 = Math.min(height, y + h);
+  return x1 > x0 && y1 > y0 ? [x0, y0, x1 - x0, y1 - y0] : null;
+}
+
+/** Reads the text around redaction boxes on an image whose boxes have ALREADY been masked solid
+ * black (so the placeholder labels the compositor drew inside them can never be read back and
+ * mistaken for a leak). Overlapping halos are merged first, so a stack of adjacent rows costs one
+ * detection pass instead of one per row. Returns what was read; deciding whether any of it is
+ * sensitive is the host guard's job (it holds the recognizers and the vault). */
+export async function readHaloText(ort_: typeof ort, models: OcrRescanModels | null, masked: OffscreenCanvas, halos: readonly Box[]): Promise<{ box: Box; text: string }[]> {
+  if (!models || halos.length === 0) return [];
+  const regions = mergeUp(halos.map((h) => clampToImage(h, masked.width, masked.height)).filter((b): b is Box => b !== null), 0);
+  const out: { box: Box; text: string }[] = [];
+  for (const [x, y, w, h] of regions) {
+    const crop = new OffscreenCanvas(Math.max(1, Math.round(w)), Math.max(1, Math.round(h)));
+    crop.getContext('2d')!.drawImage(masked, x, y, w, h, 0, 0, crop.width, crop.height);
+    for (const line of await detectText(models.detSession, ort_, crop)) {
+      const [lx, ly, lw, lh] = line.box;
+      const lineCanvas = new OffscreenCanvas(Math.max(1, Math.round(lw)), Math.max(1, Math.round(lh)));
+      lineCanvas.getContext('2d')!.drawImage(crop, lx, ly, lw, lh, 0, 0, lineCanvas.width, lineCanvas.height);
+      const recognized = await recognizeLine(models.recSession, ort_, lineCanvas, models.vocabulary);
+      if (hasReadableContent(recognized.text)) out.push({ box: [x + lx, y + ly, lw, lh], text: recognized.text });
+    }
+  }
+  return out;
 }

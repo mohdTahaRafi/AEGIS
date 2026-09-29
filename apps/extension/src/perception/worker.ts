@@ -8,22 +8,22 @@
 // any session is created).
 
 import * as ort from 'onnxruntime-web';
-import type { Backend, FromWorker, ModelLoadFailure, PerceiveDiagnostics, RegionDiagnostic, ToWorker } from '../shared/worker-protocol';
+import type { Backend, Box, FrameAnalysis, FromWorker, ModelLoadFailure, PerceiveDiagnostics, RegionDiagnostic, ToWorker } from '../shared/worker-protocol';
 import { selectBackend } from './runtime/backend';
 import { ModelLoadError, ModelRegistry } from './runtime/sessions';
 import { cropRegion } from './preprocess/crop';
-import { detectFaces } from './models/face';
-import { buildCtcVocabulary } from './models/ocr-rec';
-import { acceptedEntity, classifyRegion, parsePromptEmbeddings, screenLabel, type PromptLabel } from './models/vit-encoder';
-import { PriorityQueue } from './schedule/queue';
-import { runWithDeadline } from './schedule/deadline';
-import { applyCropBudget } from './schedule/budget';
+import { findAll } from '@aegis/recognizers';
+import { detectFacesFullFrame, type FaceDetection } from './models/face';
+import { buildCtcVocabulary, recognizeLine, spanExtent, type RecognizedLine } from './models/ocr-rec';
+import { detectText } from './models/ocr-det';
+import { classifyRegion, confirmedEntity, parsePromptEmbeddings, screenLabel, type PromptLabel, type RegionClassification, type RegionEvidence, type VisionEntity } from './models/vit-encoder';
+import { cropBudgetFor } from './schedule/budget';
 import { compose, encodeWebp, type RedactionBoxSet } from './compose/compositor';
-import { detectTextEntitiesInRegion } from './detect/text-region';
-import { recheckFacesOnComposedImage } from './rescan/face-recheck';
-import { checkHalosForText, type OcrRescanModels } from './rescan/halo';
+import { idDocumentTextEvidence, isNearUniform, looksLikeBarcode, looksLikeQrCode, looksLikeSignature, toGray } from './detect/verify';
+import { haloAround, readHaloText, type OcrRescanModels } from './rescan/halo';
 import { shouldRunNer } from './prefilter';
 import { classifyProfileL, classifyProfileS, type TokenClassificationPipeline } from './models/pii-ner';
+import { pixelKey, RegionResultCache } from './region-cache';
 
 ort.env.allowLocalModels = true;
 
@@ -93,146 +93,400 @@ async function handleInit(msg: Extract<ToWorker, { t: 'init' }>): Promise<void> 
     code: err instanceof ModelLoadError ? err.code : 'MODEL_LOAD_FAILED',
     detail: err instanceof Error ? err.message : String(err),
   });
+  residentRetryAt.clear();
+  ocrRetryAt = 0;
+  // A model that fails here stays registered: `loadResident` retries it on a later step (a
+  // transient fetch or GPU hiccup must not cost the whole task its face detector).
   if (faceModelId) {
     try {
       await registry.get(faceModelId);
     } catch (err) {
       failed.push(failure(faceModelId, 'face', err));
-      faceModelId = null;
+      residentRetryAt.set(faceModelId, performance.now() + RESIDENT_RETRY_MS);
     }
   }
   // design.md §19: "Face detector and ViT encoder stay resident" — warmed the same way, and a
   // load failure disables only the ViT path (screen label + region screening), same fail-closed
   // shape as the face detector's own catch above.
+  vitPromptEmbeddings = null;
   if (vitModelId) {
     try {
       await registry.get(vitModelId);
       vitPromptEmbeddings = parsePromptEmbeddings(await registry.getAsset(vitModelId));
     } catch (err) {
       failed.push(failure(vitModelId, 'vit', err));
-      vitModelId = null;
-      vitPromptEmbeddings = null;
+      residentRetryAt.set(vitModelId, performance.now() + RESIDENT_RETRY_MS);
     }
   }
 
   post({ t: 'ready', backend, loaded: registry.loadedInfo(), failed, adapterInfo: selected.adapterInfo, webgpuRejected: selected.webgpuRejected });
 }
 
+// A model that failed to load is tried again this soon: its part of the frame stays grey meanwhile,
+// so a transient fetch or GPU hiccup must cost a step or two at most.
+const RESIDENT_RETRY_MS = 2_000;
+/** After the frame deadline, pictures CLIP had no time for are still screened by pixel structure
+ * for this long (a few ms each). */
+const PIXEL_SCREEN_EXTRA_MS = 600;
+/** Time text reading always gets in a perceive (~50 lines on WASM; cached lines cost nothing). */
+const MIN_TEXT_READ_MS = 1500;
+const residentRetryAt = new Map<string, number>();
+let ocrRetryAt = 0;
+
+/** Runs `run` on `session`; if it throws on a WebGPU session, the model is re-created on WASM and
+ * run once more. */
+async function withWasmFallback<T>(modelId: string | null, session: ort.InferenceSession, run: (s: ort.InferenceSession) => Promise<T>): Promise<T> {
+  try {
+    return await run(session);
+  } catch (err) {
+    if (!registry || !modelId || registry.providerOf(modelId) !== 'webgpu') throw err;
+    return run(await registry.reloadOnWasm(modelId));
+  }
+}
+
+/** The face detector or the ViT, loading it again if an earlier load failed and its back-off has
+ * passed; null while it is unavailable (what it would have screened stays grey meanwhile). */
+async function loadResident(role: 'face' | 'vit'): Promise<ort.InferenceSession | null> {
+  const id = role === 'face' ? faceModelId : vitModelId;
+  if (!id || !registry) return null;
+  const retryAt = residentRetryAt.get(id);
+  if (retryAt !== undefined && performance.now() < retryAt) return null;
+  try {
+    const session = await registry.get(id);
+    if (role === 'vit' && !vitPromptEmbeddings) vitPromptEmbeddings = parsePromptEmbeddings(await registry.getAsset(id));
+    residentRetryAt.delete(id);
+    return session;
+  } catch {
+    residentRetryAt.set(id, performance.now() + RESIDENT_RETRY_MS);
+    return null;
+  }
+}
+
+// CLIP + verifier results per image region, and OCR per text line, reused only for byte-identical
+// pixels (region-cache.ts): an unchanged page costs almost nothing on the next step.
+type RegionOcrHit = Extract<FromWorker, { t: 'perceived' }>['candidates'][number];
+const regionCache = new RegionResultCache<RegionOcrHit, RegionDiagnostic>();
+const lineCache = new Map<string, RecognizedLine>();
+const LINE_CACHE_MAX = 1024;
+
+// An image smaller than this on screen cannot carry a legible ID document, QR code or signature;
+// faces and text inside it are still found by the whole-frame passes.
+const MIN_SCREEN_REGION_PX = 40;
+// Full-frame text detection resolution (long side). Screen text is small: a 1280 px viewport kept
+// at 1:1 keeps 11 px text detectable, where PaddleOCR's 960 default shrinks it to 8 px.
+const OCR_FULL_FRAME_LIMIT = 1280;
+// A detected line is already DOM text when this much of it lies on DOM text boxes.
+const DOM_COVERED_FRACTION = 0.6;
+// A line belongs to an image when this much of it lies inside the image's box.
+const IN_IMAGE_FRACTION = 0.5;
+const ID_ENTITIES = new Set(['AADHAAR', 'PAN', 'PASSPORT', 'DOB']);
+
+function clipToFrame([x, y, w, h]: Box, fw: number, fh: number): Box {
+  const x0 = Math.max(0, x);
+  const y0 = Math.max(0, y);
+  const x1 = Math.min(fw, x + w);
+  const y1 = Math.min(fh, y + h);
+  return [x0, y0, Math.max(0, x1 - x0), Math.max(0, y1 - y0)];
+}
+
+function insideFraction([x, y, w, h]: Box, [bx, by, bw, bh]: Box): number {
+  const ix = Math.max(0, Math.min(x + w, bx + bw) - Math.max(x, bx));
+  const iy = Math.max(0, Math.min(y + h, by + bh) - Math.max(y, by));
+  return w * h > 0 ? (ix * iy) / (w * h) : 0;
+}
+
+/** Fraction of `box` covered by the union of `cover` — sampled on a 7×3 grid, which is plenty to
+ * tell "this line is DOM text" from "this line is not". */
+function coveredFraction([x, y, w, h]: Box, cover: readonly Box[]): number {
+  const near = cover.filter((c) => c[0] < x + w && x < c[0] + c[2] && c[1] < y + h && y < c[1] + c[3]);
+  if (near.length === 0) return 0;
+  let inside = 0;
+  let total = 0;
+  for (let i = 0; i < 7; i++) {
+    for (let j = 0; j < 3; j++) {
+      const px = x + (w * (i + 0.5)) / 7;
+      const py = y + (h * (j + 0.5)) / 3;
+      total++;
+      if (near.some(([cx, cy, cw, ch]) => px >= cx && px <= cx + cw && py >= cy && py <= cy + ch)) inside++;
+    }
+  }
+  return inside / total;
+}
+
+function cropPixels(canvas: OffscreenCanvas): Uint8ClampedArray {
+  return canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+}
+
+interface OcrLine {
+  box: Box;
+  /** Id of the image region the line lies in, if any. */
+  region: string | null;
+  domCovered: boolean;
+  read?: RecognizedLine;
+}
+
+async function recognizeFrameLine(models: OcrRescanModels, frame: ImageBitmap, line: OcrLine): Promise<RecognizedLine> {
+  const [lx, ly, lw, lh] = line.box;
+  const w = Math.max(1, Math.round(lw));
+  const h = Math.max(1, Math.round(lh));
+  const canvas = new OffscreenCanvas(w, h);
+  canvas.getContext('2d')!.drawImage(frame, lx, ly, lw, lh, 0, 0, w, h);
+  const key = pixelKey(w, h, cropPixels(canvas), 'line');
+  const cached = lineCache.get(key);
+  if (cached) return cached;
+  const read = await recognizeLine(models.recSession, ort, canvas, models.vocabulary);
+  lineCache.set(key, read);
+  while (lineCache.size > LINE_CACHE_MAX) lineCache.delete(lineCache.keys().next().value!);
+  return read;
+}
+
+/** Recognizer matches in a read line, each boxed to its own characters (CTC positions) rather than
+ * the whole line, falling back to the line when positions are unknown. */
+function lineCandidates(line: OcrLine, regionId: string | undefined): RegionOcrHit[] {
+  const read = line.read;
+  if (!read || read.text.trim().length === 0) return [];
+  const out: RegionOcrHit[] = [];
+  const [lx, ly, lw, lh] = line.box;
+  const normalizedSameLength = read.text.normalize('NFKC').length === read.text.length;
+  for (const match of findAll(read.text)) {
+    const extent = normalizedSameLength ? spanExtent(read, match.start, match.end, lw) : null;
+    const box: Box = extent ? [lx + extent[0], ly, extent[1] - extent[0], lh] : [lx, ly, lw, lh];
+    out.push({ entity: match.entity, box, score: match.score, regionId, channel: 'text-ocr', source: match.source, value: match.matchedText });
+  }
+  return out;
+}
+
 async function handlePerceive(msg: Extract<ToWorker, { t: 'perceive' }>): Promise<void> {
   closeCurrentCapture(); // a previous capture whose compose was never called (e.g. L0 decided
   // after all) must not leak — see this file's `currentCapture` doc comment.
   currentCapture = { bitmap: msg.bitmap };
+  const frame = msg.bitmap;
 
   const perceiveStart = performance.now();
+  const deadlineAt = perceiveStart + msg.deadlineMs;
   const timings: Record<string, number> = {};
   const timedOut: Extract<FromWorker, { t: 'perceived' }>['timedOut'] = [];
   const candidates: Extract<FromWorker, { t: 'perceived' }>['candidates'] = [];
   const regionDiagnostics: RegionDiagnostic[] = [];
   const inferences: PerceiveDiagnostics['inferences'] = { face: 0, vitRegion: 0, vitFullFrame: 0, ocrDet: 0, ocrRec: 0 };
   const modelErrors: PerceiveDiagnostics['modelErrors'] = [];
+  const unanalysed: Box[] = [];
 
-  const cropRegions = msg.regions.filter((r) => r.kind === 'crop');
-  const { admitted, dropped } = applyCropBudget(cropRegions, backend);
-  for (const d of dropped) {
-    timedOut.push(d.box);
-    regionDiagnostics.push({ regionId: d.id, outcome: 'budget' });
+  const faceSession = await loadResident('face');
+  const vitSession = await loadResident('vit');
+  const ocrModels = await loadOcrRescanModels();
+  if (!ocrModels && ocrLoadError) modelErrors.push({ role: 'ocr-det', code: ocrLoadError });
+  const clipReady = !!vitSession && !!vitPromptEmbeddings;
+
+  // 1. Faces, over the whole frame.
+  let faceStatus: FrameAnalysis['faces'] = faceSession ? 'ok' : 'unavailable';
+  let faces: FaceDetection[] = [];
+  let facePasses = 0;
+  const faceStart = performance.now();
+  if (faceSession) {
+    try {
+      const found = await withWasmFallback(faceModelId, faceSession, (s) => detectFacesFullFrame(s, ort, frame));
+      faces = found.faces;
+      facePasses = found.passes;
+      inferences.face += found.passes;
+    } catch (err) {
+      faceStatus = 'failed';
+      modelErrors.push({ role: 'face', code: err instanceof Error ? 'INFERENCE_FAILED' : 'UNKNOWN' });
+    }
   }
+  const faceMs = performance.now() - faceStart;
+  for (const face of faces) candidates.push({ entity: 'FACE', box: face.box, score: face.score, channel: 'vision' });
 
-  const faceSession = faceModelId && registry ? await registry.get(faceModelId).catch(() => null) : null;
-  const vitSession = vitModelId && registry ? await registry.get(vitModelId).catch(() => null) : null;
-  // T-6.5/T-6.6: OCR detection-side pass, finding NEW PII in a region the DOM never explained —
-  // as opposed to `handleRescan`'s halo check, which only re-verifies pixels already decided to
-  // be redacted. Loaded lazily, same as the halo path (design.md §6.4's degradation ladder never
-  // resident-loads OCR); skipped entirely when there are no crop regions to look at.
-  const ocrModels = admitted.length > 0 ? await loadOcrRescanModels() : null;
-  if (admitted.length > 0 && !ocrModels && ocrLoadError) modelErrors.push({ role: 'ocr-det', code: ocrLoadError });
-
-  let faceTimeMs = 0;
-  let ocrTimeMs = 0;
-  let vitTimeMs = 0;
-  if (faceSession || ocrModels || vitSession) {
-    // All three capabilities run inside ONE per-region job (`kind: 'face'`, the queue's own top
-    // priority) rather than separately-queued jobs — they already share the same crop and the
-    // same per-region deadline slot, and design.md §11.4's ordering is about which capability
-    // gets dropped first under load (the ladder's `no-ocr` rung, still unwired — see
-    // docs/HISTORY.md), not about interleaving within a region.
-    const queue = new PriorityQueue<(typeof admitted)[number]>();
-    for (const region of admitted) queue.enqueue({ id: region.id, kind: 'face', payload: region });
-
-    const { completed, timedOut: regionTimedOut } = await runWithDeadline(
-      queue,
-      async (job) => {
-        const regionStart = performance.now();
-        const crop = cropRegion(msg.bitmap, job.payload.box);
-
-        const faceStart = performance.now();
-        const faces = faceSession ? await detectFaces(faceSession, ort, crop, job.payload.box) : [];
-        if (faceSession) inferences.face += 1;
-        faceTimeMs += performance.now() - faceStart;
-
-        const ocrStart = performance.now();
-        const ocrStats = { linesDetected: 0, linesRecognized: 0 };
-        const ocrHits = ocrModels ? await detectTextEntitiesInRegion(ort, ocrModels, crop, job.payload.id, job.payload.box, ocrStats) : [];
-        if (ocrModels) {
-          inferences.ocrDet += 1;
-          inferences.ocrRec += ocrStats.linesRecognized;
-        }
-        ocrTimeMs += performance.now() - ocrStart;
-
-        // design.md §6.4's zero-shot ViT region screening (T-4.6): a sensitive entity whose pooled
-        // probability clears its threshold becomes a whole-region candidate — see
-        // `acceptedEntity`'s doc comment for why pooled rather than top-1.
-        const vitStart = performance.now();
-        const vitResult = vitSession ? await classifyRegion(vitSession, ort, vitPromptEmbeddings, crop) : null;
-        if (vitResult) inferences.vitRegion += 1;
-        vitTimeMs += performance.now() - vitStart;
-        const vitEntity = vitResult ? acceptedEntity(vitResult) : null;
-        const vitAccepted = vitEntity !== null;
-
-        const diagnostic: RegionDiagnostic = {
-          regionId: job.payload.id,
-          outcome: 'analysed',
-          ms: performance.now() - regionStart,
-          faces: faceSession ? faces.length : undefined,
-          faceTopScore: faces.length > 0 ? Math.max(...faces.map((f) => f.score)) : undefined,
-          ocrLinesDetected: ocrModels ? ocrStats.linesDetected : undefined,
-          ocrLinesRecognized: ocrModels ? ocrStats.linesRecognized : undefined,
-          ocrEntities: ocrModels ? ocrHits.map((h) => h.entity) : undefined,
-          vit: vitResult ? { label: vitResult.label, score: vitResult.score, accepted: vitAccepted, entity: vitResult.entity ?? undefined, entityScore: vitResult.entityScore } : undefined,
-        };
-        return { faces, ocrHits, vitEntity, vitScore: vitResult?.entityScore, diagnostic };
-      },
-      msg.deadlineMs,
-    );
-    for (const { job, result } of completed) {
-      for (const face of result.faces) candidates.push({ entity: 'FACE', box: face.box, score: face.score, regionId: job.payload.id, channel: 'vision' });
-      candidates.push(...result.ocrHits);
-      if (result.vitEntity) candidates.push({ entity: result.vitEntity, box: job.payload.box, score: result.vitScore!, regionId: job.payload.id, channel: 'vision' });
-      regionDiagnostics.push(result.diagnostic);
+  // 2. Text lines, over the whole frame.
+  let textStatus: FrameAnalysis['text'] = ocrModels ? 'ok' : 'unavailable';
+  const detStart = performance.now();
+  let rawLines: { box: Box }[] = [];
+  if (ocrModels) {
+    try {
+      rawLines = await withWasmFallback(ocrDetModelId, ocrModels.detSession, (s) => detectText(s, ort, frame, OCR_FULL_FRAME_LIMIT));
+      inferences.ocrDet += 1;
+    } catch {
+      textStatus = 'failed';
+      modelErrors.push({ role: 'ocr-det', code: 'INFERENCE_FAILED' });
     }
-    for (const job of regionTimedOut) {
-      timedOut.push(job.payload.box);
-      regionDiagnostics.push({ regionId: job.payload.id, outcome: 'deadline' });
+  }
+  const textDetMs = performance.now() - detStart;
+
+  const imageRegions = msg.regions
+    .filter((r) => r.kind === 'crop')
+    .map((r) => ({ ...r, visible: clipToFrame(r.box, frame.width, frame.height) }))
+    .filter((r) => r.visible[2] > 0 && r.visible[3] > 0)
+    .sort((a, b) => b.visible[2] * b.visible[3] - a.visible[2] * a.visible[3]);
+  const textBoxes = msg.textBoxes ?? [];
+  const lines: OcrLine[] = rawLines.map(({ box }) => {
+    const region = imageRegions.find((r) => insideFraction(box, r.visible) >= IN_IMAGE_FRACTION);
+    return { box, region: region?.id ?? null, domCovered: !region && coveredFraction(box, textBoxes) >= DOM_COVERED_FRACTION };
+  });
+
+  let recMs = 0;
+  let recognized = 0;
+  // Reading text gets its own time, whatever the passes before it took: on a picture-heavy page
+  // (amazon.in's home page, 2026-09-30) faces, text detection and CLIP used the whole frame
+  // deadline and not one line in a picture was read — every banner's text went grey.
+  let readDeadlineAt = deadlineAt;
+  const readLine = async (line: OcrLine): Promise<boolean> => {
+    if (!ocrModels || textStatus !== 'ok') return false;
+    if (performance.now() > readDeadlineAt) return false;
+    const t0 = performance.now();
+    try {
+      line.read = await recognizeFrameLine(ocrModels, frame, line);
+      recognized += 1;
+      inferences.ocrRec += 1;
+      return true;
+    } catch {
+      return false;
+    } finally {
+      recMs += performance.now() - t0;
     }
-  } else {
-    // No capability available — every region that would have been screened stays `timedOut`, not
-    // silently cleared (the compositor's clearance rule then leaves it grey, per T-4.2's AC).
-    for (const region of admitted) {
+  };
+
+  // 3. Pictures, in two passes so a slow page loses as little as possible to the deadline: first
+  // every picture gets CLIP plus the structural checks (cheap, one inference each); then text is
+  // read — in pictures CLIP thinks may be documents first (their text decides it), then in other
+  // pictures, then text the DOM never had. What the deadline leaves unread greys only that line.
+  let vitMs = 0;
+  let cachedRegions = 0;
+  const budget = cropBudgetFor(backend);
+  let classified = 0;
+  interface Classified {
+    region: (typeof imageRegions)[number];
+    lines: OcrLine[];
+    gray: ReturnType<typeof toGray>;
+    vit: RegionClassification | null;
+    evidence: RegionEvidence;
+    cacheKey: string;
+    cached: boolean;
+    confirmed: ReturnType<typeof confirmedEntity>;
+    started: number;
+    /** Past CLIP's budget or deadline: screened by pixel structure and its text only. */
+    pixelsOnly?: boolean;
+  }
+  const pending: Classified[] = [];
+  for (const region of imageRegions) {
+    const [, , vw, vh] = region.visible;
+    const regionLines = lines.filter((l) => l.region === region.id);
+    if (vw < MIN_SCREEN_REGION_PX || vh < MIN_SCREEN_REGION_PX) {
+      // Too small to be a document, but any text in it is still read by the pass below.
+      for (const l of regionLines) l.region = null;
+      regionDiagnostics.push({ regionId: region.id, outcome: 'small' });
+      continue;
+    }
+    const clipTime = classified < budget && performance.now() <= deadlineAt;
+    // Past CLIP's budget, a picture is still screened by what costs a few ms: its pixels' structure
+    // (QR finder patterns, barcode bars, signature ink) and its text (read below, faces were found
+    // over the whole frame). Only a picture past even that time stays grey unseen.
+    if (!clipTime && performance.now() > deadlineAt + PIXEL_SCREEN_EXTRA_MS) {
       timedOut.push(region.box);
-      regionDiagnostics.push({ regionId: region.id, outcome: 'no-capability' });
+      unanalysed.push(region.visible);
+      regionDiagnostics.push({ regionId: region.id, outcome: classified >= budget ? 'budget' : 'deadline' });
+      continue;
     }
+    const started = performance.now();
+    const crop = cropRegion(frame, region.visible);
+    const gray = toGray(crop);
+    if (isNearUniform(gray)) {
+      for (const l of regionLines) l.read = { text: '', confidence: 0 };
+      regionDiagnostics.push({ regionId: region.id, outcome: 'blank' });
+      continue;
+    }
+    if (clipTime) classified += 1;
+    const evidence: RegionEvidence = {
+      qr: false,
+      barcode: false,
+      signature: false,
+      idText: false,
+      face: faces.some((f) => insideFraction(f.box, region.visible) >= 0.5),
+      lines: regionLines.length,
+      aspect: vw / vh,
+    };
+    const cacheKey = pixelKey(crop.width, crop.height, cropPixels(crop), `v${clipReady ? 1 : 0}`);
+    const hit = regionCache.get(cacheKey, region.visible, region.id);
+    if (!clipTime && !hit) {
+      evidence.qr = looksLikeQrCode(gray);
+      evidence.barcode = !evidence.qr && looksLikeBarcode(gray);
+      evidence.signature = looksLikeSignature(gray);
+      pending.push({ region, lines: regionLines, gray, vit: null, evidence, cacheKey, cached: false, confirmed: null, started, pixelsOnly: true });
+      continue;
+    }
+    if (hit) {
+      cachedRegions += 1;
+      const confirmed = hit.vitEntity ? { entity: hit.vitEntity as VisionEntity, score: hit.vitScore ?? 0.9, why: 'cached' } : null;
+      pending.push({ region, lines: regionLines, gray, vit: null, evidence, cacheKey, cached: true, confirmed, started });
+      regionDiagnostics.push({ ...hit.diagnostic, regionId: region.id, ms: performance.now() - started, cached: true });
+      continue;
+    }
+    evidence.qr = looksLikeQrCode(gray);
+    evidence.barcode = !evidence.qr && looksLikeBarcode(gray);
+    const vitStart = performance.now();
+    const vit = clipReady && vitSession ? await withWasmFallback(vitModelId, vitSession, (sess) => classifyRegion(sess, ort, vitPromptEmbeddings, crop)) : null;
+    vitMs += performance.now() - vitStart;
+    if (vit) inferences.vitRegion += 1;
+    if ((vit?.pooled?.SIGNATURE ?? 0) >= 0.3) evidence.signature = looksLikeSignature(gray);
+    pending.push({ region, lines: regionLines, gray, vit, evidence, cacheKey, cached: false, confirmed: null, started });
   }
-  timings.face = faceTimeMs;
-  timings.ocr = ocrTimeMs;
-  timings.vit = vitTimeMs;
 
-  // design.md §4.3: the ViT encoder also embeds a low-res thumbnail of the full viewport on
-  // EVERY capture, for the screen-state label.
+  const mayBeDocument = (c: Classified) => !c.cached && (c.vit?.pooled?.ID_DOCUMENT ?? 0) >= 0.3;
+  const order = [...pending.filter(mayBeDocument), ...pending.filter((c) => !mayBeDocument(c))];
+  readDeadlineAt = Math.max(deadlineAt, performance.now() + MIN_TEXT_READ_MS);
+  for (const c of order) for (const l of c.lines) if (!l.read) await readLine(l);
+
+  for (const c of pending) {
+    const unread = c.lines.filter((l) => !l.read);
+    const texts = c.lines.map((l) => l.read?.text ?? '').filter((t) => t.trim().length > 0);
+    const hits = c.lines.flatMap((l) => lineCandidates(l, c.region.id));
+    candidates.push(...hits);
+    // A text line in the picture OCR could not read in time stays grey on its own.
+    for (const l of unread) unanalysed.push(l.box);
+    if (!c.cached) {
+      c.evidence.idText = idDocumentTextEvidence(texts, hits.filter((h) => ID_ENTITIES.has(h.entity)).length);
+      c.confirmed = confirmedEntity(c.vit, c.evidence);
+      // Without CLIP a picture is cleared only when its pixels and text rule out what CLIP would
+      // have looked for: no signature-like ink, no document wording, every line read. Otherwise
+      // (or with no CLIP at all) it stays grey — it could be a document or a signature.
+      const pixelsCleared = !!c.pixelsOnly && clipReady && !c.evidence.signature && !c.evidence.idText && unread.length === 0;
+      if (!c.vit && !c.confirmed && !pixelsCleared) unanalysed.push(c.region.visible);
+      const diagnostic: RegionDiagnostic = {
+        regionId: c.region.id,
+        outcome: c.vit || c.confirmed ? 'analysed' : pixelsCleared ? 'pixels' : c.pixelsOnly && clipReady ? 'budget' : 'no-capability',
+        ms: performance.now() - c.started,
+        faces: faces.filter((f) => insideFraction(f.box, c.region.visible) >= 0.5).length,
+        ocrLinesDetected: c.lines.length,
+        ocrLinesRecognized: c.lines.length - unread.length,
+        ocrEntities: hits.map((h) => h.entity),
+        vit: c.vit
+          ? { label: c.vit.label, score: c.vit.score, accepted: !!c.confirmed, entity: c.confirmed?.entity ?? c.vit.entity ?? undefined, entityScore: c.confirmed?.score ?? c.vit.entityScore, why: c.confirmed?.why }
+          : undefined,
+      };
+      regionDiagnostics.push(diagnostic);
+      if (c.vit && unread.length === 0) regionCache.set(c.cacheKey, c.region.visible, { faces: [], ocrHits: [], vitEntity: c.confirmed?.entity ?? null, vitScore: c.confirmed?.score, diagnostic });
+    }
+    if (c.confirmed) candidates.push({ entity: c.confirmed.entity, box: c.region.box, score: c.confirmed.score, regionId: c.region.id, channel: 'vision', source: `vision:${c.confirmed.why}` });
+  }
+
+  // 4. Text the DOM never read: in canvases, SVG, background pictures, cross-origin frames,
+  // closed shadow roots. Top to bottom, until the deadline; what is left stays grey.
+  const loose = lines.filter((l) => !l.domCovered && l.region === null).sort((a, b) => a.box[1] - b.box[1] || a.box[0] - b.box[0]);
+  for (const line of loose) {
+    if (await readLine(line)) candidates.push(...lineCandidates(line, undefined));
+    else unanalysed.push(line.box);
+  }
+
+  timings.face = faceMs;
+  timings.ocr = textDetMs + recMs;
+  timings.vit = vitMs;
+
+  // design.md §4.3: the ViT encoder also embeds the full viewport on every capture, for the
+  // screen-state label.
   let label: Extract<FromWorker, { t: 'perceived' }>['screenLabel'];
   let screenLabelMs = 0;
   if (msg.fullFrame) {
     const labelStart = performance.now();
-    const result = await screenLabel(vitSession, ort, vitPromptEmbeddings, msg.bitmap);
+    const result = await screenLabel(vitSession, ort, vitPromptEmbeddings, frame);
     screenLabelMs = performance.now() - labelStart;
     timings.screenLabel = screenLabelMs;
     if (result) {
@@ -250,16 +504,27 @@ async function handlePerceive(msg: Extract<ToWorker, { t: 'perceive' }>): Promis
       ocrDet: ocrModels ? providerOf(ocrDetModelId) : undefined,
       ocrRec: ocrModels ? providerOf(ocrRecEnModelId) : undefined,
     },
-    available: { face: !!faceSession, vit: !!vitSession && !!vitPromptEmbeddings, ocr: !!ocrModels },
+    available: { face: !!faceSession, vit: clipReady, ocr: !!ocrModels },
     inferences,
-    ms: { face: faceTimeMs, vit: vitTimeMs, ocr: ocrTimeMs, screenLabel: screenLabelMs, total: performance.now() - perceiveStart },
+    cachedRegions,
+    ms: { face: faceMs, vit: vitMs, ocr: textDetMs + recMs, screenLabel: screenLabelMs, total: performance.now() - perceiveStart },
     regions: regionDiagnostics,
     modelErrors,
+    frame: {
+      facePasses,
+      faces: faces.length,
+      linesDetected: lines.length,
+      linesDomCovered: lines.filter((l) => l.domCovered).length,
+      linesRecognized: recognized,
+      linesUnread: lines.filter((l) => !l.domCovered && !l.read).length,
+      ms: { faces: faceMs, textDet: textDetMs, textRec: recMs },
+    },
   };
+  const analysis: FrameAnalysis = { faces: faceStatus, text: textStatus, images: clipReady ? 'ok' : 'unavailable', unanalysed };
 
   // NOT closed here — `currentCapture` still owns `msg.bitmap` until `compose` (or a superseding
   // `perceive`) closes it. See the `currentCapture` doc comment above.
-  post({ t: 'perceived', jobId: msg.jobId, candidates, screenLabel: label, timings, timedOut, diagnostics });
+  post({ t: 'perceived', jobId: msg.jobId, candidates, screenLabel: label, timings, timedOut, diagnostics, analysis });
 }
 
 async function handleCompose(msg: Extract<ToWorker, { t: 'compose' }>): Promise<void> {
@@ -273,6 +538,8 @@ async function handleCompose(msg: Extract<ToWorker, { t: 'compose' }>): Promise<
     regions: msg.regions as RedactionBoxSet[],
     scale: msg.scale,
     unlabelled: msg.unlabelled,
+    clearDefault: msg.clearDefault,
+    grey: msg.grey,
   });
   const webp = await encodeWebp(output.canvas);
   // T-6.10: NOT closed here. This file's own `currentCapture` doc comment already says the
@@ -296,6 +563,7 @@ async function handleCompose(msg: Extract<ToWorker, { t: 'compose' }>): Promise<
  * own catch above, not a new pattern. */
 async function loadOcrRescanModels(): Promise<OcrRescanModels | null> {
   if (!registry || !ocrDetModelId || !ocrRecEnModelId) return null;
+  if (performance.now() < ocrRetryAt) return null;
   try {
     const [detSession, recSession, vocabDict] = await Promise.all([
       registry.get(ocrDetModelId),
@@ -306,6 +574,7 @@ async function loadOcrRescanModels(): Promise<OcrRescanModels | null> {
     return { detSession, recSession, vocabulary: buildCtcVocabulary(vocabDict) };
   } catch (err) {
     ocrLoadError = err instanceof ModelLoadError ? err.code : 'MODEL_LOAD_FAILED';
+    ocrRetryAt = performance.now() + RESIDENT_RETRY_MS;
     return null;
   }
 }
@@ -402,18 +671,39 @@ async function handleNer(msg: Extract<ToWorker, { t: 'ner' }>): Promise<void> {
 }
 
 async function handleRescan(msg: Extract<ToWorker, { t: 'rescan' }>): Promise<void> {
-  const hits: Extract<FromWorker, { t: 'rescanned' }>['hits'] = [];
-  const faceSession = faceModelId && registry ? await registry.get(faceModelId).catch(() => null) : null;
-  if (faceSession) {
-    const faceBoxes = await recheckFacesOnComposedImage(faceSession, ort, msg.image);
-    for (const box of faceBoxes) hits.push({ entity: 'FACE', box, score: 1 });
-  }
-  const halos = msg.halos.length > 0 ? msg.halos : msg.redactionBoxes;
-  const ocrModels = await loadOcrRescanModels();
-  const textHits = await checkHalosForText(ort, ocrModels, msg.image, halos);
-  for (const box of textHits) hits.push({ entity: 'SECRET', box, score: 1 });
+  const scale = msg.scale ?? 1;
+  const toImage = ([x, y, w, h]: Box): Box => [x * scale, y * scale, w * scale, h * scale];
 
-  post({ t: 'rescanned', jobId: msg.jobId, hits });
+  // Every redaction box is masked solid black before anything is read, so neither the face
+  // detector nor OCR sees the labels the compositor drew inside the boxes (A2: OCR read our own
+  // `FACE`/`⟪AADHAAR#1⟫` labels back as "leaks", so every labelled image was dropped).
+  const composed = await createImageBitmap(new Blob([msg.image], { type: 'image/webp' }));
+  const masked = new OffscreenCanvas(composed.width, composed.height);
+  const ctx = masked.getContext('2d')!;
+  ctx.drawImage(composed, 0, 0);
+  composed.close();
+  ctx.fillStyle = '#000000';
+  for (const box of msg.redactionBoxes) {
+    const [x, y, w, h] = toImage(box);
+    ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
+  }
+
+  const hits: Extract<FromWorker, { t: 'rescanned' }>['hits'] = [];
+  const faceSession = await loadResident('face');
+  if (faceSession) {
+    // Same whole-frame detector as `perceive`, so a face it passed over is a real miss, not a
+    // difference between two detectors. Boxes back in CSS px.
+    for (const face of (await detectFacesFullFrame(faceSession, ort, masked)).faces) {
+      hits.push({ entity: 'FACE', box: [face.box[0] / scale, face.box[1] / scale, face.box[2] / scale, face.box[3] / scale], score: face.score });
+    }
+  }
+  const halos = (msg.halos.length > 0 ? msg.halos : msg.redactionBoxes.map(haloAround)).map(toImage);
+  const ringText = (await readHaloText(ort, await loadOcrRescanModels(), masked, halos)).map((r) => ({
+    box: [r.box[0] / scale, r.box[1] / scale, r.box[2] / scale, r.box[3] / scale] as Box,
+    text: r.text,
+  }));
+
+  post({ t: 'rescanned', jobId: msg.jobId, hits, ringText });
 }
 
 self.addEventListener('message', (event: MessageEvent<ToWorker>) => {

@@ -27,12 +27,14 @@ export function buildCtcVocabulary(dictLines: readonly string[]): string[] {
  * argmax per timestep, collapse consecutive-duplicate indices, then drop blanks. Pure function
  * over already-extracted logits/probabilities so it can be unit-tested without a real ONNX
  * session — same separation-of-concerns as `decodeYunetOutputs`/`decodeDbOutput`. */
-export function ctcGreedyDecode(logits: Float32Array, seqLen: number, vocabSize: number, vocabulary: readonly string[]): { text: string; confidence: number } {
+export function ctcGreedyDecode(logits: Float32Array, seqLen: number, vocabSize: number, vocabulary: readonly string[]): { text: string; confidence: number; steps: number[] } {
   if (vocabulary.length !== vocabSize) {
     throw new Error(`CTC vocabulary size ${vocabulary.length} does not match model output width ${vocabSize} — dict file and model are mismatched`);
   }
 
   let text = '';
+  // Timestep of each emitted character (one per UTF-16 unit of `text`): where it sits along the line.
+  const steps: number[] = [];
   let lastIndex = -1;
   let confSum = 0;
   let confCount = 0;
@@ -49,19 +51,37 @@ export function ctcGreedyDecode(logits: Float32Array, seqLen: number, vocabSize:
       }
     }
     if (bestIndex !== CTC_BLANK_INDEX && bestIndex !== lastIndex) {
-      text += vocabulary[bestIndex] ?? '';
+      const ch = vocabulary[bestIndex] ?? '';
+      text += ch;
+      for (let k = 0; k < ch.length; k++) steps.push(t);
       confSum += bestValue;
       confCount++;
     }
     lastIndex = bestIndex;
   }
 
-  return { text, confidence: confCount === 0 ? 0 : confSum / confCount };
+  return { text, confidence: confCount === 0 ? 0 : confSum / confCount, steps };
 }
 
 export interface RecognizedLine {
   text: string;
   confidence: number;
+  /** Per character of `text`: its horizontal extent in the line crop's own pixels. */
+  charSpans?: [number, number][];
+}
+
+/** Horizontal pixel range `[x0, x1)` of `text[start..end)` in the line crop, from the CTC timesteps
+ * (each timestep covers a fixed slice of the line's width). Padded by half a character on each
+ * side; null when positions are unknown. */
+export function spanExtent(line: RecognizedLine, start: number, end: number, lineWidth: number): [number, number] | null {
+  const spans = line.charSpans;
+  if (!spans || spans.length === 0 || start >= end) return null;
+  const first = spans[Math.max(0, Math.min(start, spans.length - 1))]!;
+  const last = spans[Math.max(0, Math.min(end - 1, spans.length - 1))]!;
+  const charW = spans.length > 1 ? (spans[spans.length - 1]![1] - spans[0]![0]) / spans.length : first[1] - first[0];
+  const x0 = Math.max(0, first[0] - charW * 0.6);
+  const x1 = Math.min(lineWidth, last[1] + charW * 0.6);
+  return x1 > x0 ? [x0, x1] : null;
 }
 
 /** Runs a bundled PP-OCRv5 recognizer (English or Devanagari, chosen by the caller via
@@ -86,5 +106,10 @@ export async function recognizeLine(session: ort.InferenceSession, ort_: typeof 
   const output = results[outputName]!;
   const [, seqLen, vocabSize] = output.dims as [number, number, number];
 
-  return ctcGreedyDecode(output.data as Float32Array, seqLen, vocabSize, vocabulary);
+  const decoded = ctcGreedyDecode(output.data as Float32Array, seqLen, vocabSize, vocabulary);
+  // Timestep t covers [t, t+1) * (input width / seqLen) of the resized line; mapped back to the
+  // crop through the resize scale.
+  const stepPx = resized.canvas.width / seqLen / resized.scale;
+  const charSpans = decoded.steps.map((t) => [t * stepPx, (t + 1) * stepPx] as [number, number]);
+  return { text: decoded.text, confidence: decoded.confidence, charSpans };
 }

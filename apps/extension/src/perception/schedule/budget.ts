@@ -4,8 +4,10 @@
 
 import type { Backend } from '../../shared/worker-protocol';
 
+// Raised from 16/8 once pictures became a CLIP pass only (faces and text are whole-frame now):
+// ~75 ms per picture on WASM, measured on amazon.in 2026-09-29, where 8 left six banners grey.
 export function cropBudgetFor(backend: Backend): number {
-  return backend === 'webgpu' ? 16 : 8;
+  return backend === 'webgpu' ? 24 : 12;
 }
 
 /** Applies the budget, returning the regions that fit and the rest as dropped (reported as

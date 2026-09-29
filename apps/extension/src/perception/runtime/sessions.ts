@@ -91,6 +91,8 @@ export class ModelRegistry {
   private readonly specs = new Map<string, ModelSpec>();
   private readonly dicts = new Map<string, string[]>();
   private readonly assets = new Map<string, ArrayBuffer>();
+  /** Models that failed at inference on WebGPU: from then on they run on WASM. */
+  private readonly wasmOnly = new Set<string>();
 
   /** `'measure'` (auto on a hardware WebGPU adapter): each model is created on both providers,
    * timed, and the loser released — see `provider-choice.ts`. */
@@ -131,6 +133,14 @@ export class ModelRegistry {
     return chosen.session;
   }
 
+  /** A model that failed at inference on WebGPU (a lost device, a provider bug) is re-created on
+   * WASM, verified the same way: the page is still analysed, only slower. */
+  async reloadOnWasm(modelId: string): Promise<ort.InferenceSession> {
+    this.wasmOnly.add(modelId);
+    this.evict(modelId);
+    return this.get(modelId);
+  }
+
   providerOf(modelId: string): Backend | null {
     return this.sessions.get(modelId)?.provider ?? null;
   }
@@ -147,7 +157,7 @@ export class ModelRegistry {
   }
 
   private async createForUnserialized(spec: ModelSpec, bytes: ArrayBuffer): Promise<{ session: ort.InferenceSession; provider: Backend; probeMs?: ModelInfo['probeMs'] }> {
-    if (this.policy === 'wasm') return { session: await createSession(bytes, 'wasm'), provider: 'wasm' };
+    if (this.policy === 'wasm' || this.wasmOnly.has(spec.id)) return { session: await createSession(bytes, 'wasm'), provider: 'wasm' };
     if (this.policy === 'webgpu') {
       try {
         return { session: await createSession(bytes, 'webgpu'), provider: 'webgpu' };

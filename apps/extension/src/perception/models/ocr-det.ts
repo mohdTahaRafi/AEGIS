@@ -123,8 +123,8 @@ export function decodeDbOutput(probMap: Float32Array, width: number, height: num
 /** Runs the bundled PP-OCRv5 detector over `crop` (already isolated to one unexplained region by
  * the caller, design.md §6.4) and returns detected text-line boxes in `crop`'s own coordinates
  * (the caller offsets into source-page coordinates, same convention as `detectFaces`). */
-export async function detectText(session: ort.InferenceSession, ort_: typeof ort, crop: ImageBitmap | OffscreenCanvas): Promise<DetectedLine[]> {
-  const resized = resizeForDetection(crop);
+export async function detectText(session: ort.InferenceSession, ort_: typeof ort, crop: ImageBitmap | OffscreenCanvas, limitSideLen?: number): Promise<DetectedLine[]> {
+  const resized = resizeForDetection(crop, limitSideLen);
   const tensor = new ort_.Tensor('float32', toCHWFloat32BGRNormalized(resized.canvas), [
     1,
     3,
