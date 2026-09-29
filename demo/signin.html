@@ -1,0 +1,120 @@
+<!doctype html>
+<!--
+  AEGIS end-to-end demo page (SIH PS 26171). Every value on this page is synthetic.
+  The Aadhaar number passes the Verhoeff checksum so it is detected for the same structural reason
+  a real one would be. The photo is a public-domain 1947 portrait (Einstein), used so the on-device
+  face detector has a real face to find.
+
+  Serve over HTTP (captureVisibleTab cannot capture file:// pages):
+      python3 -m http.server 8080 --bind 127.0.0.1 --directory demo
+  then open http://127.0.0.1:8080/signin.html
+
+  Task to give AEGIS:  Enter the username and click Sign in.
+  Success is deterministic: the page shows "Signed in as ..." only if the Username field holds the
+  registered username exactly; anything else shows "Unknown username".
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Citizen Services Portal - Sign in</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { font-family: system-ui, sans-serif; background: #eef1f5; color: #111; margin: 0; padding: 24px; }
+      header { max-width: 900px; margin: 0 auto 16px; display: flex; justify-content: space-between; align-items: baseline; }
+      header h1 { font-size: 20px; margin: 0; }
+      header nav a { margin-left: 16px; color: #1a56db; font-size: 14px; }
+      main { max-width: 900px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+      @media (max-width: 700px) { main { grid-template-columns: 1fr; } }
+      .card { background: #fff; border: 1px solid #d6dbe3; border-radius: 8px; padding: 20px; }
+      h2 { font-size: 16px; margin: 0 0 12px; }
+      .profile { display: flex; gap: 14px; align-items: center; margin-bottom: 14px; }
+      .profile img { width: 96px; height: 120px; object-fit: cover; border-radius: 6px; border: 1px solid #ccc; }
+      dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; margin: 0; font-size: 14px; }
+      dt { color: #555; }
+      dd { margin: 0; font-weight: 600; }
+      .field { margin-bottom: 14px; }
+      label { display: block; font-size: 13px; color: #333; margin-bottom: 4px; }
+      input { width: 100%; padding: 9px; font-size: 14px; border: 1px solid #b9c0cc; border-radius: 4px; }
+      button { width: 100%; padding: 11px; font-size: 15px; background: #1a56db; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+      .notice { font-size: 13px; color: #333; line-height: 1.5; }
+      .notice li { margin-bottom: 4px; }
+      #result { margin-top: 14px; padding: 10px; border-radius: 4px; font-weight: 600; }
+      #result.ok { background: #e3f6e8; color: #0b6b2b; }
+      #result.bad { background: #fde8e8; color: #9b1c1c; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Citizen Services Portal</h1>
+      <nav><a href="#help">Help</a><a href="#contact">Contact</a></nav>
+    </header>
+
+    <main>
+      <section class="card" aria-label="Your account">
+        <h2>Your account</h2>
+        <div class="profile">
+          <img src="profile-photo.jpg" alt="Profile photo" width="96" height="120" />
+          <dl>
+            <dt>Name</dt><dd>Ramesh Kumar</dd>
+            <dt>Registered username</dt><dd id="registered-username">rkumar_2291</dd>
+          </dl>
+        </div>
+        <dl>
+          <dt>Aadhaar</dt><dd>4987 1234 5679</dd>
+          <dt>PAN</dt><dd>ABCPK1234F</dd>
+          <dt>Mobile</dt><dd>+91 98765 43210</dd>
+          <dt>Email</dt><dd>ramesh.kumar@example.in</dd>
+        </dl>
+      </section>
+
+      <section class="card" aria-label="Sign in">
+        <h2>Sign in</h2>
+        <form id="login-form" autocomplete="on">
+          <div class="field">
+            <label for="username">Username</label>
+            <input id="username" name="username" type="text" autocomplete="username" />
+          </div>
+          <div class="field">
+            <label for="password">Password</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" value="Demo#Pass-4471" />
+          </div>
+          <button id="signin" type="submit">Sign in</button>
+        </form>
+        <div id="result" role="status" hidden></div>
+      </section>
+
+      <section class="card notice" aria-label="Announcements" id="help">
+        <h2>Announcements</h2>
+        <ul>
+          <li>Property tax payments are open until 31 October.</li>
+          <li>Scheduled maintenance: Sunday 02:00 to 04:00.</li>
+          <li>Office hours: Monday to Friday, 9:30 to 17:30.</li>
+        </ul>
+      </section>
+
+      <section class="card notice" aria-label="About" id="contact">
+        <h2>About this portal</h2>
+        <p>Apply for certificates, track applications and pay municipal dues online.</p>
+      </section>
+    </main>
+
+    <script>
+      const REGISTERED = document.getElementById('registered-username').textContent.trim();
+      document.getElementById('login-form').addEventListener('submit', (event) => {
+        event.preventDefault();
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+        const result = document.getElementById('result');
+        result.hidden = false;
+        if (username === REGISTERED && password.length > 0) {
+          result.className = 'ok';
+          result.textContent = 'Signed in as ' + username;
+          document.getElementById('login-form').hidden = true;
+        } else {
+          result.className = 'bad';
+          result.textContent = 'Unknown username';
+        }
+      });
+    </script>
+  </body>
+</html>

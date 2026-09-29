@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Gadget Shop - Search</title>
+<style>body { font-family: Arial, sans-serif; margin: 24px; } input { width: 360px; padding: 8px; font-size: 15px; } li { margin: 10px 0; }</style></head>
+<body>
+  <h1>Gadget Shop</h1>
+  <!-- No search button: like many sites, the search runs when you press Enter. -->
+  <form id="search"><input name="q" aria-label="Search products" placeholder="Search products"></form>
+  <ul id="results"></ul>
+  <script>
+    const PRODUCTS = ['Samsung 65W Tri Port charger - Rs 1,499', 'Portronics 65W Zion charger - Rs 1,249', 'Anker 20W USB-C charger - Rs 999', 'Boat 10000 mAh power bank - Rs 1,099'];
+    const q = new URLSearchParams(location.search).get('q');
+    if (q) {
+      document.querySelector('input').value = q;
+      const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+      const hits = PRODUCTS.filter((p) => words.every((w) => p.toLowerCase().includes(w)));
+      const list = document.getElementById('results');
+      list.insertAdjacentHTML('beforebegin', `<h2>${hits.length} results for "${q.replace(/[<>&"]/g, '')}"</h2>`);
+      for (const h of hits) { const li = document.createElement('li'); li.textContent = h; list.appendChild(li); }
+    }
+  </script>
+</body>
+</html>

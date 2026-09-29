@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Inbox - Mail</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 0; background: #f6f8fc; }
+  .msg { background: #fff; margin: 16px; padding: 16px 24px; border-radius: 8px; }
+  .reply { background: #fff; margin: 16px; border-radius: 8px; box-shadow: 0 1px 3px #0003; }
+  .to { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid #eee; }
+  .chip { background: #e8eaed; border-radius: 12px; padding: 2px 8px; font-size: 13px; }
+  .to input { border: 0; outline: 0; flex: 1; font-size: 14px; }
+  .subject { display: none; }
+  .body-wrap { position: relative; padding: 8px 16px; }
+  .Am { min-height: 120px; outline: 0; font-size: 14px; }
+  .hint { position: absolute; top: 8px; left: 16px; color: #888; pointer-events: none; font-size: 14px; }
+  .bar { padding: 8px 16px; }
+  .send { background: #0b57d0; color: #fff; border: 0; border-radius: 16px; padding: 8px 20px; }
+</style>
+</head>
+<body>
+  <div class="msg">
+    <h2>Result of your Application</h2>
+    <p>Thank you for applying to the Information Technology Intern position.</p>
+  </div>
+
+  <div class="reply" role="region" aria-label="Reply">
+    <div class="to">
+      <span>To</span>
+      <span class="chip">workday@example.com</span>
+      <input class="agP aFw" role="combobox" aria-label="To recipients" aria-expanded="false" autocomplete="off">
+    </div>
+    <div class="subject"><input name="subjectbox" aria-label="Subject" value="Re: Result of your Application"></div>
+    <div class="body-wrap">
+      <div id=":r1" class="Am aiL Al editable" hidefocus="true" aria-label="Message Body" g_editable="true"
+           role="textbox" aria-multiline="true" contenteditable="true" tabindex="1" spellcheck="false"><br></div>
+      <div class="hint" id="hint">Press / to write using your Mail &amp; Drive</div>
+    </div>
+    <div class="bar"><button class="send" id="send">Send</button></div>
+  </div>
+
+  <script>
+    // Like Gmail's compose: the editor's attributes keep changing while it is open (smart compose,
+    // aria state), which AEGIS's volatility tracker sees as a "live" element.
+    const body = document.getElementById(':r1');
+    const hint = document.getElementById('hint');
+    let tick = 0;
+    setInterval(() => {
+      tick += 1;
+      body.setAttribute('aria-expanded', tick % 2 ? 'true' : 'false');
+      body.dataset.sc = String(tick);
+    }, 120);
+    // Gmail keeps its own model of the draft from the editor's native input events.
+    window.__draftModel = '';
+    body.addEventListener('input', () => {
+      window.__draftModel = body.innerText.trim();
+      hint.style.display = window.__draftModel ? 'none' : '';
+    });
+  </script>
+</body>
+</html>

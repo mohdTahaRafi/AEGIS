@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Test aegis - Mail</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 0; background: #f6f8fc; }
+  .msg { background: #fff; margin: 16px; padding: 16px 24px; border-radius: 8px; }
+  .from { color: #444; }
+  .compose { position: fixed; right: 24px; bottom: 0; width: 520px; background: #fff; border-radius: 8px 8px 0 0; box-shadow: 0 2px 8px #0004; }
+  .head { background: #f2f6fc; padding: 10px 16px; font-weight: bold; border-radius: 8px 8px 0 0; }
+  .row { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid #eee; }
+  .row input { border: 0; outline: 0; flex: 1; font-size: 14px; }
+  .Am { min-height: 180px; padding: 8px 16px; outline: 0; font-size: 14px; }
+  .bar { padding: 8px 16px; }
+  .send { background: #0b57d0; color: #fff; border: 0; border-radius: 16px; padding: 8px 20px; }
+</style>
+</head>
+<body>
+  <div class="msg">
+    <h2>Test aegis</h2>
+    <div class="from"><strong>Saood Ali</strong> &lt;saood.ali.test@example.com&gt; to me</div>
+    <p>Hello aegis</p>
+  </div>
+
+  <div class="compose" role="dialog" aria-label="New Message">
+    <div class="head">New Message</div>
+    <div class="row"><span>To</span><input role="combobox" aria-label="To recipients" aria-expanded="false" autocomplete="off"></div>
+    <div class="row"><input name="subjectbox" aria-label="Subject" placeholder="Subject"></div>
+    <div class="Am aiL Al editable" id=":b1" aria-label="Message Body" role="textbox" aria-multiline="true" contenteditable="true" tabindex="1"><br></div>
+    <div class="bar"><button class="send" id="send" aria-label="Send (Ctrl-Enter)">Send</button> <span id="status"></span></div>
+  </div>
+
+  <script>
+    const body = document.getElementById(':b1');
+    let tick = 0;
+    setInterval(() => { tick += 1; body.setAttribute('aria-expanded', tick % 2 ? 'true' : 'false'); }, 120);
+    document.getElementById('send').addEventListener('click', () => {
+      const to = document.querySelector('[aria-label="To recipients"]').value;
+      document.getElementById('status').textContent = to && body.innerText.trim() ? `Message sent to ${to.length} chars` : 'Missing recipient or body';
+    });
+  </script>
+</body>
+</html>
