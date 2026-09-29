@@ -20,7 +20,7 @@
 
 import type { SanitizedContext } from '@aegis/protocol';
 import type { RecognizerContext, RecognizerMatch } from '@aegis/recognizers';
-import { findAll } from '@aegis/recognizers';
+import { fieldEntitiesFromText, findAll } from '@aegis/recognizers';
 import type { Policy } from '@aegis/policy';
 import { isPresenceOnly } from '@aegis/policy';
 import type { AblationArm } from '../../../shared/ablation';
@@ -152,6 +152,70 @@ function candidatesFromTextRun(runId: string, box: [number, number, number, numb
   }));
 }
 
+// Label-bound values: the text's own label says what it is, so it is sealed by type even when no
+// value recognizer parses it ("Registered username: rkumar_2291", "Mobile  +91 98765 43210").
+const LABEL_SCORE = 0.9;
+const MIN_LABELLED_VALUE_CHARS = 3;
+const WORD_CHAR = /[\p{L}\p{N}]/u;
+const INLINE_LABEL_RE = /^([^:：\n]{2,40})[:：]\s*(\S.{0,79})$/;
+
+interface LabelledValue {
+  entity: RecognizerMatch['entity'];
+  value: string;
+}
+
+/** Values bound to a label, from the content script's DOM association (`run.labelEntity`) or an
+ * inline `Label: value` run. */
+function labelledValues(runs: readonly { text: string; labelEntity?: RecognizerMatch['entity']; volatile?: boolean }[]): LabelledValue[] {
+  const out: LabelledValue[] = [];
+  for (const run of runs) {
+    if (run.volatile) continue;
+    const text = run.text.trim();
+    if (run.labelEntity && text.length >= MIN_LABELLED_VALUE_CHARS) {
+      out.push({ entity: run.labelEntity, value: text });
+      continue;
+    }
+    const inline = INLINE_LABEL_RE.exec(text);
+    const entity = inline ? fieldEntitiesFromText(inline[1]!)[0] : undefined;
+    const value = inline?.[2]?.trim();
+    if (entity && value && value.length >= MIN_LABELLED_VALUE_CHARS) out.push({ entity, value });
+  }
+  return out;
+}
+
+/** The value of every form field classified sensitive by its label/type: sealed in the field, so
+ * it must be sealed wherever else it appears too — typically the task that supplied it ("Type
+ * test-user into the Login ID field"), which the guard's vault sweep would otherwise block. */
+function fieldLabelledValues(nodes: readonly WireScreenNode[]): LabelledValue[] {
+  const out: LabelledValue[] = [];
+  for (const node of nodes) {
+    const signal = node.domSignal;
+    const value = node.field?.valueRead ? node.field.value?.trim() : undefined;
+    if (!signal || signal.entity === 'CAPTCHA' || node.state.volatile || !value || value.length < MIN_LABELLED_VALUE_CHARS) continue;
+    out.push({ entity: signal.entity, value });
+  }
+  return out;
+}
+
+/** Every whole-token occurrence of every labelled value in `text`, ignoring case like the guard's
+ * vault sweep — so a value sealed once is sealed wherever it reappears (an ancestor's concatenated
+ * accessible name, the task, the title), but never inside a longer word. */
+function candidatesFromLabelledValues(key: string, box: [number, number, number, number], text: string, values: readonly LabelledValue[]): Candidate[] {
+  const out: Candidate[] = [];
+  const lower = text.toLowerCase();
+  const haystack = lower.length === text.length ? lower : text;
+  for (const { entity, value: rawValue } of values) {
+    const value = haystack === lower ? rawValue.toLowerCase() : rawValue;
+    if (value.length !== rawValue.length) continue;
+    for (let at = haystack.indexOf(value); at !== -1; at = haystack.indexOf(value, at + 1)) {
+      const end = at + value.length;
+      if (WORD_CHAR.test(text[at - 1] ?? '') || WORD_CHAR.test(text[end] ?? '')) continue;
+      out.push({ entity, box, score: LABEL_SCORE, channel: 'text-dom', source: `label:${entity.toLowerCase()}`, textRunId: key, span: [at, end], value: text.slice(at, end) });
+    }
+  }
+  return out;
+}
+
 function regionKey(region: SensitiveRegion): string {
   return region.nodeId ? `node:${region.nodeId}` : `run:${region.textRunId}:${region.span?.[0]}`;
 }
@@ -241,6 +305,11 @@ function replacementFor(
   return { text: ref, unredacted: false };
 }
 
+/** For a redaction of part of a DOM text run: which run, and which characters of its (escaped)
+ * text — so the caller can ask the page for the exact on-screen rectangles of just those
+ * characters instead of blacking out the run's whole box (`session.ts`). Local only, never sent. */
+export const redactionSpanOrigin = new WeakMap<RedactionEntry, { runId: string; span: [number, number] }>();
+
 function toRedactionEntry(region: SensitiveRegion, ref: string | null): RedactionEntry {
   const base = {
     ref: ref as RedactionEntry['ref'],
@@ -256,6 +325,36 @@ function toRedactionEntry(region: SensitiveRegion, ref: string | null): Redactio
     return { ...base, len: region.value.length } as RedactionEntry;
   }
   return base as RedactionEntry;
+}
+
+type BoxTuple = readonly [number, number, number, number];
+
+function contains([ax, ay, aw, ah]: BoxTuple, [bx, by, bw, bh]: BoxTuple): boolean {
+  return ax <= bx && ay <= by && ax + aw >= bx + bw && ay + ah >= by + bh && aw * ah > bw * bh;
+}
+
+/** An ancestor's accessible name concatenates its descendants' text, so a value sealed at its own
+ * leaf is sealed again at the ancestor's box (a whole `<main>`), blacking out the entire region in
+ * the image. For each ref, a box that encloses another box of the same ref is dropped; an entry
+ * left with no box is dropped too, since the ref is already listed with its tighter box. A ref
+ * seen only at a large box keeps it. */
+function tightenRedactionBoxes(redactions: RedactionEntry[]): RedactionEntry[] {
+  const boxesByRef = new Map<string, BoxTuple[]>();
+  for (const r of redactions) {
+    if (r.ref) boxesByRef.set(r.ref, [...(boxesByRef.get(r.ref) ?? []), ...(r.boxes as BoxTuple[])]);
+  }
+  const out: RedactionEntry[] = [];
+  for (const r of redactions) {
+    if (!r.ref) {
+      out.push(r);
+      continue;
+    }
+    const all = boxesByRef.get(r.ref)!;
+    const boxes = (r.boxes as BoxTuple[]).filter((box) => !all.some((other) => contains(box, other)));
+    if (boxes.length === r.boxes.length) out.push(r);
+    else if (boxes.length > 0) out.push({ ...r, boxes: boxes as RedactionEntry['boxes'] });
+  }
+  return out;
 }
 
 function windowHistory(history: HistoryEntry[]): SanitizedContext['history'] {
@@ -335,7 +434,9 @@ function prepareFreeText(input: FreeTextSourceInput) {
   const escapedTitle = escapePlaceholderDelimiters(input.pageTitle);
   const escapedNodes = input.nodes.map((n) => ({
     ...n,
-    name: n.state.volatile ? LIVE_TEXT : escapePlaceholderDelimiters(n.name),
+    // A live text field keeps its label (a label/aria name, not its changing content, which the
+    // field value below still replaces with ⟪LIVE⟫): the model needs "Message Body" to find it.
+    name: n.state.volatile && !n.affordances.includes('type') ? LIVE_TEXT : escapePlaceholderDelimiters(n.name),
     field: n.field?.value !== undefined ? { ...n.field, value: escapePlaceholderDelimiters(n.field.value) } : n.field,
   }));
   const escapedRuns = input.textRuns.map((r) => ({ ...r, text: r.volatile ? LIVE_TEXT : escapePlaceholderDelimiters(r.text) }));
@@ -399,10 +500,12 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
     }
   }
 
+  const labelled = pixelOnly ? [] : [...labelledValues(escapedRuns), ...fieldLabelledValues(escapedNodes)];
   for (const source of freeTextSources) {
     if (pixelOnly && source.key !== 'task' && source.key !== 'title') continue;
     const nerMatches = input.nerMatchesByKey?.get(source.key) ?? [];
     candidates.push(...candidatesFromTextRun(source.key, source.box, source.text, nerMatches));
+    candidates.push(...candidatesFromLabelledValues(source.key, source.box, source.text, labelled));
   }
   if (input.visionCandidates) candidates.push(...input.visionCandidates);
 
@@ -419,7 +522,9 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
   // `sanitizeFreeText` (which only ever runs against a REAL `freeTextSources` entry) will ever
   // reach them. This is their own, third and only path to `redactions[]`.
   for (const region of regions) {
-    if (!region.textRunId?.startsWith('ocr-full-frame:')) continue;
+    // Also every pixel-level finding with no DOM node behind it (`pixel:<entity>:<box>` — a face
+    // found anywhere on the frame).
+    if (!region.textRunId?.startsWith('ocr-full-frame:') && !region.textRunId?.startsWith('pixel:')) continue;
     const replacement = replacementFor(region, vault, policy, originKey, stepId, input.ablation, input.unredactedRefs);
     if (!replacement.unredacted) {
       const ref = replacement.text.startsWith('⟪') && /#\d+⟫$/.test(replacement.text) ? replacement.text : null;
@@ -435,7 +540,9 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
         const replacement = replacementFor(r, vault, policy, originKey, stepId, input.ablation, input.unredactedRefs);
         if (!replacement.unredacted) {
           const ref = replacement.text.startsWith('⟪') && /#\d+⟫$/.test(replacement.text) ? replacement.text : null;
-          redactions.push(toRedactionEntry(r, ref));
+          const entry = toRedactionEntry(r, ref);
+          if (key.startsWith('run:')) redactionSpanOrigin.set(entry, { runId: key.slice(4), span: r.span });
+          redactions.push(entry);
         }
         return { span: r.span, entity: r.entity, replacement: replacement.text };
       });
@@ -516,6 +623,10 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
 
   const sanitizedTask = sanitizeFreeText('task', escapedTask);
   const sanitizedTitle = truncate(sanitizeFreeText('title', escapedTitle), 200);
+
+  const tightened = tightenRedactionBoxes(redactions);
+  redactions.length = 0;
+  redactions.push(...tightened);
 
   const redactedFraction = redactions.length > 0 ? Math.min(1, redactions.length / Math.max(1, nodes.length + textRunEntries.length)) : 0;
 

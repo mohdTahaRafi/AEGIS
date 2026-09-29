@@ -5,13 +5,25 @@
 // own function means the (much more common, L0) text-only path never pays for or depends on it.
 
 import type { SanitizedContext } from '@aegis/protocol';
-import type { Box } from '../../../shared/worker-protocol';
+import type { Box, FrameAnalysis } from '../../../shared/worker-protocol';
 import { computeClearedBoxes, type ClearanceCandidate } from './clearance';
 
 type SanitizedNode = SanitizedContext['nodes'][number];
 
+export interface ComposeOptions {
+  clearDefault?: boolean;
+  grey?: Box[];
+}
+
 export interface ComposeCall {
-  (regions: { entity: string; boxes: Box[]; placeholder: string | null }[], cleared: Box[], scale: number): Promise<{ webp: ArrayBuffer; coverage: { cleared: number; redacted: number; unanalysed: number } }>;
+  (regions: { entity: string; boxes: Box[]; placeholder: string | null }[], cleared: Box[], scale: number, options?: ComposeOptions): Promise<{ webp: ArrayBuffer; coverage: { cleared: number; redacted: number; unanalysed: number } }>;
+}
+
+/** The capture is shown by default only when the worker screened every pixel of it for faces AND
+ * for text; any failed or missing whole-frame pass falls back to grey-by-default clearance. */
+export function composeOptionsFor(analysis: FrameAnalysis | undefined): ComposeOptions {
+  if (!analysis || analysis.faces !== 'ok' || analysis.text !== 'ok') return {};
+  return { clearDefault: true, grey: analysis.unanalysed.map((b) => [...b] as Box) };
 }
 
 export interface AttachImageInput {
@@ -26,6 +38,14 @@ export interface AttachImageInput {
    * `structural-coverage.ts`'s `CoverageNode.requiresVision`). */
   nodeRequiresVision: (node: SanitizedNode) => boolean;
   legend: string;
+  /** Form fields classified sensitive by their label/type whose value produced no redaction (empty,
+   * or value not sealed). Their pixels are never copied from the capture: "empty" is what the DOM
+   * said when it was read, not a guarantee about the pixels captured later (an autofill preview,
+   * or a fill between the read and the capture, shows text `.value` never had). Drawn black with a
+   * "<TYPE> field" label; not added to `redactions`, so the model is not told a value exists. */
+  maskedFields?: readonly { entity: string; box: Box }[];
+  /** The worker's whole-frame analysis for this capture (see `composeOptionsFor`). */
+  frameAnalysis?: FrameAnalysis;
 }
 
 function nodeHasRedaction(node: SanitizedNode): boolean {
@@ -73,12 +93,13 @@ function toClearanceCandidates(context: SanitizedContext, visionAnalyzedNodeIds:
 /** Returns `context` unchanged if there is nothing to redact into an image at all (no nodes) —
  * otherwise always returns a context with `image` set (never partially attached). */
 export async function attachImage(input: AttachImageInput): Promise<SanitizedContext> {
-  const { context, compose, scale, visionAnalyzedNodeIds, nodeRequiresVision, legend } = input;
+  const { context, compose, scale, visionAnalyzedNodeIds, nodeRequiresVision, legend, maskedFields = [], frameAnalysis } = input;
 
-  const cleared = computeClearedBoxes(toClearanceCandidates(context, visionAnalyzedNodeIds, nodeRequiresVision));
-  const regions = toRegionInput(context);
+  const options = composeOptionsFor(frameAnalysis);
+  const cleared = options.clearDefault ? [] : computeClearedBoxes(toClearanceCandidates(context, visionAnalyzedNodeIds, nodeRequiresVision));
+  const regions = [...toRegionInput(context), ...maskedFields.map((f) => ({ entity: f.entity, boxes: [f.box], placeholder: `${f.entity} field` }))];
 
-  const composed = await compose(regions, cleared, scale);
+  const composed = options.clearDefault ? await compose(regions, cleared, scale, options) : await compose(regions, cleared, scale);
   const sha256 = await sha256Hex(composed.webp);
 
   return {

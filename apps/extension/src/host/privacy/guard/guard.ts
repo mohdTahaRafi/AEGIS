@@ -9,21 +9,20 @@ import type { Policy } from '@aegis/policy';
 import { brand, type GuardedPayload } from '../../egress/brand';
 import type { Vault } from '../vault';
 import type { Box } from '../types';
-import { patternResweep, payloadTextLeaves, vaultLeakSweep } from './sweeps';
+import { isSensitiveOcrText, patternResweep, payloadTextLeaves, vaultLeakSweep, withoutUnredacted } from './sweeps';
 import { runImageRescan, type ImageRescanDeps } from './image-rescan';
 import { checkForCanaries } from './canary';
 
 export class GuardBlockedError extends Error {
-  constructor(public readonly rule: 'SCHEMA' | 'ID_SHAPE' | 'VAULT_LEAK' | 'PATTERN' | 'CANARY', public readonly entity?: string) {
+  constructor(public readonly rule: 'SCHEMA' | 'ID_SHAPE' | 'VAULT_LEAK' | 'PATTERN' | 'CANARY' | 'IMAGE_RESCAN', public readonly entity?: string) {
     super(`GUARD_BLOCK_${rule}`);
     this.name = 'GuardBlockedError';
   }
 }
 
 export interface GuardDeps {
-  /** Absent when there is no image to rescan (the common L0 case) or no perception worker
-   * available at all. Step 5 fails closed either way: a payload that carries an image but has no
-   * way to independently re-check it never ships that image — see `guard()`'s image branch. */
+  /** Absent only when there is no image to rescan. A payload that carries an image but has no way
+   * to independently re-check it is blocked — see `runStep5`. */
   imageRescan?: ImageRescanDeps;
   /** design.md §7.6 step 6 / T-5.8: "debug/harness builds" only — absent (the production default)
    * means this step never runs at all. Only the eval harness ever supplies a non-empty list (its
@@ -32,6 +31,9 @@ export interface GuardDeps {
    * checking a composed image needs OCR, a Phase 6 capability (`perception/rescan/halo.ts`'s
    * disclosed gap applies equally here). */
   canaries?: readonly string[];
+  /** Refs the user un-redacted this session (FR-36, audited in the ledger): their values are sent
+   * as plain text on purpose and are not leaks. */
+  unredactedRefs?: ReadonlySet<string>;
 }
 
 async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
@@ -53,19 +55,21 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 }
 
 /** design.md §7.6 step 5 (phase_4_vision.md §8): two independent checks on the *composed* image,
- * not the input. `dropped` and `no-rescan-capability` both fall back to L0 by stripping the image
- * — "degrading to a text-only payload is always available and always safe; sending a questionable
- * image is not" (phase_4_vision.md §8) — this is never a `GuardBlockedError`: the step proceeds,
- * just without an image. */
-async function runStep5(payload: SanitizedContext, deps: GuardDeps): Promise<SanitizedContext> {
+ * not the input. A questionable image is never sent, and neither is the step without it (every
+ * step carries its screenshot): an image that cannot be re-checked, or is still not clean after the
+ * bounded recompose rounds, blocks the step, which the session retries from a fresh capture. */
+async function runStep5(payload: SanitizedContext, deps: GuardDeps, policy: Policy, vault: Vault): Promise<SanitizedContext> {
   if (!payload.image) return payload;
-  if (!deps.imageRescan) return { ...payload, image: null };
+  if (!deps.imageRescan) throw new GuardBlockedError('IMAGE_RESCAN');
 
   const regions = payload.redactions.map((r) => ({ entity: r.entity as string, boxes: r.boxes as Box[], placeholder: r.ref ?? null }));
   const imageBytes = base64ToArrayBuffer(payload.image.data);
-  const outcome = await runImageRescan(imageBytes, regions, deps.imageRescan);
+  const outcome = await runImageRescan(imageBytes, regions, {
+    isSensitiveText: (text) => isSensitiveOcrText(policy, vault, text),
+    ...deps.imageRescan,
+  });
 
-  if (outcome.verdict === 'dropped') return { ...payload, image: null };
+  if (outcome.verdict === 'dropped') throw new GuardBlockedError('IMAGE_RESCAN');
   if (outcome.verdict === 'clean') return payload;
   return {
     ...payload,
@@ -113,17 +117,17 @@ export async function guard(payload: SanitizedContext, policy: Policy, vault: Va
 
   const { image: _image, ...textPayload } = payload;
   const textLeaves = payloadTextLeaves(textPayload);
-  const leak = vaultLeakSweep(vault, bytes, textLeaves);
+  const leak = vaultLeakSweep(vault, bytes, textLeaves, deps.unredactedRefs);
   if (leak) {
     throw new GuardBlockedError('VAULT_LEAK');
   }
 
-  const pattern = patternResweep(policy, bytes, textLeaves);
+  const pattern = patternResweep(policy, bytes, withoutUnredacted(textLeaves, vault, deps.unredactedRefs));
   if (pattern) {
     throw new GuardBlockedError('PATTERN', pattern.entity);
   }
 
-  const afterStep5 = await runStep5(payload, deps);
+  const afterStep5 = await runStep5(payload, deps, policy, vault);
 
   // Step 6, after step 5 per design.md's own ordering — checked against the same canonical text
   // bytes regardless of what step 5 did to the image (canaries are a text-only check here).

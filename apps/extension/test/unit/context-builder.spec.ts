@@ -264,11 +264,23 @@ describe('buildSanitizedContext — volatile nodes and text runs become ⟪LIVE�
     });
   }
 
-  it("a volatile field's name and value both become the literal ⟪LIVE⟫, not its real content", () => {
-    const context = buildCtx({ nodes: [volatileNode('n-1')] });
+  it("a volatile non-editable node's name becomes the literal ⟪LIVE⟫, not its real content", () => {
+    const context = buildCtx({ nodes: [volatileNode('n-1', { role: 'status', name: '00:00:42', affordances: [] })] });
     expect(context.nodes[0]!.name).toBe('⟪LIVE⟫');
+    expect(JSON.stringify(context)).not.toContain('00:00:42');
+  });
+
+  it("a volatile text field keeps its label (Gmail's live message body), its value stays ⟪LIVE⟫", () => {
+    const context = buildCtx({ nodes: [volatileNode('n-1', { name: 'Message Body' })] });
+    expect(context.nodes[0]!.name).toBe('Message Body');
     expect(context.nodes[0]!.value).toEqual({ kind: 'text', text: '⟪LIVE⟫' });
     expect(JSON.stringify(context)).not.toContain('00:00:42');
+  });
+
+  it("a volatile text field's kept label is still scanned like any page text", () => {
+    const context = buildCtx({ nodes: [volatileNode('n-1', { name: 'Reply to ramesh.kumar@example.in' })] });
+    expect(context.nodes[0]!.name).toMatch(/^Reply to ⟪EMAIL#\d+⟫$/);
+    expect(JSON.stringify(context)).not.toContain('ramesh.kumar@example.in');
   });
 
   it('a volatile node generates no redaction entry — no candidate was ever formed for it', () => {

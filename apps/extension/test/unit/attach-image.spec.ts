@@ -80,3 +80,22 @@ describe('attachImage clearance — unanalysed images stay grey', () => {
     expect(cleared).toContainEqual(CONTAINER.box);
   });
 });
+
+describe('attachImage — label-protected fields are masked regardless of value', () => {
+  it('draws an empty sensitive field as a labelled black box, even inside a cleared container, without a redactions entry', async () => {
+    const compose = vi.fn(async () => ({ webp: new ArrayBuffer(8), coverage: { cleared: 0.5, redacted: 0.1, unanalysed: 0.4 } }));
+    const out = await attachImage({
+      context: context(),
+      compose,
+      scale: 1,
+      visionAnalyzedNodeIds: new Set(['n-2']),
+      nodeRequiresVision: (n) => n.role === 'img',
+      legend: '',
+      maskedFields: [{ entity: 'EMAIL', box: [20, 100, 300, 40] }],
+    });
+    const [regions, cleared] = compose.mock.calls[0] as unknown as [{ entity: string; boxes: number[][]; placeholder: string | null }[], number[][]];
+    expect(regions).toContainEqual({ entity: 'EMAIL', boxes: [[20, 100, 300, 40]], placeholder: 'EMAIL field' });
+    expect(cleared).toContainEqual([0, 0, 1000, 800]); // the container is still copied; the mask is drawn over it
+    expect(out.redactions).toEqual([]);
+  });
+});

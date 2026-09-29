@@ -181,3 +181,15 @@ describe('pattern re-sweep — geometry is not page text', () => {
     await expect(guard(payload, defaultPolicy, new Vault())).rejects.toThrow(GuardBlockedError);
   });
 });
+
+describe('guard() — pattern re-sweep uses the policy thresholds, like the builder', () => {
+  it('a bare date (below the DOB threshold: pass-through by policy) does not block the step', async () => {
+    const payload = fakePayload({ text: [{ id: 't-1', box: [0, 0, 10, 10], text: 'Launched on 15/08/1969 from Sriharikota' }] });
+    await expect(guard(payload, defaultPolicy, new Vault())).resolves.toBeDefined();
+  });
+
+  it('an unredacted Aadhaar still blocks', async () => {
+    const payload = fakePayload({ text: [{ id: 't-1', box: [0, 0, 10, 10], text: `Aadhaar ${validAadhaar()}` }] });
+    await expect(guard(payload, defaultPolicy, new Vault())).rejects.toMatchObject({ rule: 'PATTERN', entity: 'AADHAAR' });
+  });
+});
