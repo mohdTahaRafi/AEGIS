@@ -10,6 +10,7 @@ seen for each, every `redactions[].ref` ever sent, and the image regions from th
 
 from __future__ import annotations
 
+import hashlib
 import time
 import uuid
 from collections.abc import Callable
@@ -29,6 +30,10 @@ class Session:
     sent_refs: set[str] = field(default_factory=set)
     # (region, viewport_w, viewport_h) for up to the last 2 steps that carried an image.
     recent_image_regions: list[tuple[list[float], float, float]] = field(default_factory=list)
+    # Whether each field held text as of the latest step, and a digest of the literal text last
+    # typed into it: a plan that types the same text into a field still holding it is a loop.
+    node_has_value: dict[str, bool] = field(default_factory=dict)
+    typed_digest: dict[str, str] = field(default_factory=dict)
 
     def apply_step_context(
         self,
@@ -38,15 +43,23 @@ class Session:
         redactions: list[dict],
         image_region: list[float] | None,
         viewport: dict,
+        full_snapshot: bool = False,
     ) -> None:
         self.last_step_id = step_id
         self.step_count += 1
+        if full_snapshot:
+            # The client sent the whole current page: node ids from earlier steps are gone.
+            self.sent_node_ids.clear()
+            self.node_affordances.clear()
+            self.node_has_value.clear()
         for node in nodes:
             self.sent_node_ids.add(node["id"])
             self.node_affordances[node["id"]] = node.get("affordances", [])
+            self.node_has_value[node["id"]] = node.get("state", {}).get("has_value") is True
         for node_id in removed:
             self.sent_node_ids.discard(node_id)
             self.node_affordances.pop(node_id, None)
+            self.node_has_value.pop(node_id, None)
         for redaction in redactions:
             ref = redaction.get("ref")
             if ref:
@@ -54,6 +67,16 @@ class Session:
         if image_region is not None:
             self.recent_image_regions.append((image_region, viewport["w"], viewport["h"]))
             del self.recent_image_regions[:-2]
+
+
+def text_digest(text: str) -> str:
+    return hashlib.sha256(text.strip().encode()).hexdigest()
+
+
+def record_typed(session: Session, plan: dict) -> None:
+    for action in plan.get("actions", []):
+        if action.get("op") == "type" and isinstance(action.get("text"), str):
+            session.typed_digest[action["node"]] = text_digest(action["text"])
 
 
 class SessionStore:

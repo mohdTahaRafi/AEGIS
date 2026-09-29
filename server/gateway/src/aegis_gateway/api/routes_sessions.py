@@ -10,6 +10,7 @@ from ..config import Settings
 from ..protocol.session import Limits, SessionCreate, SessionCreated
 from ..sessions.store import SessionStore
 from .deps import get_session_store, get_settings
+from .routes_steps import forget_rate_limit
 
 router = APIRouter()
 
@@ -35,4 +36,5 @@ def create_session(
 @router.delete("/v1/sessions/{session_id}", status_code=204)
 def delete_session(session_id: str, store: SessionStore = Depends(get_session_store)) -> Response:
     store.delete(session_id)
+    forget_rate_limit(session_id)
     return Response(status_code=204)

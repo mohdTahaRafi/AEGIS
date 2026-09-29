@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from ..sessions.store import Session
+from ..sessions.store import Session, text_digest
 
 PLACEHOLDER_PATTERN = re.compile(r"⟪[A-Z_]+#[0-9]+⟫")
 
@@ -46,6 +46,16 @@ def validate_plan_against_session(plan: dict, session: Session) -> None:
                     )
             if text is not None and PLACEHOLDER_PATTERN.search(text):
                 raise PostValidationError("type.text must not contain a placeholder string")
+            if (
+                text is not None
+                and session.node_has_value.get(node_id)
+                and session.typed_digest.get(node_id) == text_digest(text)
+            ):
+                raise PostValidationError(
+                    "this exact text was already typed into that field in an earlier step and the "
+                    "field still holds it: do not type it again; do the next thing the TASK needs "
+                    "(e.g. click the send/submit button) or finish with done"
+                )
 
         if op == "select":
             option = action.get("option", "")

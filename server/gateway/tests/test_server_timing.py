@@ -13,7 +13,7 @@ from .conftest import make_settings, sanitized_context_body, session_create_body
 def test_server_timing_header_decomposes_queue_prompt_model_validate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_complete(self, messages):
+    async def fake_complete(self, messages, route=None, pooled=False):
         return {"step_id": "s-1", "actions": [{"op": "wait", "ms": 100}]}
 
     monkeypatch.setattr(VLLMClient, "complete", fake_complete)

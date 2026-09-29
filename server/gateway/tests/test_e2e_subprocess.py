@@ -118,7 +118,11 @@ def test_real_subprocess_completes_a_full_session_step_close_cycle_in_replay_mod
         f"{base_url}/v1/sessions/{session_id}/steps", json=step_body, headers=headers
     )
     assert step_res.status_code == 200
-    assert step_res.json() == {"step_id": "s-1", "actions": [{"op": "wait", "ms": 100}]}
+    assert step_res.json() == {
+        "step_id": "s-1",
+        "plan_id": "p-1",
+        "actions": [{"op": "wait", "ms": 100}],
+    }
     assert "Server-Timing" in step_res.headers
     assert "X-Request-Id" in step_res.headers
 

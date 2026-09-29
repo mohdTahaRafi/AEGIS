@@ -13,10 +13,12 @@ from .middleware import BodySizeLimitMiddleware, RequestIdMiddleware
 from .model_client.vllm import VLLMClient
 from .replay.store import ReplayStore
 from .sessions.store import SessionStore
+from .structured_log import configure_logging
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
+    configure_logging()
     app = FastAPI(title="AEGIS Agent Gateway", version="0.1.0")
 
     app.state.settings = settings

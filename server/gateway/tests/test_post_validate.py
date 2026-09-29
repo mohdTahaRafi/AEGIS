@@ -95,7 +95,7 @@ def test_a_plan_referencing_an_unsent_node_id_retries_once_then_422(
 
     call_count = {"n": 0}
 
-    async def fake_complete(self, messages):
+    async def fake_complete(self, messages, route=None, pooled=False):
         call_count["n"] += 1
         # always references a node id that was never sent, however many times it's asked
         return {"step_id": "s-1", "actions": [{"op": "click", "node": "n-never-sent"}]}

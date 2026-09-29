@@ -45,7 +45,7 @@ def test_record_then_replay_serves_the_identical_plan_with_no_model_call(
         ],
     }
 
-    async def fake_complete(self, messages):
+    async def fake_complete(self, messages, route=None, pooled=False):
         return fake_plan
 
     monkeypatch.setattr(VLLMClient, "complete", fake_complete)
@@ -61,7 +61,8 @@ def test_record_then_replay_serves_the_identical_plan_with_no_model_call(
         f"/v1/sessions/{session_id}/steps", json=sanitized_context_body(), headers=headers
     )
     assert record_res.status_code == 200
-    assert record_res.json() == fake_plan
+    # The route returns the normalized plan: server-owned plan_id added (R-3 A2).
+    assert record_res.json() == {**fake_plan, "plan_id": "p-1"}
 
     # "no GPU present": AsyncClient must never even be constructed in replay mode.
     def fail_if_called(*args, **kwargs):
