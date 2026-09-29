@@ -107,6 +107,12 @@ describe('phoneRecognizer', () => {
   it.each(['1234567890', '5555555555'])('does not treat a non-[6-9]-leading 10-digit run as Indian mobile %s', (num) => {
     expect(phoneRecognizer.find(num)).toHaveLength(0);
   });
+  it.each(['+91 98765 43210', '98765 43210', '+91-98765-43210', '987 654 3210', '+91 987 654 3210'])('detects the grouped Indian mobile %s, prefix included', (num) => {
+    expect(phoneRecognizer.find(`Mobile ${num} (home)`).map((m) => m.matchedText)).toEqual([num]);
+  });
+  it.each(['4987 1234 5679', '9876 5432 1098', '98765432101'])('does not match an Aadhaar grouping or an 11-digit run: %s', (num) => {
+    expect(phoneRecognizer.find(num)).toHaveLength(0);
+  });
 });
 
 describe('emailRecognizer', () => {
@@ -170,5 +176,14 @@ describe('secretRecognizer', () => {
   });
   it('does not flag ordinary prose as a secret', () => {
     expect(secretRecognizer.find('please log in and submit the form')).toHaveLength(0);
+  });
+});
+
+describe('secret: generic high-entropy fallback', () => {
+  it('a long run of letters (words whose spaces OCR lost) is not a secret', () => {
+    expect(secretRecognizer.find('Wikipediathefreeencyclopediaanyonecanedit')).toEqual([]);
+  });
+  it('a random letters-and-digits token still is', () => {
+    expect(secretRecognizer.find('token 9fK2mQ7xL0pR4tZ8vB1nC6yH3').map((m) => m.entity)).toEqual(['SECRET']);
   });
 });

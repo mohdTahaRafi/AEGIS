@@ -1,8 +1,10 @@
 import { digitsOnly } from '../normalize';
 import type { Recognizer, RecognizerMatch } from '../types';
 
-// design.md §6.2 — optional +91/0 then [6-9]\d{9} for Indian mobiles.
-const INDIAN_MOBILE_RE = /\b(?:\+91[ -]?|0)?([6-9]\d{9})\b/g;
+// design.md §6.2 — optional +91/0 then a [6-9] mobile number, contiguous or in the 5-5 / 3-3-4
+// groupings Indian pages print ("98765 43210"). `\b` cannot precede `+`, so a digit/plus
+// lookbehind anchors the start instead.
+const INDIAN_MOBILE_RE = /(?<![\d+])(?:\+91[ -]?|0)?([6-9]\d{9}|[6-9]\d{4}[ -]\d{5}|[6-9]\d{2}[ -]\d{3}[ -]\d{4})(?!\d)/g;
 // A small per-country length table for E.164-like international numbers (design.md's "length by
 // country" — deliberately small, not a full libphonenumber port).
 const COUNTRY_LENGTHS: Record<string, number> = {

@@ -46,6 +46,9 @@ export const secretRecognizer: Recognizer = {
 
     for (const m of text.matchAll(GENERIC_TOKEN_RE)) {
       if (covered.has(m.index!)) continue;
+      // A generated secret mixes letters and digits; a long run of letters alone is words whose
+      // spaces were lost (OCR of a picture's caption read "Wikipediathefreeencyclopedia").
+      if (!/\d.*\d/.test(m[0]) || !/[A-Za-z]/.test(m[0])) continue;
       const entropy = shannonEntropy(m[0]);
       if (entropy >= ENTROPY_THRESHOLD) emit(m, 'pattern:secret-entropy', 0.85);
     }

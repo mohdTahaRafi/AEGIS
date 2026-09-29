@@ -4,6 +4,10 @@ import { fieldEntitiesFromText, identifierToWords } from '../src/context/field-l
 describe('fieldEntitiesFromText — one entity per real-world label', () => {
   it.each([
     ['Email ID', 'EMAIL'],
+    ['To recipients', 'EMAIL'],
+    ['Cc recipients', 'EMAIL'],
+    ['Bcc recipients', 'EMAIL'],
+    ['Recipients', 'EMAIL'],
     ['E-mail Address', 'EMAIL'],
     ['Enter your email', 'EMAIL'],
     ['Mobile Number', 'PHONE'],
@@ -107,5 +111,12 @@ describe('identifierToWords', () => {
     ['user_name', 'USERNAME'],
   ])('%s → %s via identifier words', (id, entity) => {
     expect(fieldEntitiesFromText(identifierToWords(id))[0]).toBe(entity);
+  });
+});
+
+
+describe('fieldEntitiesFromText — recipient fields, not every "To"', () => {
+  it.each(['To', 'From', 'Go to page', 'Travel to', 'Recipient account number'])('%s names no email field', (label) => {
+    expect(fieldEntitiesFromText(label)).not.toContain('EMAIL');
   });
 });

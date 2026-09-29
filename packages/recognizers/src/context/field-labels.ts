@@ -40,7 +40,9 @@ const FIELD_LABEL_RULES: readonly FieldLabelRule[] = [
   { entity: 'PASSPORT', re: /\bpassport\s*(?:no\.?|number|num|#)|^passport$/g },
   { entity: 'VEHICLE_REG', re: /vehicle\s*(?:registration\s*)?(?:no\.?|number|num)/g },
   { entity: 'DOB', re: /\bdob\b|\bd\.o\.b\b|date\s*of\s*birth|birth\s*date|\bbirthday\b|\bbday\b|जन्म\s*तिथि/g },
-  { entity: 'EMAIL', re: /\be-?mail(?:\s*(?:id|address))?|\bmail\s*id\b|ईमेल/g },
+  // Mail-client recipient fields ("To recipients", "Cc recipients", Gmail's aria-labels) hold
+  // email addresses. A bare "To" is left out: travel and date forms use "From / To" for cities.
+  { entity: 'EMAIL', re: /\be-?mail(?:\s*(?:id|address))?|\bmail\s*id\b|\b(?:to|cc|bcc|add)\s*recipients?\b|^recipients?$|ईमेल/g },
   {
     entity: 'PHONE',
     re: /\bmobile(?:\s*(?:no\.?|number|num|#))?|\bphone(?:\s*(?:no\.?|number|num|#))?\b|\btelephone\b|\btel\b|\bcell(?:ular)?\s*(?:no\.?|number)|\bcontact\s*(?:no\.?|number|num)|\bwhats\s*app\b|मोबाइल|फ़ोन|फोन/g,
