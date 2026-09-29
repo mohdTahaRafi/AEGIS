@@ -236,20 +236,20 @@ describe('ResourceBar (T-4.22/T-4.23)', () => {
     expect(el.textContent).toContain('21.4');
   });
 
-  it('shows "not loaded" before the worker has reported a backend', () => {
+  it('shows vision as idle before the worker has reported a backend', () => {
     const el = mount(<ResourceBar backend={null} modelsLoadedMB={0} />);
-    expect(el.textContent).toContain('not loaded');
+    expect(el.textContent).toContain('idle');
   });
 });
 
 describe('GrantRequest — the step waits for a real toolbar invocation, never silently DOM-only', () => {
-  it('explains a grant lost on a cross-site navigation with both origins, and offers waive/stop', () => {
-    const onContinueWithout = vi.fn();
+  it('explains a grant lost on a cross-site navigation with both origins, and offers allow/stop', () => {
+    const onAllowAllSites = vi.fn();
     const onStop = vi.fn();
     const el = mount(
       <GrantRequest
         explanation={{ kind: 'lost-on-navigation', grantedOrigin: 'https://www.practo.com', currentOrigin: 'https://accounts.practo.com' }}
-        onContinueWithout={onContinueWithout}
+        onAllowAllSites={onAllowAllSites}
         onStop={onStop}
       />,
     );
@@ -258,14 +258,14 @@ describe('GrantRequest — the step waits for a real toolbar invocation, never s
     expect(el.textContent).toContain('AEGIS icon in Chrome');
     expect(el.textContent).toContain('Nothing has been sent for this step yet');
     const buttons = [...el.querySelectorAll('button')];
-    buttons.find((b) => b.textContent === 'Continue without screenshots')!.click();
+    buttons.find((b) => b.textContent === 'Allow AEGIS on all sites')!.click();
     buttons.find((b) => b.textContent === 'Stop')!.click();
-    expect(onContinueWithout).toHaveBeenCalledTimes(1);
+    expect(onAllowAllSites).toHaveBeenCalledTimes(1);
     expect(onStop).toHaveBeenCalledTimes(1);
   });
 
-  it('has no "allow" button of its own — a click in the panel cannot grant activeTab', () => {
-    const el = mount(<GrantRequest explanation={{ kind: 'never-invoked' }} onContinueWithout={() => {}} onStop={() => {}} />);
-    expect([...el.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Continue without screenshots', 'Stop']);
+  it('offers no way to continue without screenshots', () => {
+    const el = mount(<GrantRequest explanation={{ kind: 'never-invoked' }} onAllowAllSites={() => {}} onStop={() => {}} />);
+    expect([...el.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Allow AEGIS on all sites', 'Stop']);
   });
 });

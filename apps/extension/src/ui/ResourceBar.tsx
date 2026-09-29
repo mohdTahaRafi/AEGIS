@@ -12,7 +12,7 @@ export interface ResourceBarProps {
 export function ResourceBar({ backend, modelsLoadedMB, detail }: ResourceBarProps) {
   return (
     <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#444', padding: '4px 0', borderBottom: '1px solid #eee' }}>
-      <span>vision: {backend ?? 'not loaded'}</span>
+      <span>vision: {backend ?? 'idle (models load when a task runs, unload after)'}</span>
       {detail && <span data-testid="backend-detail">{detail}</span>}
       <span>models: {modelsLoadedMB.toFixed(1)} MB</span>
     </div>

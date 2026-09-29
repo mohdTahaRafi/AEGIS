@@ -14,21 +14,24 @@ export interface PayloadViewerProps {
 
 export function PayloadViewer({ payload }: PayloadViewerProps) {
   const [expanded, setExpanded] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
   const image = payload.image;
 
   return (
     <div style={{ margin: '8px 0', fontSize: 12 }}>
       <button onClick={() => setExpanded((v) => !v)}>{expanded ? 'Hide' : 'Show'} exact bytes sent</button>
       {expanded && (
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: zoomed ? 'wrap' : 'nowrap' }}>
           {image && (
-            <div style={{ flex: '0 0 auto' }}>
+            <div style={{ flex: zoomed ? '1 1 100%' : '0 0 auto' }}>
               <img
                 src={`data:image/webp;base64,${image.data}`}
                 alt="Sanitized image sent to the server"
-                style={{ maxWidth: 240, border: '1px solid #333' }}
+                title="Click to enlarge"
+                onClick={() => setZoomed((z) => !z)}
+                style={{ width: zoomed ? '100%' : 240, border: '1px solid #333', cursor: 'zoom-in' }}
               />
-              <div style={{ color: '#666', maxWidth: 240 }}>{image.legend}</div>
+              <div style={{ color: '#666', maxWidth: zoomed ? undefined : 240 }}>{image.legend}</div>
             </div>
           )}
           <pre

@@ -51,7 +51,7 @@ describe('summarizePerception', () => {
 
   it('models ran but produced no redaction → says so rather than claiming vision', () => {
     const s = summarizePerception(OK(diagnostics({ face: 1, vitRegion: 1, ocrDet: 1 })), [redaction('EMAIL', ['pattern:email'])]);
-    expect(s.mode).toBe('DOM-only result (vision ran, found nothing)');
+    expect(s.mode).toBe('DOM + vision (vision ran, found nothing to redact)');
     expect(s.modelsRan.clip).toBe(1);
   });
 

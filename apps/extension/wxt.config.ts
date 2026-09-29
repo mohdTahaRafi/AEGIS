@@ -61,6 +61,8 @@ export default defineConfig({
   // out of scope unless the team decides to publish (README.md "Store publication").
   suppressWarnings: { firefoxDataCollection: true },
   vite: (env) => ({
+    // Shown as the panel's first Setup line, so a run can be tied to the build that produced it.
+    define: { 'import.meta.env.VITE_AEGIS_BUILD': JSON.stringify(new Date().toISOString().slice(0, 16).replace('T', ' ')) },
     optimizeDeps: { exclude: ['onnxruntime-web', '@huggingface/transformers'] },
     // T-6.8, 2026-09-26: real root cause, found by reading the actual built output, not guessed —
     // Vite's default `worker.format` is `'iife'`. An IIFE bundle has no native module resolution,

@@ -1,13 +1,15 @@
 // Shown while a step is paused because Chrome refused the screenshot for lack of the activeTab
 // grant (host/capture/grant-gate.ts). Nothing has been sent for this step yet. The card only ever
 // resolves by the user's own action: invoking AEGIS from the toolbar (detected by the background,
-// never by this card), continuing without screenshots, or stopping.
+// never by this card), allowing AEGIS on all sites from the card (a host permission Chrome grants on
+// this click, which also covers screenshots), or stopping. Every step carries a screenshot, so
+// there is no way to continue without one.
 
 import type { GrantExplanation } from '../shared/invocation';
 
 export interface GrantRequestProps {
   explanation: GrantExplanation;
-  onContinueWithout: () => void;
+  onAllowAllSites: () => void;
   onStop: () => void;
 }
 
@@ -22,17 +24,17 @@ function why(explanation: GrantExplanation): string {
   }
 }
 
-export function GrantRequest({ explanation, onContinueWithout, onStop }: GrantRequestProps) {
+export function GrantRequest({ explanation, onAllowAllSites, onStop }: GrantRequestProps) {
   return (
     <div role="alertdialog" data-testid="grant-request" style={{ border: '2px solid #2563eb', borderRadius: 6, padding: 10, margin: '8px 0', background: '#eff6ff' }}>
       <p style={{ margin: '0 0 6px', fontWeight: 600 }}>Screenshot access needed</p>
       <p style={{ margin: '0 0 6px' }}>{why(explanation)}</p>
       <p style={{ margin: '0 0 8px' }}>
-        With the task's tab in front, click the <strong>AEGIS icon in Chrome's toolbar</strong>. The task continues automatically. Nothing has been sent for
-        this step yet.
+        With the task's tab in front, click the <strong>AEGIS icon in Chrome's toolbar</strong>, or allow AEGIS on all sites below. The task continues
+        automatically. Nothing has been sent for this step yet.
       </p>
       <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={onContinueWithout}>Continue without screenshots</button>
+        <button onClick={onAllowAllSites}>Allow AEGIS on all sites</button>
         <button onClick={onStop}>Stop</button>
       </div>
     </div>

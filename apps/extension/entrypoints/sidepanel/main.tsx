@@ -2,29 +2,29 @@ import { render } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { ContentPortClient, connectToTab } from '../../src/host/port';
 import { connectToLiveContent } from '../../src/host/content-connection';
-import { ensureHostPermission } from '../../src/host/platform/capabilities';
+import { ensureTaskPermissions } from '../../src/host/platform/capabilities';
 import { createGatewayClient } from '../../src/host/egress/gateway-client';
 import { Session, type SessionEvent, type StepRecord } from '../../src/host/session';
 import { PerceptionClient, type WorkerProblem } from '../../src/host/perception-client/client';
-import type { PerceptionStepStatus } from '../../src/host/perception-client/run-step';
 import type { CaptureResult } from '../../src/host/capture/classify';
 import { captureTargetTab, type CaptureTarget } from '../../src/host/capture/capture-tab';
 import { createGatedCapture } from '../../src/host/capture/grant-gate';
 import { originOf, readInvocation, type GrantExplanation } from '../../src/shared/invocation';
 import { isActionInvokedMessage } from '../../src/shared/messages';
 import type { FromWorker, ModelLoadFailure } from '../../src/shared/worker-protocol';
-import { PerceptionStatus } from '../../src/ui/PerceptionStatus';
 import { panelStateLabel, type PanelState } from '../../src/ui/PanelStates';
 import { TaskInput } from '../../src/ui/TaskInput';
 import { StepTimeline } from '../../src/ui/StepTimeline';
 import { MetricsBar } from '../../src/ui/MetricsBar';
 import { ResourceBar } from '../../src/ui/ResourceBar';
-import { ReportView } from '../../src/ui/ReportView';
 import { ConfirmAction } from '../../src/ui/ConfirmAction';
+import { AskUser } from '../../src/ui/AskUser';
 import { GrantRequest } from '../../src/ui/GrantRequest';
 import { GuardBlockCard } from '../../src/ui/GuardBlockCard';
-import { PayloadViewer } from '../../src/ui/PayloadViewer';
 import { RedactionSummary } from '../../src/ui/RedactionSummary';
+import { applyRunLogEvent, EMPTY_RUN_LOG, type RunLog } from '../../src/ui/RunLog';
+import { RunLogView, Section } from '../../src/ui/RunLogView';
+import type { ProtectedField } from '../../src/host/session';
 import { UnredactPanel } from '../../src/ui/UnredactPanel';
 import { Settings } from '../../src/ui/Settings';
 import type { SanitizedContext } from '@aegis/protocol';
@@ -124,9 +124,9 @@ function describeReadyBackend(ready: Extract<FromWorker, { t: 'ready' }>): strin
     .join(' · ');
 }
 
+/** From a worker factory: a crashed or wedged worker is replaced by a fresh one mid-task. */
 function createPerceptionClient(): PerceptionClient {
-  const worker = new Worker(new URL('../../src/perception/worker.ts', import.meta.url), { type: 'module' });
-  return new PerceptionClient(worker);
+  return new PerceptionClient(() => new Worker(new URL('../../src/perception/worker.ts', import.meta.url), { type: 'module' }));
 }
 
 /** `captureVisibleTab` returns a `data:` URL, not bytes — decoded here by hand (base64 → `Blob`)
@@ -167,6 +167,63 @@ async function captureTabAsBitmap(target: CaptureTarget): Promise<CaptureResult>
   }
 }
 
+/** Resolves true once the tab has finished loading, false on timeout or if the tab is gone. */
+function waitForTabComplete(tabId: number, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    let finished = false;
+    const listener = (id: number, info: { status?: string }): void => {
+      if (id === tabId && info.status === 'complete') finish(true);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    function finish(ok: boolean): void {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      browser.tabs.onUpdated.removeListener(listener);
+      resolve(ok);
+    }
+    browser.tabs.onUpdated.addListener(listener);
+    browser.tabs.get(tabId).then(
+      (t) => {
+        if (t.status === 'complete') finish(true);
+      },
+      () => finish(false),
+    );
+  });
+}
+
+/** Resolves true when the tab starts loading a document, false after `timeoutMs` (it never did:
+ * a same-document change, or nothing to go back to). Listen BEFORE triggering the navigation. */
+function waitForLoadStart(tabId: number, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const listener = (id: number, info: { status?: string }): void => {
+      if (id === tabId && info.status === 'loading') finish(true);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    function finish(started: boolean): void {
+      clearTimeout(timer);
+      browser.tabs.onUpdated.removeListener(listener);
+      resolve(started);
+    }
+    browser.tabs.onUpdated.addListener(listener);
+  });
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+// After a step's actions, before the page is observed and captured: a click that navigates
+// starts loading only after its request goes out, so give it this long to start. The tab's
+// `complete` status is then waited for only briefly: heavy pages (trackers, ads) fire it long
+// after they are usable, and whether the page is visually complete — its pictures loaded — is
+// decided by the page itself before every observation (content/observe/ready.ts).
+const LOAD_START_GRACE_MS = 600;
+const PAINT_MS = 150;
+const PAGE_LOAD_TIMEOUT_MS = 2500;
+// Gateway session open at Run: a gateway that is still starting (or restarting) gets this long.
+const GATEWAY_OPEN_ATTEMPTS = 6;
+// Re-attaching to a page AEGIS's own action loaded: past this the page is reported unreachable.
+const ATTACH_DEADLINE_MS = 60_000;
+const WEB_PAGE = /^https?:\/\//;
+
 type InjectableFiles = NonNullable<Parameters<typeof browser.scripting.executeScript>[0]['files']>;
 
 /** The manifest's own declared content-script file(s) — the same bundle Chrome injects on page
@@ -187,7 +244,7 @@ async function injectContentScript(tabId: number): Promise<void> {
 // reach; it's the same trust boundary the panel's own click handlers already sit behind.
 declare global {
   interface Window {
-    __aegisRunTask?: (task: string, canaries?: readonly string[]) => Promise<void>;
+    __aegisRunTask?: (task: string, canaries?: readonly string[], targetTabId?: number) => Promise<void>;
     __aegisLedgerExport?: () => unknown[];
   }
 }
@@ -195,18 +252,20 @@ declare global {
 function App() {
   const [panelState, setPanelState] = useState<PanelState>('idle');
   const [steps, setSteps] = useState<StepRecord[]>([]);
-  const [report, setReport] = useState<{ title?: string; content: string } | null>(null);
+  const [runLog, setRunLog] = useState<RunLog>(EMPTY_RUN_LOG);
+  const [protectedFields, setProtectedFields] = useState<ProtectedField[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [lastPayload, setLastPayload] = useState<SanitizedContext | null>(null);
-  const [grantRequest, setGrantRequest] = useState<{ explanation: GrantExplanation; settle: (outcome: 'waived' | 'cancelled') => void } | null>(null);
+  const [grantRequest, setGrantRequest] = useState<{ explanation: GrantExplanation; settle: (outcome: 'retry' | 'cancelled') => void } | null>(null);
   const [confirmRequest, setConfirmRequest] = useState<{ risk: 'low' | 'medium' | 'high'; description: string; resolve: (v: boolean) => void } | null>(null);
+  const [questionRequest, setQuestionRequest] = useState<{ question: string; resolve: (answer: string | null) => void } | null>(null);
+  const [userWait, setUserWait] = useState<string | null>(null);
   const [guardBlock, setGuardBlock] = useState<{ rule: string; entity?: string } | null>(null);
   const [perceptionBackend, setPerceptionBackend] = useState<'webgpu' | 'wasm' | null>(null);
   const [backendDetail, setBackendDetail] = useState<string | undefined>(undefined);
   const [gatewayMode, setGatewayMode] = useState<'live' | 'record' | 'replay' | 'not connected'>('not connected');
   const [modelsLoadedMB, setModelsLoadedMB] = useState(0);
-  const [perceptionStep, setPerceptionStep] = useState<{ stepId: string; status: PerceptionStepStatus } | null>(null);
   const [modelLoadFailures, setModelLoadFailures] = useState<ModelLoadFailure[]>([]);
   const [workerProblems, setWorkerProblems] = useState<WorkerProblem[]>([]);
   const [settings, setSettings] = useState<SettingsValue>(() => defaultSettings(GATEWAY_URL, GATEWAY_TOKEN));
@@ -236,8 +295,15 @@ function App() {
     loadSettings(browser.storage.local, defaultSettings(GATEWAY_URL, GATEWAY_TOKEN)).then(setSettings);
   }, []);
 
+  function note(text: string): void {
+    setRunLog((prev) => applyRunLogEvent(prev, { type: 'note', text }));
+  }
+
   function handleSessionEvent(event: SessionEvent, activeSession: Session): void {
+    setRunLog((prev) => applyRunLogEvent(prev, event));
     if (event.type === 'step') {
+      // Numbers only (closed vocabulary): per-stage wall time of this step, in ms.
+      console.info('[aegis] step timings', event.step.stepId, JSON.stringify(Object.fromEntries(Object.entries(event.step.stageTimings).map(([k, v]) => [k, Math.round(v)]))));
       setSteps((prev) => [...prev, event.step]);
       const latest = activeSession.getLedger().latest();
       if (latest) setLastPayload(latest.payload);
@@ -246,48 +312,77 @@ function App() {
       // a SERVER_ERROR — the 'step' handler above still overwrites this once a step fully
       // completes, same payload shape either way.
       setLastPayload(event.payload);
+      setProtectedFields(event.protectedFields ?? []);
     } else if (event.type === 'perception') {
-      setPerceptionStep({ stepId: event.stepId, status: event.status });
-    } else if (event.type === 'report') {
-      setReport({ title: event.title, content: event.content });
+      setUserWait(null);
+      const d = event.status.diagnostics;
+      if (d) console.info('[aegis] perception timings', event.stepId, JSON.stringify({ total: Math.round(d.ms.total), face: Math.round(d.ms.face), vit: Math.round(d.ms.vit), ocr: Math.round(d.ms.ocr), screenLabel: Math.round(d.ms.screenLabel), crops: d.regions.length, cached: d.cachedRegions ?? 0, backend: d.backend }));
     } else if (event.type === 'done') {
       setPanelState('done');
-      if (event.summary) setReport({ content: event.summary });
+      setUserWait(null);
     } else if (event.type === 'guard_blocked') {
-      setPanelState('blocked');
+      // Not the end of the task: that step sent nothing, and the next one starts afresh.
       setGuardBlock({ rule: event.rule, entity: event.entity });
+    } else if (event.type === 'waiting_user') {
+      setUserWait(event.detail ?? 'AEGIS is waiting for you on the page');
+    } else if (event.type === 'plan') {
+      setUserWait(null);
+    } else if (event.type === 'recovering') {
+      console.warn('[aegis] recovering', event.what, event.detail);
     } else if (event.type === 'confirmation_required') {
       setPanelState('awaiting-confirmation');
       // The Promise this creates is handed to Session via `confirm` below — see handleStart.
     } else if (event.type === 'stopped') {
+      setUserWait(null);
       setPanelState(event.reason === 'CANCELLED' ? 'idle' : 'error');
-      if (event.reason !== 'CANCELLED') setErrorMessage(event.reason);
+      if (event.reason !== 'CANCELLED') setErrorMessage(event.detail ? `${event.reason}: ${event.detail}` : event.reason);
     }
   }
 
-  async function handleStart(task: string, canaries?: readonly string[]): Promise<void> {
+  /** `targetTabId`: harness only (`__aegisRunTask`) — the tab to run on when the panel is not in
+   * that tab's window (a visible run puts the panel in its own window beside the page). */
+  async function handleStart(task: string, canaries?: readonly string[], targetTabId?: number): Promise<void> {
     setErrorMessage(null);
-    setReport(null);
+    setRunLog(EMPTY_RUN_LOG);
+    setProtectedFields([]);
     setSteps([]);
     setLastPayload(null);
     setGuardBlock(null);
-    setPerceptionStep(null);
     setModelLoadFailures([]);
     setWorkerProblems([]);
     setPanelState('loading');
 
-    const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+    const [tab] = targetTabId !== undefined ? [await browser.tabs.get(targetTabId).catch(() => undefined)] : await browser.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id || !tab.url) {
       setPanelState('error');
       setErrorMessage('NO_ACTIVE_TAB');
       return;
     }
 
+    if (!WEB_PAGE.test(tab.url)) {
+      setPanelState('error');
+      setErrorMessage('UNSUPPORTED_PAGE - AEGIS runs on http(s) web pages, not browser pages (chrome://, the Web Store, the PDF viewer, file://)');
+      return;
+    }
     const origin = new URL(tab.url).origin;
-    const permissionState = await ensureHostPermission(browser.permissions, origin);
-    if (permissionState === 'denied') {
+    note(`AEGIS build ${import.meta.env.VITE_AEGIS_BUILD ?? 'unknown'} UTC`);
+    note(`Task "${task}" on ${origin}`);
+    const permissions = await ensureTaskPermissions(browser.permissions, origin);
+    if (permissions.state === 'denied') {
       setPanelState('no-permission');
       return;
+    }
+    note(
+      permissions.allSites
+        ? 'Site access: all sites (screenshots of any tab this task moves into)'
+        : 'Site access: this site only - a tab the task opens on another site cannot be screenshotted until you click the AEGIS icon on it (allow "all sites" at Run to avoid this)',
+    );
+    // After the permission prompt (it needs the Run click's user gesture): a page still loading
+    // shows the model a half-empty page on step 1, so let it finish first.
+    if (tab.status === 'loading') {
+      note('Waiting for the page to finish loading');
+      await waitForTabComplete(tab.id, PAGE_LOAD_TIMEOUT_MS);
+      await sleep(PAINT_MS);
     }
 
     // Before the gateway session and the model load: a tab with no live content script (open
@@ -306,22 +401,48 @@ function App() {
       return;
     }
     const port = connection.port;
-    // The task's target, fixed here: every capture of this task is of this tab, on this origin.
+    note('Connected to the page (content script ready)');
+    let currentPort = port;
+    // The task's target: every capture is of this tab. Its origin follows the page when one of
+    // AEGIS's own actions navigates (reconnect below).
     const target: CaptureTarget = { tabId: tab.id, origin };
     console.info('[aegis] task target', { tabId: tab.id, windowId: tab.windowId, origin });
 
     const gateway = createGatewayClient(settingsRef.current.serverUrl, import.meta.env.BROWSER === 'firefox' ? 'firefox' : 'chrome', fetch, settingsRef.current.accessToken);
-    let created;
-    try {
-      created = await gateway.openSession();
-    } catch {
+    // A gateway that is starting, restarting or briefly unreachable is waited for; only a wrong
+    // token (retrying cannot fix it) or a gateway that never comes up ends the attempt.
+    let created: Awaited<ReturnType<typeof gateway.openSession>> | undefined;
+    let openStatus: string | undefined;
+    for (let attempt = 0; attempt < GATEWAY_OPEN_ATTEMPTS; attempt++) {
+      try {
+        created = await gateway.openSession();
+        break;
+      } catch (err) {
+        openStatus = /SESSION_OPEN_FAILED: (\d+)/.exec(err instanceof Error ? err.message : '')?.[1];
+        if (openStatus === '401' || openStatus === '403') break;
+        if (attempt < GATEWAY_OPEN_ATTEMPTS - 1) {
+          const waitMs = Math.min(8000, 1000 * 2 ** attempt);
+          note(`Gateway not answering (${openStatus ? `HTTP ${openStatus}` : 'unreachable'}): trying again in ${Math.round(waitMs / 1000)} s`);
+          await sleep(waitMs);
+        }
+      }
+    }
+    if (!created) {
       setPanelState('error');
-      setErrorMessage('GATEWAY_UNREACHABLE');
+      setErrorMessage(
+        openStatus === '401' || openStatus === '403'
+          ? 'GATEWAY_REJECTED_TOKEN (401) - the access token in Settings must match the gateway\'s AEGIS_TOKEN'
+          : openStatus
+            ? `GATEWAY_SESSION_FAILED (HTTP ${openStatus})`
+            : `GATEWAY_UNREACHABLE - is the gateway running at ${settingsRef.current.serverUrl}? (server/deploy/run-gateway.sh)`,
+      );
       setGatewayMode('not connected');
       port.disconnect?.();
       return;
     }
+    let gatewaySessionId = created.session_id;
     setGatewayMode(created.mode);
+    note(`Gateway session opened at ${settingsRef.current.serverUrl} (${created.mode} model)`);
 
     // Phase 4: one perception worker per task, matching the vault's own per-task lifetime
     // (design.md §8) — a fresh worker means a fresh model-registry/backend-probe cycle rather
@@ -351,17 +472,23 @@ function App() {
       console.info('[aegis] perception backend', ready.backend, { adapter: ready.adapterInfo, webgpuRejected: ready.webgpuRejected, models: ready.loaded.map((m) => ({ role: m.role, provider: m.provider, probeMs: m.probeMs })) });
       setModelsLoadedMB(ready.loaded.reduce((sum, m) => sum + m.bytes, 0) / (1024 * 1024));
       setModelLoadFailures(ready.failed);
+      note(
+        `Local models loaded on ${ready.backend}: ${ready.loaded.map((m) => `${ROLE_NAME[m.role] ?? m.role} (${m.provider})`).join(', ')}` +
+          `${ready.failed.length > 0 ? `; failed: ${ready.failed.map((f) => f.role).join(', ')}` : ''}`,
+      );
       if (ready.failed.length > 0) console.error('[aegis] perception models failed to load', ready.failed);
     } catch (err) {
-      // Backend probe or worker startup failed — T-4.2's AC: this disables the image path only
-      // (`deps.perception` is still passed; `runPerceptionStep` calls `capture()` and `perceive()`
-      // regardless, and a session with no usable face model still returns `timedOut` regions,
-      // which the compositor leaves grey, never silently cleared).
+      // Backend probe or worker startup failed. The task still starts: every step tries the local
+      // models again (the client replaces the worker and re-initialises it), and a step without
+      // them goes without a screenshot — its text part is sanitized on its own — never with an
+      // unredacted one. (One model failing to load is different: the worker runs, and what that
+      // model would have analysed stays grey in the screenshot, never cleared.)
       console.error('[aegis] perception init failed', err);
       setPerceptionBackend(null);
       setBackendDetail(undefined);
       setModelsLoadedMB(0);
       setWorkerProblems((prev) => [...prev, { kind: 'error', code: 'INIT_FAILED' }]);
+      note('Local models failed to start: retrying on every step; until they load, steps are sent without a screenshot');
     }
 
     // design.md §18.3, T-6.9: the debug-only ablation switch. `import.meta.env.DEV` is Vite's own
@@ -381,18 +508,120 @@ function App() {
     // block's comment above for why that invariant matters.
     // eslint-disable-next-line prefer-const
     let newSession!: Session;
-    const contentPort = new ContentPortClient(port, {
-      onGraph: (m) => newSession.onGraph(m),
-      onActionResult: (m) => newSession.onActionResult(m.actionId, m.ok, m.reason),
-      onDisconnect: () => {
-        void browser.runtime.lastError;
-        newSession.onContentDisconnected();
+    const wirePort = (hostPort: typeof port) =>
+      new ContentPortClient(hostPort, {
+        onGraph: (m) => newSession.onGraph(m),
+        onActionResult: (m) => newSession.onActionResult(m.actionId, m.ok, m.reason),
+        onSettled: (m) => newSession.onSettled(m.actionId),
+        onDisconnect: () => {
+          void browser.runtime.lastError;
+          newSession.onContentDisconnected();
+        },
+      });
+    const contentPort = wirePort(port);
+
+    // After an AEGIS action loads a new page in this tab, or opens one in a new tab: wait for it,
+    // check the host permission WITHOUT prompting (a prompt needs a user gesture and would hang),
+    // then attach. The attached tab becomes the task's target (every capture is of it).
+    const attachTab = async (tabId: number, what: string) => {
+      const deadline = Date.now() + ATTACH_DEADLINE_MS;
+      await sleep(300);
+      // A heavy page (a shop's search results on a slow connection) can take far longer than
+      // PAGE_LOAD_TIMEOUT_MS to fire its load event, yet it is usable long before that: past the
+      // wait, connect anyway. The content script's own `ready` is what says the page can be read.
+      await waitForTabComplete(tabId, PAGE_LOAD_TIMEOUT_MS);
+      for (let attempt = 0; Date.now() < deadline; attempt++) {
+        await sleep(attempt === 0 ? PAINT_MS : 1000);
+        const next = await browser.tabs.get(tabId).catch(() => null);
+        if (!next) {
+          console.warn(`[aegis] ${what}; cannot attach`, { attempt, reason: 'tab-closed' });
+          return null;
+        }
+        if (!next.url || !WEB_PAGE.test(next.url)) {
+          // Mid-redirect a tab can briefly show no web URL; a settled one never becomes a web page.
+          if (next.status === 'loading') continue;
+          console.warn(`[aegis] ${what}; cannot attach`, { attempt, reason: 'not-a-web-page' });
+          return null;
+        }
+        const nextOrigin = new URL(next.url).origin;
+        if (!(await browser.permissions.contains({ origins: [`${nextOrigin}/*`] }))) {
+          console.warn(`[aegis] ${what}; cannot attach`, { attempt, reason: 'no-host-permission', origin: nextOrigin });
+          return null;
+        }
+        const reconnected = await connectToLiveContent(tabId, {
+          connect: (id) => connectToTab(browser.tabs, id),
+          inject: injectContentScript,
+          lastErrorMessage: () => browser.runtime.lastError?.message,
+        });
+        if (!reconnected.ok) {
+          console.warn(`[aegis] ${what}; cannot attach yet`, { attempt, reason: reconnected.reason, origin: nextOrigin });
+          continue;
+        }
+        if (tabId !== target.tabId) currentPort.disconnect?.();
+        currentPort = reconnected.port;
+        target.tabId = tabId;
+        target.origin = nextOrigin;
+        console.info(`[aegis] ${what}; reconnected`, { tabId, origin: nextOrigin });
+        note(`${what}: ${nextOrigin}; reconnected`);
+        return { contentPort: wirePort(reconnected.port), origin: nextOrigin, title: next.title ?? '' };
+      }
+      console.warn(`[aegis] ${what}; cannot attach`, { reason: 'deadline' });
+      return null;
+    };
+    const reconnect = () => attachTab(target.tabId, 'page navigated');
+    // Tabs opened FROM the task's tab (a target=_blank link, a shop's product page). Only an AEGIS
+    // action consumes one (Session.observe after acting), and the task then continues in it — it
+    // used to stay on the old tab, now behind the new one, so the next capture was refused.
+    let openedTabId: number | null = null;
+    const onTabCreated = (created: { id?: number; openerTabId?: number }): void => {
+      if (created.id !== undefined && created.openerTabId === target.tabId) openedTabId = created.id;
+    };
+    browser.tabs.onCreated.addListener(onTabCreated);
+    // The model's navigation ops, on the task's tab. Each waits for the load it started.
+    const runNavigation = async (trigger: () => Promise<unknown>) => {
+      const started = waitForLoadStart(target.tabId, 3000);
+      await trigger();
+      if (await started) await waitForTabComplete(target.tabId, PAGE_LOAD_TIMEOUT_MS);
+    };
+    const browserControl = {
+      navigate: (url: string) => runNavigation(() => browser.tabs.update(target.tabId, { url })),
+      openTab: async (url: string) => {
+        // In the task tab's own window: Chrome refuses an opener in another window, and the panel's
+        // "current window" is not always the page's (a detached panel, a harness run).
+        const { windowId } = await browser.tabs.get(target.tabId);
+        const opened = await browser.tabs.create({ url, openerTabId: target.tabId, windowId, active: true });
+        if (opened.id !== undefined) openedTabId = opened.id;
       },
-    });
+      goBack: () => runNavigation(() => browser.tabs.goBack(target.tabId)),
+      goForward: () => runNavigation(() => browser.tabs.goForward(target.tabId)),
+      reload: () => runNavigation(() => browser.tabs.reload(target.tabId)),
+      waitForPageReady: async () => {
+        await sleep(LOAD_START_GRACE_MS);
+        await waitForTabComplete(target.tabId, PAGE_LOAD_TIMEOUT_MS);
+        await sleep(PAINT_MS);
+      },
+    };
+    const followOpenedTab = async () => {
+      const tabId = openedTabId;
+      openedTabId = null;
+      if (tabId === null) return null;
+      return attachTab(tabId, 'the action opened a new tab');
+    };
 
     newSession = new Session({
       contentPort,
-      sendToGateway: (payload, signal) => gateway.sendStep(created.session_id, payload, signal),
+      sendToGateway: (payload, signal) => gateway.sendStep(gatewaySessionId, payload, signal),
+      pageQueries: true,
+      reopenSession: async () => {
+        const reopened = await gateway.openSession();
+        gatewaySessionId = reopened.session_id;
+        note('Gateway session re-opened');
+      },
+      askUser: (question) =>
+        new Promise<string | null>((resolve) => {
+          setQuestionRequest({ question, resolve });
+          setPanelState('awaiting-user');
+        }),
       guardOrigin: origin,
       pageCategory: 'unknown',
       pageTitle: tab.title ?? '',
@@ -427,24 +656,44 @@ function App() {
         }),
       },
       canaries,
+      reconnect,
+      followOpenedTab,
+      browser: browserControl,
       ablation: ablationArm,
       policy: applyAlwaysRedact(defaultPolicy, settingsRef.current.alwaysRedact),
     });
 
     setSession(newSession);
     setPanelState('running');
-    await newSession.start(task);
+    note('Task started: observing the page');
+    try {
+      await newSession.start(task);
+    } catch (err) {
+      console.error('[aegis] task failed', err);
+      setPanelState('error');
+      setErrorMessage('INTERNAL_ERROR - see the panel console');
+    }
     // Ends the content script's per-connection session (observers included) — otherwise every
     // finished run leaves one behind in the page, still auto-sending graphs to a dead Session.
-    port.disconnect?.();
-    await gateway.closeSession(created.session_id);
+    browser.tabs.onCreated.removeListener(onTabCreated);
+    currentPort.disconnect?.();
+    await gateway.closeSession(gatewaySessionId);
     perceptionClient.terminate(); // per-task lifetime — see the construction site's comment
     setPerceptionBackend(null);
   }
 
   function handleStop(): void {
     grantRequest?.settle('cancelled');
+    questionRequest?.resolve(null);
+    setQuestionRequest(null);
+    setUserWait(null);
     session?.cancel();
+  }
+
+  function handleAnswer(answer: string | null): void {
+    questionRequest?.resolve(answer);
+    setQuestionRequest(null);
+    setPanelState('running');
   }
 
   function handleConfirmDecision(allowed: boolean): void {
@@ -497,16 +746,28 @@ function App() {
         )}
         {panelState === 'error' && errorMessage && <p style={{ color: '#b00' }}>Error: {errorMessage}</p>}
 
-        <TaskInput running={panelState === 'running' || panelState === 'loading' || panelState === 'awaiting-grant'} onStart={handleStart} onStop={handleStop} />
+        <TaskInput running={panelState === 'running' || panelState === 'loading' || panelState === 'awaiting-grant' || panelState === 'awaiting-user' || panelState === 'awaiting-confirmation'} onStart={handleStart} onStop={handleStop} />
 
         {grantRequest && (
           <GrantRequest
             explanation={grantRequest.explanation}
-            onContinueWithout={() => grantRequest.settle('waived')}
+            onAllowAllSites={() => {
+              // Called from the click itself: Chrome grants a permission request only on a user gesture.
+              void browser.permissions.request({ origins: ['<all_urls>'] }).then(
+                (granted) => granted && grantRequest.settle('retry'),
+                () => undefined,
+              );
+            }}
             onStop={handleStop}
           />
         )}
         {confirmRequest && <ConfirmAction risk={confirmRequest.risk} description={confirmRequest.description} onDecide={handleConfirmDecision} />}
+        {questionRequest && <AskUser question={questionRequest.question} onAnswer={handleAnswer} />}
+        {userWait && (
+          <div data-testid="user-wait" style={{ border: '1px solid #c90', background: '#fff8e6', padding: 8, margin: '8px 0', borderRadius: 4 }}>
+            {userWait}
+          </div>
+        )}
         {guardBlock && (
           <GuardBlockCard
             rule={guardBlock.rule}
@@ -522,29 +783,20 @@ function App() {
 
         <MetricsBar backend={gatewayMode} steps={steps} />
         <ResourceBar backend={perceptionBackend} modelsLoadedMB={modelsLoadedMB} detail={backendDetail} />
-        {perceptionStep && (
-          <PerceptionStatus
-            stepId={perceptionStep.stepId}
-            status={perceptionStep.status}
-            redactions={lastPayload?.redactions ?? []}
-            loadFailures={modelLoadFailures}
-            workerProblems={workerProblems}
-          />
-        )}
-        {!perceptionStep && (modelLoadFailures.length > 0 || workerProblems.length > 0) && (
-          <p style={{ color: '#b00', fontSize: 12 }}>
-            Perception problem: {[...modelLoadFailures.map((f) => `${f.role} ${f.code}`), ...workerProblems.map((p) => (p.kind === 'crashed' ? 'worker crashed' : `worker ${p.code}`))].join(', ')}
-          </p>
+        <RunLogView
+          log={runLog}
+          running={panelState === 'running' || panelState === 'loading' || panelState === 'awaiting-confirmation' || panelState === 'awaiting-grant' || panelState === 'awaiting-user'}
+          showRawPayload={settings.showRawPayload}
+          loadFailures={modelLoadFailures}
+          workerProblems={workerProblems}
+        />
+        {lastPayload && (
+          <Section testId="run-redactions" title="Redactions (latest step)" summary={`${lastPayload.redactions.length} redaction(s)`} open>
+            <RedactionSummary redactions={lastPayload.redactions} coverage={lastPayload.coverage} protectedFields={protectedFields} />
+            <UnredactPanel redactions={lastPayload.redactions} onUnredact={(ref, reason) => session?.unredact(ref, reason)} />
+          </Section>
         )}
         {settings.debugOverlay && <StepTimeline steps={steps} />}
-        {lastPayload && (
-          <>
-            <RedactionSummary redactions={lastPayload.redactions} coverage={lastPayload.coverage} />
-            <UnredactPanel redactions={lastPayload.redactions} onUnredact={(ref, reason) => session?.unredact(ref, reason)} />
-            {settings.showRawPayload && <PayloadViewer payload={lastPayload} />}
-          </>
-        )}
-        {report && <ReportView title={report.title} content={report.content} />}
       </div>
     </div>
   );

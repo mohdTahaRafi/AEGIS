@@ -2,10 +2,13 @@
 // redactions in the payload — derived only from the worker's real counters and the payload's own
 // `redactions[].sources`, never from configuration or intent.
 
+import { describeWorkerProblem } from './worker-problem';
 import type { SanitizedContext } from '@aegis/protocol';
-import { PERCEPTION_DEADLINE_MS, type PerceptionStepStatus } from '../host/perception-client/run-step';
+import { FRAME_DEADLINE_MS, type PerceptionStepStatus } from '../host/perception-client/run-step';
 import type { WorkerProblem } from '../host/perception-client/client';
 import type { ModelLoadFailure, PerceiveDiagnostics } from '../shared/worker-protocol';
+import type { ProtectedField, StepStageTimings } from '../host/session';
+import { PipelineTrace } from './PipelineTrace';
 
 export type SourceChannel = 'dom' | 'text' | 'ocr' | 'vision';
 
@@ -36,7 +39,7 @@ const CAPTURE_REASON: Record<Exclude<PerceptionStepStatus['capture'], 'ok'>, str
   'restricted-page': 'Chrome does not allow extensions to capture this page type',
   throttled: 'Chrome capture rate limit hit',
   'no-tab': 'no capturable tab/window',
-  'not-visible': "the task's tab was not in front when capturing, so no frame was taken - keep that tab visible while the task runs",
+  'not-visible': "the task's tab could not be shown for the capture (AEGIS brings it to the front itself; a minimized window or a tab switch during the capture stops it), so no frame was taken",
   decode: 'the captured image could not be decoded',
   unknown: 'screenshot failed for an unrecognised reason',
 };
@@ -74,7 +77,7 @@ export function summarizePerception(status: PerceptionStepStatus, redactions: Sa
   if (byChannel.ocr > 0) parts.push('OCR');
   if (visionSources.has('vision:face')) parts.push('face detection');
   if ([...visionSources].some((s) => s !== 'vision:face')) parts.push('vision/CLIP');
-  const ranAnything = modelsRan.clip + modelsRan.face + modelsRan.ocrDet > 0;
+  const ranAnything = modelsRan.clip + modelsRan.face + modelsRan.ocrDet + (d?.cachedRegions ?? 0) > 0;
   // What the models themselves reported, independent of any payload: a step the guard blocked has
   // no payload at all, and must not read as "found nothing" when YuNet/CLIP/OCR did find something.
   const findings = new Set<string>();
@@ -89,13 +92,13 @@ export function summarizePerception(status: PerceptionStepStatus, redactions: Sa
     : findings.size > 0
       ? `vision detected ${[...findings].join(', ')} (not in a sent payload this step)`
       : ranAnything
-        ? 'DOM-only result (vision ran, found nothing)'
+        ? 'DOM + vision (vision ran, found nothing to redact)'
         : 'DOM-only';
 
   const crops = d
     ? {
         requested: status.regionsRequested,
-        analysed: d.regions.filter((r) => r.outcome === 'analysed').length,
+        analysed: d.regions.filter((r) => r.outcome === 'analysed' || r.outcome === 'pixels').length,
         deadline: d.regions.filter((r) => r.outcome === 'deadline').length,
         budget: d.regions.filter((r) => r.outcome === 'budget').length,
         noCapability: d.regions.filter((r) => r.outcome === 'no-capability').length,
@@ -120,9 +123,16 @@ export interface PerceptionStatusProps {
   redactions: SanitizedContext['redactions'];
   loadFailures: ModelLoadFailure[];
   workerProblems: WorkerProblem[];
+  /** For the run-order trace: this step's payload (null until built, or when the guard blocked
+   * it), its protected fields, its stage timings once the step finished, and a guard block. */
+  payload?: SanitizedContext | null;
+  protectedFields?: ProtectedField[];
+  timings?: StepStageTimings;
+  guardBlock?: { rule: string; entity?: string } | null;
+  localOnly?: boolean;
 }
 
-export function PerceptionStatus({ stepId, status, redactions, loadFailures, workerProblems }: PerceptionStatusProps) {
+export function PerceptionStatus({ stepId, status, redactions, loadFailures, workerProblems, payload = null, protectedFields = [], timings, guardBlock = null, localOnly = false }: PerceptionStatusProps) {
   const summary = summarizePerception(status, redactions);
   const byChannel = redactionsByChannel(redactions);
   const d = status.diagnostics;
@@ -139,13 +149,14 @@ export function PerceptionStatus({ stepId, status, redactions, loadFailures, wor
       )}
       {d && (
         <div style={muted}>
-          ran: CLIP ×{summary.modelsRan.clip} · YuNet ×{summary.modelsRan.face} · OCR det ×{summary.modelsRan.ocrDet} / rec ×{summary.modelsRan.ocrRec} · {describeProviders(d.providers) || d.backend} · {Math.round(d.ms.total)} ms
+          ran: CLIP ×{summary.modelsRan.clip} · YuNet ×{summary.modelsRan.face} · OCR det ×{summary.modelsRan.ocrDet} / rec ×{summary.modelsRan.ocrRec}
+          {(d.cachedRegions ?? 0) > 0 && ` · ${d.cachedRegions} unchanged crop(s) reused`} · {describeProviders(d.providers) || d.backend} · {Math.round(d.ms.total)} ms
         </div>
       )}
       {summary.crops && (
         <div style={muted}>
           crops: {summary.crops.analysed}/{summary.crops.requested} analysed
-          {summary.crops.deadline > 0 && ` · ${summary.crops.deadline} past ${PERCEPTION_DEADLINE_MS} ms deadline (left grey)`}
+          {summary.crops.deadline > 0 && ` · ${summary.crops.deadline} past the ${FRAME_DEADLINE_MS} ms deadline (left grey)`}
           {summary.crops.budget > 0 && ` · ${summary.crops.budget} over crop budget (left grey)`}
           {summary.crops.noCapability > 0 && ` · ${summary.crops.noCapability} with no model available`}
         </div>
@@ -153,20 +164,11 @@ export function PerceptionStatus({ stepId, status, redactions, loadFailures, wor
       <div style={muted}>
         redactions by source: DOM {byChannel.dom} · text {byChannel.text} · OCR {byChannel.ocr} · vision {byChannel.vision}
       </div>
-      {d?.regions
-        .filter((r) => r.outcome === 'analysed')
-        .map((r) => (
-          <div key={r.regionId} style={{ ...muted, paddingLeft: 8 }}>
-            {r.regionId}: {r.vit ? `CLIP "${r.vit.label}" ${r.vit.score.toFixed(2)}${r.vit.entity && r.vit.entityScore !== undefined ? ` · ${r.vit.entity} ${r.vit.entityScore.toFixed(2)}` : ''}${r.vit.accepted ? ' (redacted)' : ''}` : 'CLIP not run'}
-            {r.faces !== undefined && ` · faces ${r.faces}${r.faceTopScore !== undefined ? ` (${r.faceTopScore.toFixed(2)})` : ''}`}
-            {r.ocrLinesDetected !== undefined && ` · OCR ${r.ocrLinesDetected} lines${r.ocrEntities && r.ocrEntities.length > 0 ? ` → ${r.ocrEntities.join(', ')}` : ''}`}
-            {r.ms !== undefined && ` · ${Math.round(r.ms)} ms`}
-          </div>
-        ))}
+      <PipelineTrace status={status} payload={payload} protectedFields={protectedFields} timings={timings} guardBlock={guardBlock} localOnly={localOnly} />
       {d && d.modelErrors.length > 0 && <div style={{ color: '#b00' }}>model errors this step: {d.modelErrors.map((e) => `${e.role} ${e.code}`).join(', ')}</div>}
       {loadFailures.length > 0 && <div style={{ color: '#b00' }}>models failed to load: {loadFailures.map((f) => `${f.role} (${f.code})`).join(', ')}</div>}
       {workerProblems.length > 0 && (
-        <div style={{ color: '#b00' }}>perception worker: {workerProblems.map((p) => (p.kind === 'crashed' ? 'crashed' : `error ${p.code}`)).join(', ')}</div>
+        <div style={{ color: '#b00' }}>perception worker: {workerProblems.map((p) => describeWorkerProblem(p)).join(', ')}</div>
       )}
     </div>
   );

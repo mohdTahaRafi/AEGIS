@@ -2,11 +2,20 @@
 // triple, for the step whose payload is shown.
 
 import type { SanitizedContext } from '@aegis/protocol';
+import type { ProtectedField } from '../host/session';
 
 export interface RedactionSummaryProps {
   redactions: SanitizedContext['redactions'];
   coverage: SanitizedContext['coverage'];
+  protectedFields?: ProtectedField[];
 }
+
+export const SENT_AS: Record<ProtectedField['sent'], string> = {
+  empty: 'empty, masked in image',
+  placeholder: 'sent as placeholder',
+  presence: 'value never read',
+  text: 'SENT AS TEXT, masked in image',
+};
 
 function countByEntity(redactions: SanitizedContext['redactions']): Record<string, number> {
   const counts: Record<string, number> = {};
@@ -14,7 +23,7 @@ function countByEntity(redactions: SanitizedContext['redactions']): Record<strin
   return counts;
 }
 
-export function RedactionSummary({ redactions, coverage }: RedactionSummaryProps) {
+export function RedactionSummary({ redactions, coverage, protectedFields = [] }: RedactionSummaryProps) {
   const byEntity = countByEntity(redactions);
   const entries = Object.entries(byEntity);
 
@@ -23,6 +32,17 @@ export function RedactionSummary({ redactions, coverage }: RedactionSummaryProps
       <p style={{ margin: '0 0 4px', fontWeight: 600 }}>
         Redactions: {entries.length === 0 ? '0' : entries.map(([e, n]) => `${e} ${n}`).join(' · ')}
       </p>
+      {protectedFields.length > 0 && (
+        <p data-testid="protected-fields" style={{ margin: '0 0 4px' }}>
+          Protected fields (by label, before sending):{' '}
+          {protectedFields.map((f, i) => (
+            <span key={i} style={{ color: f.sent === 'text' ? '#b00' : undefined }}>
+              {i > 0 && ' · '}
+              {f.entity} "{f.label.slice(0, 30)}" ({f.ref ?? SENT_AS[f.sent]})
+            </span>
+          ))}
+        </p>
+      )}
       <p style={{ margin: 0, color: '#666' }}>
         Coverage — cleared {Math.round(coverage.cleared * 100)}% · redacted {Math.round(coverage.redacted * 100)}% · unanalysed{' '}
         {Math.round(coverage.unanalysed * 100)}%
