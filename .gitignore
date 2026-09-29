@@ -37,6 +37,7 @@ server/recordings/
 .env.local
 *.local.json
 vllm.env
+server/deploy/model.env
 .env.vllm
 
 
@@ -52,3 +53,6 @@ playwright-report/
 coverage/
 .pytest_cache/
 .vitest/
+
+# E2E demo driver artifacts (payloads, screenshots)
+tools/e2e/out/
