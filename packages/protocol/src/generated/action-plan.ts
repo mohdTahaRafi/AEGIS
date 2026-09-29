@@ -64,6 +64,46 @@ export type Action =
   | {
       op: 'stop';
       reason: 'captcha' | 'blocked' | 'cannot_proceed' | 'unsafe';
+      detail?: string;
+    }
+  | {
+      op: 'press_key';
+      key:
+        | 'Enter'
+        | 'Tab'
+        | 'Escape'
+        | 'Backspace'
+        | 'Delete'
+        | 'Space'
+        | 'ArrowUp'
+        | 'ArrowDown'
+        | 'ArrowLeft'
+        | 'ArrowRight'
+        | 'PageUp'
+        | 'PageDown'
+        | 'Home'
+        | 'End';
+      node?: string;
+    }
+  | {
+      op: 'hover';
+      node: string;
+    }
+  | {
+      op: 'double_click';
+      node: string;
+      expect?: Expect;
+    }
+  | {
+      op: 'navigate';
+      url: WebUrl;
+    }
+  | {
+      op: 'open_tab';
+      url: WebUrl;
+    }
+  | {
+      op: 'go_back' | 'go_forward' | 'reload';
     };
 /**
  * [x, y, w, h] in CSS pixels, top-level viewport, origin top-left
@@ -72,6 +112,7 @@ export type Action =
  * @maxItems 4
  */
 export type Box = [number, number, number, number];
+export type WebUrl = string;
 
 /**
  * design.md §4.5/§4.6. Also used as the vLLM structured-decoding grammar (Phase 2, T-2.36) — a hallucinated action is a parse error, not a click.

@@ -23,6 +23,7 @@
     "note": { "type": "string", "maxLength": 200 }
   },
   "$defs": {
+    "webUrl": { "type": "string", "maxLength": 2000, "pattern": "^https?://[^\\s\\u27ea\\u27eb]+$" },
     "expect": {
       "type": "object",
       "additionalProperties": false,
@@ -65,7 +66,7 @@
           "properties": {
             "op": { "const": "type" },
             "node": { "$ref": "common.schema.json#/$defs/nodeId" },
-            "text": { "type": "string", "maxLength": 500 },
+            "text": { "type": "string", "maxLength": 2000 },
             "clear_first": { "type": "boolean" },
             "expect": { "$ref": "#/$defs/expect" }
           }
@@ -157,8 +158,65 @@
           "additionalProperties": false,
           "properties": {
             "op": { "const": "stop" },
-            "reason": { "enum": ["captcha", "blocked", "cannot_proceed", "unsafe"] }
+            "reason": { "enum": ["captcha", "blocked", "cannot_proceed", "unsafe"] },
+            "detail": { "type": "string", "maxLength": 200 }
           }
+        },
+        {
+          "type": "object",
+          "required": ["op", "key"],
+          "additionalProperties": false,
+          "description": "A key press on `node` (focused first), or on whatever has focus when `node` is absent.",
+          "properties": {
+            "op": { "const": "press_key" },
+            "key": { "enum": ["Enter", "Tab", "Escape", "Backspace", "Delete", "Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End"] },
+            "node": { "$ref": "common.schema.json#/$defs/nodeId" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "node"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "hover" },
+            "node": { "$ref": "common.schema.json#/$defs/nodeId" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "node"],
+          "additionalProperties": false,
+          "properties": {
+            "op": { "const": "double_click" },
+            "node": { "$ref": "common.schema.json#/$defs/nodeId" },
+            "expect": { "$ref": "#/$defs/expect" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "url"],
+          "additionalProperties": false,
+          "description": "Loads `url` in the task's tab. http(s) only; never a placeholder (a sealed value is never put in a URL).",
+          "properties": {
+            "op": { "const": "navigate" },
+            "url": { "$ref": "#/$defs/webUrl" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "url"],
+          "additionalProperties": false,
+          "description": "Opens `url` in a new tab, which becomes the task's tab (e.g. the task belongs on another site).",
+          "properties": {
+            "op": { "const": "open_tab" },
+            "url": { "$ref": "#/$defs/webUrl" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op"],
+          "additionalProperties": false,
+          "properties": { "op": { "enum": ["go_back", "go_forward", "reload"] } }
         }
       ]
     }

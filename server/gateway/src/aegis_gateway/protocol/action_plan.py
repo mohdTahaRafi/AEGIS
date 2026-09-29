@@ -151,7 +151,7 @@ class Action3(BaseModel):
     )
     op: Literal['type']
     node: constr(pattern=r'^n-[0-9a-z]+$')
-    text: constr(max_length=500)
+    text: constr(max_length=2000)
     clear_first: bool | None = None
     expect: Expect | None = None
 
@@ -263,6 +263,91 @@ class Action12(BaseModel):
     )
     op: Literal['stop']
     reason: Reason
+    detail: constr(max_length=200) | None = None
+
+
+class Key(Enum):
+    Enter = 'Enter'
+    Tab = 'Tab'
+    Escape = 'Escape'
+    Backspace = 'Backspace'
+    Delete = 'Delete'
+    Space = 'Space'
+    ArrowUp = 'ArrowUp'
+    ArrowDown = 'ArrowDown'
+    ArrowLeft = 'ArrowLeft'
+    ArrowRight = 'ArrowRight'
+    PageUp = 'PageUp'
+    PageDown = 'PageDown'
+    Home = 'Home'
+    End = 'End'
+
+
+class Action13(BaseModel):
+    """
+    A key press on `node` (focused first), or on whatever has focus when `node` is absent.
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    op: Literal['press_key']
+    key: Key
+    node: constr(pattern=r'^n-[0-9a-z]+$') | None = None
+
+
+class Action14(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    op: Literal['hover']
+    node: constr(pattern=r'^n-[0-9a-z]+$')
+
+
+class Action15(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    op: Literal['double_click']
+    node: constr(pattern=r'^n-[0-9a-z]+$')
+    expect: Expect | None = None
+
+
+class Action16(BaseModel):
+    """
+    Loads `url` in the task's tab. http(s) only; never a placeholder (a sealed value is never put in a URL).
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    op: Literal['navigate']
+    url: constr(pattern=r'^https?://[^\s\u27ea\u27eb]+$', max_length=2000)
+
+
+class Action17(BaseModel):
+    """
+    Opens `url` in a new tab, which becomes the task's tab (e.g. the task belongs on another site).
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    op: Literal['open_tab']
+    url: constr(pattern=r'^https?://[^\s\u27ea\u27eb]+$', max_length=2000)
+
+
+class Op(Enum):
+    go_back = 'go_back'
+    go_forward = 'go_forward'
+    reload = 'reload'
+
+
+class Action18(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    op: Op
 
 
 class ActionPlan(BaseModel):
@@ -288,6 +373,12 @@ class ActionPlan(BaseModel):
         | Action10
         | Action11
         | Action12
+        | Action13
+        | Action14
+        | Action15
+        | Action16
+        | Action17
+        | Action18
     ] = Field(..., max_length=5, min_length=1)
     risk_hint: RiskHint | None = None
     stop_if: list[StopIfEnum] | None = None
