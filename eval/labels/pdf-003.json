@@ -9,20 +9,20 @@
     {
       "entity": "PERSON_NAME",
       "box": [
-        120,
-        180,
-        220,
-        22
+        121,
+        181,
+        65,
+        19
       ],
       "value_hash": "sha256:032cfe29d0711aa974aed82328e15d420e97029728f9986db5ec89337af7e6ab"
     },
     {
       "entity": "DOB",
       "box": [
-        120,
-        210,
-        120,
-        22
+        121,
+        211,
+        74,
+        19
       ],
       "value_hash": "sha256:35811ac1c27b82783730f34052e471b7c09bff7dddc7ec507a17a8e30a8bf45f"
     },
@@ -31,8 +31,8 @@
       "box": [
         16,
         680,
-        260,
-        16
+        174,
+        14
       ],
       "canary": true,
       "canary_id": "CANARYYPNJR4D9QZLDFH7583VMRS"

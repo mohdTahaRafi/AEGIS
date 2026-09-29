@@ -9,10 +9,10 @@
     {
       "entity": "PERSON_NAME",
       "box": [
-        16,
+        78,
         60,
-        200,
-        20
+        51,
+        22
       ],
       "value_hash": "sha256:afd3da871a7f69543196f411b615a0470d74a4dcb9187d86040ffa8806e01008"
     },
@@ -21,8 +21,8 @@
       "box": [
         16,
         680,
-        260,
-        16
+        174,
+        14
       ],
       "canary": true,
       "canary_id": "CANARY8979RM3T7YLK3N87YANQT8"

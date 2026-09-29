@@ -9,9 +9,9 @@
     {
       "entity": "PERSON_NAME",
       "box": [
-        16,
+        77,
         60,
-        240,
+        74,
         22
       ],
       "value_hash": "sha256:55503b518ff229700dc150a68d55c86d4d38f1c3f32dd5b27d53501712aa83d5"
@@ -19,9 +19,9 @@
     {
       "entity": "PERSON_NAME",
       "box": [
-        16,
+        126,
         90,
-        240,
+        85,
         22
       ],
       "value_hash": "sha256:e1a252034e1d6eedc971f14cda6a3435aec95b69bf5e9d9feb396892ad1c9504"
@@ -31,8 +31,8 @@
       "box": [
         16,
         680,
-        260,
-        16
+        174,
+        14
       ],
       "canary": true,
       "canary_id": "CANARYLEV2SSHQSXH5BWB5CF3E7E"

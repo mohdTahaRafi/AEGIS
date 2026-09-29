@@ -11,8 +11,8 @@
       "box": [
         220,
         120,
-        180,
-        22
+        105,
+        19
       ],
       "value_hash": "sha256:319d45ba232899ab5a66bfe171d753e12f290e9dd1e0525c86c4057e6607c646",
       "note": "disclosed gap: no dedicated BANK_ACCOUNT pattern recognizer yet \u2014 expected FN"
@@ -22,8 +22,8 @@
       "box": [
         220,
         160,
-        130,
-        22
+        103,
+        19
       ],
       "value_hash": "sha256:5ef11aefdf1c4510d50804713d00d7b1b5a0bc59588d638fc4aeb83f080444f4"
     },
@@ -41,8 +41,8 @@
       "box": [
         16,
         680,
-        260,
-        16
+        184,
+        14
       ],
       "canary": true,
       "canary_id": "CANARYV35TWFMQJZ7MANGVGQH2LB"

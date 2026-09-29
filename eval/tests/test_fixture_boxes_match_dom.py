@@ -81,18 +81,26 @@ def test_label_boxes_match_real_rendered_positions(screen_id: str) -> None:
         f"{screen_id}: expected at least {len(boxes)} measurable field elements, found {len(measured)}"
     )
 
-    # Match each labelled box against the closest measured element by position — exact equality
-    # on x/y (constructed, not measured) with generous width/height tolerance (fonts/rendering).
-    # A matched element is removed from the pool so two labels can never silently match the same
-    # element — that ambiguity previously masked a real off-by-(16,16) bug in freetext-001 (see
-    # the Phase 1 Implementation Notes), where the wrong element scored as "closest" only because
-    # the truly-correct element had already drifted off target.
-    remaining = list(measured)
+    # Text labels are value-level (value_boxes.py): the value's own glyphs, which sit inside the
+    # element that renders them — a phone number inside its sentence, an id inside its field.
+    # Pictures and <input> values keep the element box. Either way the label must lie within a
+    # rendered element, a few px of font-metric slack allowed; a box outside every element is a
+    # box-model surprise (the off-by-(16,16) freetext-001 class of bug). Hard negatives (NONE) keep
+    # their constructed element box, which may be wider than the text: its origin must match.
+    slack = 3
     for entity, label_box in boxes:
         lx, ly, lw, lh = label_box
-        best = min(remaining, key=lambda m: abs(m[0] - lx) + abs(m[1] - ly))
-        remaining.remove(best)
-        mx, my, mw, mh = best
-        assert abs(mx - lx) <= 1, f"{screen_id} {entity}: x {mx} vs label {lx}"
-        assert abs(my - ly) <= 1, f"{screen_id} {entity}: y {my} vs label {ly}"
-        assert mw <= lw + 40, f"{screen_id} {entity}: measured width {mw} exceeds label width {lw}+40"
+        if entity == "NONE":
+            assert any(abs(m[0] - lx) <= 1 and abs(m[1] - ly) <= 1 for m in measured), (
+                f"{screen_id} NONE: no rendered element at label origin {label_box[:2]}"
+            )
+            continue
+        inside = [
+            m
+            for m in measured
+            if m[0] - slack <= lx
+            and m[1] - slack <= ly
+            and lx + lw <= m[0] + m[2] + slack
+            and ly + lh <= m[1] + m[3] + slack
+        ]
+        assert inside, f"{screen_id} {entity}: label box {label_box} lies inside no rendered element"

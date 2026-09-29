@@ -9,20 +9,20 @@
     {
       "entity": "AADHAAR",
       "box": [
-        120,
-        180,
-        160,
-        22
+        121,
+        181,
+        97,
+        19
       ],
       "value_hash": "sha256:a58748af45258132d3cb6738d6fe5ed8a69c6be6bef22387d28b451ae79a320d"
     },
     {
       "entity": "PAN",
       "box": [
-        120,
-        210,
-        120,
-        22
+        121,
+        211,
+        87,
+        19
       ],
       "value_hash": "sha256:3e9f03146257f0a6db50d42e53571afdcc55b2c574d58eb417563234054fe3c2"
     },
@@ -31,8 +31,8 @@
       "box": [
         16,
         680,
-        260,
-        16
+        175,
+        14
       ],
       "canary": true,
       "canary_id": "CANARY3EN7ECTG8HZT655U86RTM9"

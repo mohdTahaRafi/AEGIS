@@ -11,8 +11,8 @@
       "box": [
         220,
         120,
-        130,
-        22
+        85,
+        19
       ],
       "value_hash": "sha256:ece6c25042af6dcaf63d41cba4d843250da2a1d572cc3a670b05de73c31eaf4c"
     },
@@ -21,8 +21,8 @@
       "box": [
         16,
         680,
-        260,
-        16
+        183,
+        14
       ],
       "canary": true,
       "canary_id": "CANARYJMDAG3CMDU9LTTF4GEMD9N"

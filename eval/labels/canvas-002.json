@@ -9,10 +9,10 @@
     {
       "entity": "UPI_VPA",
       "box": [
-        40,
-        154,
-        160,
-        22
+        41,
+        157,
+        133,
+        17
       ],
       "value_hash": "sha256:b819c35efd912eab5f82f1ba958c5b3d7b6415b78350d6536f58bac95f910a3c"
     },
@@ -21,8 +21,8 @@
       "box": [
         16,
         680,
-        260,
-        16
+        170,
+        14
       ],
       "canary": true,
       "canary_id": "CANARYYU6GLC64Y97M8VZXXS9VJG"

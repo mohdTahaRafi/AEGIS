@@ -6,9 +6,10 @@ checksum functions in checksums.py.
 
 Every PII-bearing element is positioned with explicit inline `position:absolute; left/top/width/
 height` CSS, in CSS pixels, so the label box in the JSON is exactly the rendered box by
-construction — not measured after the fact. A spot-check against real Playwright-measured
-getBoundingClientRect() is run separately (test_fixture_boxes_match_dom.py) to catch any box-model
-surprise this reasoning might have missed.
+construction — not measured after the fact. main() then re-measures every text value to its own
+glyphs (value_boxes.py): a phone number inside a sentence is labelled as the number, not the
+sentence. A spot-check against real Playwright-measured getBoundingClientRect() is run separately
+(test_fixture_boxes_match_dom.py) to catch any box-model surprise this reasoning might have missed.
 
 Run with: `uv run python -m aegis_eval.corpus.generate_fixtures` (or the venv-direct equivalent).
 Idempotent: re-running overwrites existing fixture output byte-for-byte from the same inputs.
@@ -24,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from aegis_eval.corpus.checksums import gstin_generate, luhn_generate, verhoeff_generate, verhoeff_valid
+from aegis_eval.corpus.value_boxes import print_totals, refine_labels
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 CORPUS_DEV = REPO_ROOT / "eval" / "corpus" / "dev"
@@ -4603,6 +4605,10 @@ def main() -> None:
         f"[generate_fixtures] wrote {len(fixtures)} fixtures "
         f"({len(fixtures) - heldout_count} dev / {heldout_count} heldout): {groups}"
     )
+
+    # Label boxes above are element boxes; re-measure text values to their own glyphs (what the
+    # client redacts — the phone number, not the sentence it sits in).
+    print_totals(refine_labels(["dev", "heldout"]))
 
 
 if __name__ == "__main__":

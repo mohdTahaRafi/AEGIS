@@ -9,10 +9,10 @@
     {
       "entity": "PHONE",
       "box": [
-        40,
-        154,
-        220,
-        22
+        41,
+        157,
+        121,
+        17
       ],
       "value_hash": "sha256:62d4dde2aef0688a3c3589a7b1575d5e13f8b06a3d1c4e982f34e45c46641e92"
     },
@@ -21,8 +21,8 @@
       "box": [
         16,
         680,
-        260,
-        16
+        178,
+        14
       ],
       "canary": true,
       "canary_id": "CANARY6Q68LCNULN8GPVZZHLC7UB"

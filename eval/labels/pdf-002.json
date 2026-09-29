@@ -9,30 +9,30 @@
     {
       "entity": "PERSON_NAME",
       "box": [
-        120,
-        180,
-        220,
-        22
+        121,
+        181,
+        124,
+        19
       ],
       "value_hash": "sha256:24218cd8efc9ab721c8a1774547b2296332dfe6356d77c1ed4baf143afbc45b1"
     },
     {
       "entity": "EMAIL",
       "box": [
-        120,
-        210,
-        220,
-        22
+        121,
+        211,
+        184,
+        19
       ],
       "value_hash": "sha256:357eed0065a294e99c0b810b676952d3f7aba69b04008945cd7e301ef8d99ace"
     },
     {
       "entity": "PHONE",
       "box": [
-        120,
-        240,
-        200,
-        22
+        121,
+        241,
+        108,
+        19
       ],
       "value_hash": "sha256:e8c396b48298599cf6bd6c96dbe9eeda35590d79e3e2c489f083f7f2b6caf2e9"
     },
@@ -41,8 +41,8 @@
       "box": [
         16,
         680,
-        260,
-        16
+        172,
+        14
       ],
       "canary": true,
       "canary_id": "CANARY82TAVLK8TSGN73CNL65QFC"

@@ -9,20 +9,20 @@
     {
       "entity": "PAN",
       "box": [
-        120,
-        180,
-        120,
-        22
+        121,
+        181,
+        84,
+        19
       ],
       "value_hash": "sha256:86616947d0581067d6e59510f410e4e73bc1c8e2bec7fb6fedf4eef468393931"
     },
     {
       "entity": "BANK_ACCOUNT",
       "box": [
-        120,
-        210,
-        200,
-        22
+        121,
+        211,
+        129,
+        19
       ],
       "value_hash": "sha256:ccd76fd6bc0f99cca4f1008c7201959be6808c78d88de474a7cb3a975029fd93",
       "note": "disclosed gap: no dedicated BANK_ACCOUNT pattern recognizer yet \u2014 expected FN"
@@ -32,8 +32,8 @@
       "box": [
         16,
         680,
-        260,
-        16
+        174,
+        14
       ],
       "canary": true,
       "canary_id": "CANARYVSNP3L5RXL6HBRDG32XSVR"

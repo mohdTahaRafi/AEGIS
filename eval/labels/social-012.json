@@ -9,9 +9,9 @@
     {
       "entity": "EMAIL",
       "box": [
-        16,
+        159,
         60,
-        300,
+        185,
         22
       ],
       "value_hash": "sha256:db20c41f14e3197bbd9645a08bf0a1b1d99d1ffb7b6961d8d54333c7670bdea7"
@@ -21,8 +21,8 @@
       "box": [
         16,
         680,
-        260,
-        16
+        180,
+        14
       ],
       "canary": true,
       "canary_id": "CANARY76AAK3PUWKV9QAGJWGAXX2"

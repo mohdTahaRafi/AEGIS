@@ -11,8 +11,8 @@
       "box": [
         220,
         120,
-        160,
-        22
+        97,
+        19
       ],
       "value_hash": "sha256:3e4a9e5100ffdb242cb78ac2d8bf5e6fe4a06c903f5eaeecc24a9e9556f40a95"
     },
@@ -21,8 +21,8 @@
       "box": [
         220,
         160,
-        180,
-        22
+        97,
+        19
       ],
       "value_hash": "sha256:f162939dc94f14cf40d17e1d8e54abcf40c9808a29f15fd673ea90b7ef73278d",
       "note": "disclosed gap: no dedicated BANK_ACCOUNT pattern recognizer exists yet \u2014 expected FN, not a leak (Channel D/NER only)"
@@ -32,8 +32,8 @@
       "box": [
         220,
         200,
-        130,
-        22
+        99,
+        19
       ],
       "value_hash": "sha256:2f0ae1f55a4534e2e648d6e94a5c650250c01cbae0ec3e5cc43f5bed688e02ee"
     },
@@ -42,8 +42,8 @@
       "box": [
         16,
         680,
-        260,
-        16
+        174,
+        14
       ],
       "canary": true,
       "canary_id": "CANARY47FWXG6B5VMT5V858V4696"

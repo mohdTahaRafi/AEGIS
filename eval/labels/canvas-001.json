@@ -9,10 +9,10 @@
     {
       "entity": "AADHAAR",
       "box": [
-        40,
-        154,
-        130,
-        22
+        41,
+        157,
+        107,
+        17
       ],
       "value_hash": "sha256:25af1d5735d7eb3facb33313647fa25e5a9d1ec0548b48f1846acce1856005eb"
     },
@@ -21,8 +21,8 @@
       "box": [
         16,
         680,
-        260,
-        16
+        174,
+        14
       ],
       "canary": true,
       "canary_id": "CANARYHF7NHU6ARRYZSXX8BMJ2X9"

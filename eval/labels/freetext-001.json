@@ -11,18 +11,18 @@
       "box": [
         16,
         60,
-        300,
-        24
+        120,
+        22
       ],
       "value_hash": "sha256:de10650f0f52848cf134e7da6b3123fcc48df375bf5b0b031398b92761d13001"
     },
     {
       "entity": "ADDRESS",
       "box": [
-        16,
+        74,
         90,
-        400,
-        24
+        300,
+        22
       ],
       "value_hash": "sha256:051b852c7ed4a14694ddc0806f0bff33e8bf6ca0230739ce19f91d164238a535"
     },
@@ -31,8 +31,8 @@
       "box": [
         16,
         680,
-        260,
-        16
+        173,
+        14
       ],
       "canary": true,
       "canary_id": "CANARY8ND3TS3HGFX3BK4KBEY7FZ"

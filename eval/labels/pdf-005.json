@@ -9,10 +9,10 @@
     {
       "entity": "BANK_ACCOUNT",
       "box": [
-        120,
-        180,
-        200,
-        22
+        121,
+        181,
+        89,
+        19
       ],
       "value_hash": "sha256:2204a5f0185c860c44122ffcae14fb528a30eb6a0ffd99005ae8e98d4e6f9d7a",
       "note": "disclosed gap: no dedicated BANK_ACCOUNT pattern recognizer yet \u2014 expected FN"
@@ -20,10 +20,10 @@
     {
       "entity": "IFSC",
       "box": [
-        120,
-        210,
-        130,
-        22
+        121,
+        211,
+        110,
+        19
       ],
       "value_hash": "sha256:dd7fd2db99ecab437a34a9c5568ce030e8b83836dab9338295419f70e5c8d118"
     },
@@ -32,8 +32,8 @@
       "box": [
         16,
         680,
-        260,
-        16
+        167,
+        14
       ],
       "canary": true,
       "canary_id": "CANARYDV9Z6FXHJ8CUEP3PXUZJBY"

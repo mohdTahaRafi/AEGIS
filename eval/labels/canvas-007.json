@@ -9,10 +9,10 @@
     {
       "entity": "PAN",
       "box": [
-        40,
-        154,
-        140,
-        22
+        41,
+        157,
+        106,
+        17
       ],
       "value_hash": "sha256:b836e7a97cd6c708e9f48407e2e3d600d3ca574d894cbd804c2003f9c07eac77"
     },
@@ -21,8 +21,8 @@
       "box": [
         16,
         680,
-        260,
-        16
+        174,
+        14
       ],
       "canary": true,
       "canary_id": "CANARYXJT75DH9ZMBLWRAYK7ZHZF"

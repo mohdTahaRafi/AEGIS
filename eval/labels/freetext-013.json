@@ -11,7 +11,7 @@
       "box": [
         16,
         60,
-        260,
+        109,
         22
       ],
       "value_hash": "sha256:fc242d6d0ba78e6a03024ba081a69f0652f6156f03b77687b10f7f44b54e58e9"
@@ -19,9 +19,9 @@
     {
       "entity": "USERNAME",
       "box": [
-        16,
+        80,
         90,
-        260,
+        104,
         22
       ],
       "value_hash": "sha256:58bc7c54fcbcf476e0ac60f81ba836ee9444aab350fcf54a1c1a48e08e4db489"
@@ -31,8 +31,8 @@
       "box": [
         16,
         680,
-        260,
-        16
+        182,
+        14
       ],
       "canary": true,
       "canary_id": "CANARYXL5ECNW8QSEQWX2Y5ETB3M"
