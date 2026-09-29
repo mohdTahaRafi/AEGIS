@@ -44,3 +44,22 @@ class IdentityCoordinateAdapter:
 
 
 DEFAULT_ADAPTER = IdentityCoordinateAdapter()
+
+
+
+def image_point_to_viewport(
+    x: float, y: float, region: list[float], scale: float, point_format: str = "rel1000_long_side"
+) -> tuple[float, float]:
+    """A click_point as the model answered it -> CSS-pixel viewport coordinates. The attached image
+    shows `region` (viewport CSS px) downscaled by `scale`.
+    - `rel1000_long_side`: both axes in 0-1000 units of the image's long side (measured, Qwen/Groq);
+    - `rel1000`: each axis in 0-1000 units of its own side;
+    - `image_px`: pixels of the attached image."""
+    rx, ry, rw, rh = region
+    if point_format == "rel1000_long_side":
+        unit = max(rw, rh) / 1000
+        return (round(rx + x * unit, 1), round(ry + y * unit, 1))
+    if point_format == "rel1000":
+        return (round(rx + x * rw / 1000, 1), round(ry + y * rh / 1000, 1))
+    s = scale if scale > 0 else 1.0
+    return (round(rx + x / s, 1), round(ry + y / s, 1))

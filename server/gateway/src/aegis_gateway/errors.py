@@ -12,13 +12,20 @@ from fastapi.responses import JSONResponse
 
 class GatewayError(Exception):
     def __init__(
-        self, status_code: int, code: str, message: str, *, retryable: bool = False
+        self,
+        status_code: int,
+        code: str,
+        message: str,
+        *,
+        retryable: bool = False,
+        headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
         self.retryable = retryable
+        self.headers = headers or {}
 
 
 # design.md §4.7's table, each row a distinct client-visible outcome.
@@ -47,6 +54,16 @@ def payload_too_large(limit_mb: int) -> GatewayError:
     return GatewayError(413, "PAYLOAD_TOO_LARGE", f"Body exceeds {limit_mb} MB", retryable=True)
 
 
+def unsanitized_context(entities: list[str]) -> GatewayError:
+    # Entity names only: the matched text is never echoed back or logged.
+    return GatewayError(
+        422,
+        "UNSANITIZED_CONTEXT",
+        f"Step carries unredacted {', '.join(entities)}; nothing was sent to the model",
+        retryable=False,
+    )
+
+
 def plan_invalid(message: str) -> GatewayError:
     return GatewayError(422, "PLAN_INVALID", message, retryable=False)
 
@@ -55,10 +72,43 @@ def rate_limited() -> GatewayError:
     return GatewayError(429, "RATE_LIMITED", "Too many steps for this session", retryable=True)
 
 
-def model_unavailable() -> GatewayError:
+# R-3 A5: `reason` is closed vocabulary — no_replay_match | unreachable | upstream_429 |
+# upstream_5xx | bad_body (transient: retryable) and upstream_auth | upstream_too_large |
+# upstream_4xx (permanent: the same request fails the same way again, so not retryable). `detail`
+# is built only from numbers, HTTP statuses and the upstream's own `[a-z_]` error code, so the
+# message stays safe to show and to log.
+def model_unavailable(
+    reason: str = "no_replay_match",
+    *,
+    retry_after_s: float | None = None,
+    retryable: bool = True,
+    detail: str | None = None,
+) -> GatewayError:
+    headers = {"Retry-After": str(max(1, round(retry_after_s)))} if retry_after_s else None
+    message = f"Model unavailable: {reason}" + (f" ({detail})" if detail else "")
     return GatewayError(
-        503, "MODEL_UNAVAILABLE", "Model server unreachable and no replay match", retryable=True
+        503 if retryable else 502,
+        "MODEL_UNAVAILABLE",
+        message,
+        retryable=retryable,
+        headers=headers,
     )
+
+
+class ModelRequestTooLarge(GatewayError):
+    """The upstream refused this request's size (Groq: HTTP 413, input tokens over the
+    per-minute limit). Permanent for these exact messages; the route may rebuild them smaller."""
+
+    def __init__(self, limit: int | None, requested: int | None) -> None:
+        detail = (
+            f"input {requested} tokens > limit {limit} per minute"
+            if limit and requested
+            else "request too large"
+        )
+        base = model_unavailable("upstream_too_large", retryable=False, detail=detail)
+        super().__init__(base.status_code, base.code, base.message, retryable=False)
+        self.limit = limit
+        self.requested = requested
 
 
 def model_timeout() -> GatewayError:
@@ -78,7 +128,7 @@ async def gateway_error_handler(request: Request, exc: GatewayError) -> JSONResp
             "retryable": exc.retryable,
         }
     }
-    response = JSONResponse(status_code=exc.status_code, content=body)
+    response = JSONResponse(status_code=exc.status_code, content=body, headers=exc.headers)
     request_id = request_id_of(request)
     if request_id:
         response.headers["X-Request-Id"] = request_id

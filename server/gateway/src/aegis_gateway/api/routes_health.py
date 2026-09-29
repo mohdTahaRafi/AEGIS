@@ -20,10 +20,14 @@ def healthz() -> dict:
 
 
 async def _model_reachable(settings: Settings) -> bool:
+    """Reachable AND authenticated: a revoked or missing key (401/403) is not ready."""
+    headers = (
+        {"Authorization": f"Bearer {settings.model_api_key}"} if settings.model_api_key else {}
+    )
     try:
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            response = await client.get(f"{settings.model_url}/models")
-            return response.status_code < 500
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{settings.model_url}/models", headers=headers)
+            return response.status_code < 400
     except httpx.HTTPError:
         return False
 

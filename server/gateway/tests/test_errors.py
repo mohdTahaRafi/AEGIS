@@ -52,7 +52,7 @@ def test_404_session_not_found(live_client: TestClient) -> None:
 
 
 def test_409_step_out_of_order(monkeypatch: pytest.MonkeyPatch, live_client: TestClient) -> None:
-    async def fake_complete(self, messages):
+    async def fake_complete(self, messages, route=None, pooled=False):
         return action_plan_body()
 
     monkeypatch.setattr(VLLMClient, "complete", fake_complete)
@@ -92,7 +92,7 @@ def test_413_payload_too_large(live_client: TestClient) -> None:
 
 
 def test_422_plan_invalid(monkeypatch: pytest.MonkeyPatch, live_client: TestClient) -> None:
-    async def fake_complete(self, messages):
+    async def fake_complete(self, messages, route=None, pooled=False):
         return {"step_id": "s-1", "actions": [{"op": "click", "node": "n-never-sent"}]}
 
     monkeypatch.setattr(VLLMClient, "complete", fake_complete)
@@ -108,7 +108,7 @@ def test_422_plan_invalid(monkeypatch: pytest.MonkeyPatch, live_client: TestClie
 
 
 def test_429_rate_limited(monkeypatch: pytest.MonkeyPatch, live_client: TestClient) -> None:
-    async def fake_complete(self, messages):
+    async def fake_complete(self, messages, route=None, pooled=False):
         return action_plan_body()
 
     monkeypatch.setattr(VLLMClient, "complete", fake_complete)
