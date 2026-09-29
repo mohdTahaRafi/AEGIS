@@ -63,22 +63,68 @@ function nativeValueSetter(el: Typeable): (value: string) => void {
   };
 }
 
+function isEditable(el: Element): el is HTMLElement {
+  return el instanceof HTMLElement && el.isContentEditable && el.getAttribute('aria-disabled') !== 'true' && el.getAttribute('aria-readonly') !== 'true';
+}
+
+/**
+ * A contenteditable editor (Gmail's message body, most rich-text boxes) has no `value`: text goes
+ * in through the document's own editing command, at a caret placed at the end (or over the whole
+ * content for `clearFirst`). `insertText` fires the browser's native `beforeinput`/`input`, which
+ * is what these editors listen to to update their own model; a manual node insert plus a synthetic
+ * `input` event is the fallback when the command is refused. Nothing here reads the content.
+ */
+function typeIntoEditable(el: HTMLElement, text: string, clearFirst: boolean): void {
+  el.focus();
+  const selection = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  if (!clearFirst) range.collapse(false);
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+
+  const lines = text.split('\n');
+  let inserted = true;
+  lines.forEach((line, i) => {
+    if (i > 0) inserted = document.execCommand('insertLineBreak') && inserted;
+    if (line) inserted = document.execCommand('insertText', false, line) && inserted;
+  });
+  if (inserted) return;
+
+  range.deleteContents();
+  const node = document.createTextNode(text);
+  range.insertNode(node);
+  range.setStartAfter(node);
+  range.collapse(true);
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+}
+
 export function dispatchType(
   el: Element,
   text: string,
   options: { clearFirst?: boolean; willMoveFocusNext: boolean },
 ): { ok: true } | { ok: false; reason: 'DISABLED' } {
-  if (!isTypeable(el)) return { ok: false, reason: 'DISABLED' };
+  // `type` replaces what the field holds unless the plan asks to append (clear_first: false):
+  // typing the same text twice then leaves one copy, not two.
+  const clearFirst = options.clearFirst ?? true;
+  if (!isTypeable(el)) {
+    if (!isEditable(el)) return { ok: false, reason: 'DISABLED' };
+    typeIntoEditable(el, text, clearFirst);
+    if (options.willMoveFocusNext) el.blur();
+    return { ok: true };
+  }
   el.focus();
   const setValue = nativeValueSetter(el);
 
-  if (options.clearFirst && el.value.length > 0) {
+  if (clearFirst && el.value.length > 0) {
     el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'deleteContentBackward' }));
     setValue('');
     el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
   }
 
-  const base = options.clearFirst ? '' : el.value;
+  const base = clearFirst ? '' : el.value;
   el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: text }));
   setValue(base + text);
   el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));

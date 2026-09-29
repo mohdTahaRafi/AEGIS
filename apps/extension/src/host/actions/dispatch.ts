@@ -22,6 +22,10 @@ export type HostHandledOp =
   | { kind: 'host'; op: 'wait'; ms: number }
   | { kind: 'host'; op: 'request_observation'; level: 'L1' | 'L2' };
 
+/** Moves the task's tab (or opens a new one): run by the host through the tabs API, never by the
+ * content script, which has no navigation or network code. */
+export type BrowserNavigation = { kind: 'browser'; op: 'navigate' | 'open_tab'; url: string } | { kind: 'browser'; op: 'go_back' | 'go_forward' | 'reload' };
+
 export type ContentDispatchable = { kind: 'content'; action: WireAction };
 
 /** design.md §9.3 — a `type` action carrying a vault `ref` instead of literal text. Resolving it
@@ -41,7 +45,7 @@ function mapExpect(expect: { role?: string; name?: string; box_tolerance_px?: nu
   return { role: expect.role, name: expect.name, boxTolerancePx: expect.box_tolerance_px };
 }
 
-export function classifyAction(action: Action): HostHandledOp | ContentDispatchable | RehydrationRequest {
+export function classifyAction(action: Action): HostHandledOp | ContentDispatchable | RehydrationRequest | BrowserNavigation {
   switch (action.op) {
     case 'report':
       return { kind: 'host', op: 'report', title: action.title, content: action.content };
@@ -71,5 +75,18 @@ export function classifyAction(action: Action): HostHandledOp | ContentDispatcha
       return { kind: 'content', action: { op: 'scroll', direction: action.direction, amount: action.amount, node: action.node } };
     case 'click_point':
       return { kind: 'content', action: { op: 'click_point', x: action.x, y: action.y, label: action.label } };
+    case 'press_key':
+      return { kind: 'content', action: { op: 'press_key', key: action.key, node: action.node } };
+    case 'hover':
+      return { kind: 'content', action: { op: 'hover', node: action.node } };
+    case 'double_click':
+      return { kind: 'content', action: { op: 'double_click', node: action.node, expect: mapExpect(action.expect) } };
+    case 'navigate':
+    case 'open_tab':
+      return { kind: 'browser', op: action.op, url: action.url };
+    case 'go_back':
+    case 'go_forward':
+    case 'reload':
+      return { kind: 'browser', op: action.op };
   }
 }

@@ -14,9 +14,11 @@ import type { ContentToHostMessage, HostToContentMessage, WireAction, WireScreen
 import { PORT_NAME, isHostToContentMessage } from '../shared/messages';
 import { log } from '../shared/logger';
 import { dispatchClick, dispatchClickPoint, dispatchScroll, dispatchSelect, dispatchType } from './execute/dispatch';
+import { dispatchDoubleClick, dispatchHover, dispatchPressKey } from './execute/keys';
 import { NodeResolutionRegistry, passesHitTest, runPreflight } from './execute/preflight';
 import { waitForSettle } from './execute/settle';
-import { extractTextRuns } from './detect/spans';
+import { waitForVisualReady } from './observe/ready';
+import { extractTextRuns, measureRunSpan } from './detect/spans';
 import { DeltaTracker } from './observe/delta';
 import { EpochTracker } from './observe/epochs';
 import { startObserving, type ScreenGraphObserverHandle } from './observe/observers';
@@ -98,7 +100,11 @@ export class TopFrameSession {
     }
     // Never let a rejection escape into an unhandled promise rejection observable outside this
     // isolated world (T-2.5's "never thrown into the page").
-    this.handle(raw).catch(() => log({ code: 'port_message_malformed' }));
+    this.handle(raw).catch(() => {
+      log({ code: 'port_handler_failed' });
+      // The host waits for every dispatched action's result: a throw must still answer it.
+      if (raw.type === 'dispatch-action') this.send({ type: 'action-result', actionId: raw.actionId, ok: false, reason: 'INTERNAL_ERROR' });
+    });
   };
 
   private async handle(message: HostToContentMessage): Promise<void> {
@@ -108,6 +114,16 @@ export class TopFrameSession {
     }
     if (message.type === 'extract') {
       await this.sendGraph('requested');
+      return;
+    }
+    if (message.type === 'measure-spans') {
+      const boxes = message.spans.slice(0, 500).map((sp) => measureRunSpan(sp.runId, sp.start, sp.end));
+      this.send({ type: 'span-boxes', requestId: message.requestId, boxes });
+      return;
+    }
+    if (message.type === 'await-ready') {
+      const ready = await waitForVisualReady(Math.min(Math.max(0, message.maxMs), 15_000));
+      this.send({ type: 'page-ready', requestId: message.requestId, ...ready });
       return;
     }
     await this.handleDispatch(message.actionId, message.action);
@@ -197,6 +213,12 @@ export class TopFrameSession {
         void dispatchScroll(target, action.direction, action.amount);
         return { ok: true };
       }
+      case 'press_key':
+        return dispatchPressKey(action.key, action.node ? element : null);
+      case 'hover':
+        return dispatchHover(element);
+      case 'double_click':
+        return dispatchDoubleClick(element, (el) => dispatchClick(el, passesHitTest));
     }
   }
 }

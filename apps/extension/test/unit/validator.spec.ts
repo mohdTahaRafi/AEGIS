@@ -38,6 +38,28 @@ describe('validatePlan — schema + step lease (T-2.19 AC)', () => {
   });
 });
 
+describe('validatePlan — the standard browser actions', () => {
+  it('accepts press_key, hover, double_click and the navigation ops', () => {
+    const actions = [
+      { op: 'press_key', key: 'Enter', node: 'n-1' },
+      { op: 'press_key', key: 'PageDown' },
+      { op: 'hover', node: 'n-1' },
+      { op: 'double_click', node: 'n-1' },
+      { op: 'open_tab', url: 'https://www.amazon.in/' },
+    ];
+    expect(validatePlan(validPlan({ actions }), 's-1', emptyContext()).ok).toBe(true);
+    for (const op of ['go_back', 'go_forward', 'reload']) expect(validatePlan(validPlan({ actions: [{ op }] }), 's-1', emptyContext()).ok).toBe(true);
+  });
+
+  it.each(['javascript:alert(1)', 'https://x.example/\u27eaEMAIL#1\u27eb', 'https://a b.example/'])('refuses navigate to %s as SCHEMA_INVALID', (url) => {
+    expect(validatePlan(validPlan({ actions: [{ op: 'navigate', url }] }), 's-1', emptyContext())).toMatchObject({ ok: false, reason: 'SCHEMA_INVALID' });
+  });
+
+  it('refuses an unknown key', () => {
+    expect(validatePlan(validPlan({ actions: [{ op: 'press_key', key: 'F12' }] }), 's-1', emptyContext())).toMatchObject({ ok: false, reason: 'SCHEMA_INVALID' });
+  });
+});
+
 describe('validatePlan — hard denials (T-2.23 AC)', () => {
   it('accepts a well-formed type action carrying a ref (Phase 3: resolveFor decides it downstream, per-ref — see rehydrate.spec.ts)', () => {
     const plan = validPlan({ actions: [{ op: 'type', node: 'n-1', ref: '⟪AADHAAR#1⟫' }] });

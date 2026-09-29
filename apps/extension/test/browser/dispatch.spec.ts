@@ -58,11 +58,64 @@ describe('dispatchType (design.md §5.9 AC — React-controlled inputs)', () => 
     expect(events).toEqual(['change', 'blur']);
   });
 
-  it('clearFirst empties the field before typing', () => {
+  it('replaces the field by default; clearFirst: false appends', () => {
     document.body.innerHTML = '<input id="i" type="text" value="old">';
     const input = document.getElementById('i') as HTMLInputElement;
-    dispatchType(input, 'new', { clearFirst: true, willMoveFocusNext: false });
+    dispatchType(input, 'new', { willMoveFocusNext: false });
     expect(input.value).toBe('new');
+    dispatchType(input, ' more', { clearFirst: false, willMoveFocusNext: false });
+    expect(input.value).toBe('new more');
+  });
+});
+
+describe('dispatchType into a contenteditable editor (Gmail message body, 2026-09-29: FAILED_DISABLED)', () => {
+  function editor(html = ''): HTMLElement {
+    document.body.innerHTML = `<div id="e" contenteditable="true" role="textbox" aria-label="Message Body">${html}</div>`;
+    return document.getElementById('e')!;
+  }
+
+  it('types at the end of the editor and fires the native input event editors listen to', () => {
+    const el = editor();
+    const inputs: string[] = [];
+    el.addEventListener('input', (e) => inputs.push((e as InputEvent).inputType));
+    expect(dispatchType(el, 'i will surely join', { willMoveFocusNext: false })).toEqual({ ok: true });
+    expect(el.textContent).toBe('i will surely join');
+    expect(inputs).toContain('insertText');
+  });
+
+  it('replaces the content by default, or appends with clearFirst: false', () => {
+    const el = editor('Hello');
+    dispatchType(el, 'new', { willMoveFocusNext: false });
+    expect(el.textContent).toBe('new');
+    dispatchType(el, ' there', { clearFirst: false, willMoveFocusNext: false });
+    expect(el.textContent).toBe('new there');
+  });
+
+  it('the same reply typed twice leaves one copy (2026-09-30: Gmail reply typed on every step)', () => {
+    const el = editor();
+    const reply = 'Dear Saood,\nThank you.\nBest regards';
+    dispatchType(el, reply, { willMoveFocusNext: false });
+    dispatchType(el, reply, { willMoveFocusNext: false });
+    expect(el.innerText.match(/Dear Saood/g)).toHaveLength(1);
+  });
+
+  it('types into a nested editable child (focus lands inside the editor)', () => {
+    document.body.innerHTML = '<div contenteditable="true"><p id="p"></p></div>';
+    const p = document.getElementById('p')!;
+    expect(dispatchType(p, 'x', { willMoveFocusNext: false })).toEqual({ ok: true });
+    expect(p.closest('[contenteditable]')!.textContent).toContain('x');
+  });
+
+  it('keeps line breaks from a multi-line text', () => {
+    const el = editor();
+    dispatchType(el, 'line one\nline two', { willMoveFocusNext: false });
+    expect(el.innerText.replace(/\n+/g, '\n').trim()).toBe('line one\nline two');
+  });
+
+  it('refuses a non-editable element and an aria-disabled editor', () => {
+    document.body.innerHTML = '<div id="d">text</div><div id="a" contenteditable="true" aria-disabled="true"></div>';
+    expect(dispatchType(document.getElementById('d')!, 'x', { willMoveFocusNext: false })).toEqual({ ok: false, reason: 'DISABLED' });
+    expect(dispatchType(document.getElementById('a')!, 'x', { willMoveFocusNext: false })).toEqual({ ok: false, reason: 'DISABLED' });
   });
 });
 

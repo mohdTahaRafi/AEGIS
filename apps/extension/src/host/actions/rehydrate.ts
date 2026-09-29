@@ -14,7 +14,7 @@ import type { WireScreenNode } from '../../shared/messages';
 /** design.md §9.3 condition 3 — the target's own evidence must support the ref's entity. Each
  * branch is independent evidence a real page would actually expose; a node matching none of them
  * for a given entity is refused, not guessed at. */
-function typeMatches(entity: EntityType, node: WireScreenNode): boolean {
+function typeMatches(entity: EntityType, node: WireScreenNode, context: TypeContext): boolean {
   const autocomplete = (node.field?.autocomplete ?? '').toLowerCase();
   const inputType = (node.field?.inputType ?? '').toLowerCase();
   const nameOrLabel = `${node.name}`;
@@ -26,7 +26,13 @@ function typeMatches(entity: EntityType, node: WireScreenNode): boolean {
 
   switch (entity) {
     case 'EMAIL':
-      return inputType === 'email' || autocomplete === 'email' || /email/i.test(nameOrLabel);
+      return (
+        inputType === 'email' ||
+        autocomplete === 'email' ||
+        /email/i.test(nameOrLabel) ||
+        // A bare To/Cc/Bcc box (Outlook, Yahoo) is a recipient field only on a mail compose form.
+        (context.mailCompose && /^(?:to|cc|bcc)$/i.test(nameOrLabel.trim()))
+      );
     case 'PHONE':
       return inputType === 'tel' || autocomplete.startsWith('tel') || /phone|mobile/i.test(nameOrLabel);
     case 'AADHAAR':
@@ -51,10 +57,25 @@ function typeMatches(entity: EntityType, node: WireScreenNode): boolean {
   }
 }
 
+/** Page-level evidence for condition 3 that one node alone cannot give. */
+export interface TypeContext {
+  /** The page is an email compose form: it has a field named "Subject". */
+  mailCompose: boolean;
+}
+
 export interface RehydrationDecision {
   originKey: string;
   confirmed: boolean;
   targetNode: WireScreenNode;
+  /** Every node seen this session, for the page-level evidence in `TypeContext`. */
+  pageNodes?: Iterable<WireScreenNode>;
+}
+
+export function typeContextOf(pageNodes: Iterable<WireScreenNode> = []): TypeContext {
+  for (const n of pageNodes) {
+    if (n.affordances.includes('type') && /^(?:subject|add a subject)$/i.test(n.name.trim())) return { mailCompose: true };
+  }
+  return { mailCompose: false };
 }
 
 export function rehydrationRequiresConfirmation(policy: Policy, entity: EntityType): boolean {
@@ -69,7 +90,7 @@ export function resolveRehydration(vault: Vault, policy: Policy, ref: string, de
   if (!description) return { ok: false, code: 'REF_UNKNOWN' };
 
   return vault.resolveFor(ref, {
-    typeMatches: typeMatches(description.entity, decision.targetNode),
+    typeMatches: typeMatches(description.entity, decision.targetNode, typeContextOf(decision.pageNodes)),
     originKey: decision.originKey,
     confirmed: decision.confirmed,
     isPresenceOnlyTarget: isPresenceOnly(policy, description.entity),

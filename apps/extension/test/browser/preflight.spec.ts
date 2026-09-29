@@ -103,6 +103,13 @@ describe('runPreflight (design.md §5.9/§5.2 AC)', () => {
     expect(result).toEqual({ ok: false, reason: 'NODE_VOLATILE' });
   });
 
+  it("allows typing into a live editor (Gmail's message body keeps changing), still refuses clicking it", () => {
+    const { graph, index, registry, containerResolver } = setup('<div contenteditable="true" role="textbox" aria-label="Message Body" style="width:300px;height:80px"></div>');
+    const node = graph.nodes.find((n) => n.name === 'Message Body')!;
+    expect(runPreflight({ op: 'type', node: node.id, text: 'hi' }, registry, index, containerResolver, () => true).ok).toBe(true);
+    expect(runPreflight({ op: 'click', node: node.id }, registry, index, containerResolver, () => true)).toEqual({ ok: false, reason: 'NODE_VOLATILE' });
+  });
+
   it('a scroll action (no resolved node id) is never subject to the volatile check', () => {
     const { index, registry, containerResolver } = setup('<div></div>');
     const action: WireAction = { op: 'scroll', direction: 'down' };

@@ -46,6 +46,14 @@ export function classifyRisk(action: WireAction, signals: RiskSignals, modelHint
   return level;
 }
 
+const HIGH_RISK_VERB = /\b(?:send|delete|remove|pay|purchase|buy|transfer)\b/i;
+
+/** design.md §9.2: a control named for an irreversible act (Gmail's "Send (Ctrl-Enter)", a
+ * "Delete" button, "Pay now") is confirmed by the user, whatever the model thought of it. */
+export function hasHighRiskVerb(name: string): boolean {
+  return HIGH_RISK_VERB.test(name);
+}
+
 export function requiresConfirmation(level: RiskLevel): boolean {
   return level !== 'low';
 }

@@ -88,3 +88,32 @@ describe('resolveRehydration (T-3.28 — all six conditions via a real WireScree
     expect(result).toEqual({ ok: true, value: 'a@b.com' });
   });
 });
+
+
+describe('resolveRehydration — email into a mail client recipient field (Gmail, 2026-09-29)', () => {
+  function emailRef(vault: Vault): string {
+    return vault.mint('EMAIL', 'saood@example.com', { originKey: 'o-1', stepId: 's-1', class: 'HIGH' });
+  }
+  const combobox = (name: string) => aadhaarField({ id: 'n-to', role: 'combobox', name });
+  const subject = aadhaarField({ id: 'n-subject', name: 'Subject' });
+  // EMAIL needs no confirmation under the default policy, so the session passes confirmed: true.
+
+  it("fills Gmail's \"To recipients\" combobox (it failed with TYPE_MISMATCH)", () => {
+    const vault = new Vault();
+    const result = resolveRehydration(vault, defaultPolicy, emailRef(vault), { originKey: 'o-1', confirmed: true, targetNode: combobox('To recipients') });
+    expect(result).toEqual({ ok: true, value: 'saood@example.com' });
+  });
+
+  it('fills a bare "To" field only on a compose form (a Subject field is on the page)', () => {
+    const vault = new Vault();
+    const ref = emailRef(vault);
+    expect(resolveRehydration(vault, defaultPolicy, ref, { originKey: 'o-1', confirmed: true, targetNode: combobox('To') })).toEqual({ ok: false, code: 'TYPE_MISMATCH' });
+    expect(resolveRehydration(vault, defaultPolicy, ref, { originKey: 'o-1', confirmed: true, targetNode: combobox('To'), pageNodes: [combobox('To'), subject] })).toEqual({ ok: true, value: 'saood@example.com' });
+  });
+
+  it('still refuses an unrelated field such as a search box', () => {
+    const vault = new Vault();
+    const result = resolveRehydration(vault, defaultPolicy, emailRef(vault), { originKey: 'o-1', confirmed: true, targetNode: combobox('Search mail'), pageNodes: [subject] });
+    expect(result).toEqual({ ok: false, code: 'TYPE_MISMATCH' });
+  });
+});

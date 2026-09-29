@@ -74,6 +74,10 @@ function normalizeName(name: string): string {
   return name.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+function isTextEntry(el: Element): boolean {
+  return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el instanceof HTMLElement && el.isContentEditable);
+}
+
 function isDisabledForType(el: Element): boolean {
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return el.disabled || el.readOnly;
   if (el instanceof HTMLSelectElement) return el.disabled;
@@ -82,7 +86,7 @@ function isDisabledForType(el: Element): boolean {
 
 /** design.md §5.9: only pointer-dispatching ops need the clickjacking hit test. `type`/`select`
  * act via focus + programmatic value changes, never a blind coordinate click. */
-const HIT_TEST_OPS = new Set(['click', 'click_point']);
+const HIT_TEST_OPS = new Set(['click', 'click_point', 'double_click', 'hover']);
 
 export function passesHitTest(element: Element): boolean {
   const box = element.getBoundingClientRect();
@@ -114,6 +118,14 @@ export function runPreflight(
     return { ok: true, element: topmost };
   }
 
+  if (action.op === 'press_key') {
+    // No node: the key goes to whatever has focus (the field just typed into, typically).
+    if (!action.node) return { ok: true, element: document.activeElement ?? document.body };
+    const element = registry.resolve(action.node, index);
+    if (!element) return { ok: false, reason: 'NODE_UNRESOLVED' };
+    return { ok: true, element };
+  }
+
   if (action.op === 'scroll') {
     // No id at all means "scroll the window" — represented by the scrolling element itself so
     // callers always get a real `Element` back, never a special-cased null.
@@ -130,9 +142,12 @@ export function runPreflight(
   // element's LIVE state, right here, immediately before dispatch — the same "no TOCTOU gap"
   // reasoning this file's own top comment gives for running facets synchronously right before
   // dispatch, not against a possibly-stale plan-time snapshot.
-  if (isVolatile(element)) return { ok: false, reason: 'NODE_VOLATILE' };
+  // Typing into a text field or editor is exempt: a live editor (Gmail's message body keeps
+  // changing its own attributes while open) is still exactly the field the plan named, and typing
+  // does not depend on content that moved. Clicks and selects on a volatile node stay refused.
+  if (isVolatile(element) && !(action.op === 'type' && isTextEntry(element))) return { ok: false, reason: 'NODE_VOLATILE' };
 
-  const expectFailure = checkExpect(element, action.expect);
+  const expectFailure = checkExpect(element, 'expect' in action ? action.expect : undefined);
   if (expectFailure) return { ok: false, reason: expectFailure };
 
   if (HIT_TEST_OPS.has(action.op) && !passesHitTest(element)) {
