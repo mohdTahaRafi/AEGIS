@@ -200,6 +200,13 @@ function nearbyCaption(el: Element): string {
   return '';
 }
 
+/** The caption a sighted user reads as a form field's label, for a field the page never named
+ * (no <label>, aria-label/-labelledby, placeholder or title): without it the model sees a row of
+ * unnamed textboxes. Raw page text, analysed host-side like every other name. */
+export function visualCaption(el: Element): string {
+  return isTextEntryField(el) ? nearbyCaption(el) : '';
+}
+
 /** Every piece of field-bound evidence, each tagged with where it came from. */
 export function collectFieldEvidence(el: TextEntryField): { evidence: FieldEvidence[]; textEntities: Map<EvidenceSource, EntityType[]> } {
   const evidence: FieldEvidence[] = [];

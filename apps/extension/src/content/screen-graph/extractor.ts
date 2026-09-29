@@ -3,7 +3,7 @@
 
 import { computeAccessibleName } from './accname';
 import { classifyChannelD, type ChannelDSignal } from '../detect/channel-d';
-import { classifyFieldSemantics, type FieldSemantics } from '../detect/field-semantics';
+import { classifyFieldSemantics, visualCaption, type FieldSemantics } from '../detect/field-semantics';
 import { classifyProtected } from '../detect/protected';
 import { isCaptchaElement } from '../detect/captcha';
 import { boxFromRect, readBoxesInOnePass, type Box } from './geometry';
@@ -88,16 +88,23 @@ export interface ExtractOptions {
   isVolatile?: (el: Element) => boolean;
 }
 
+// A contenteditable editor (Gmail's message body) has no `value`: its text is its content. Only
+// the length is kept. Without it a box the agent had already typed into looked empty, and the
+// model typed the same reply again on every step.
+function editableTextLen(el: Element): number {
+  return el instanceof HTMLElement && el.isContentEditable ? (el.textContent ?? '').trim().length : 0;
+}
+
 function computeHasValue(el: Element): boolean {
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return el.value.length > 0;
   if (el instanceof HTMLSelectElement) return el.value.length > 0;
-  return false;
+  return editableTextLen(el) > 0;
 }
 
 function computeValueLen(el: Element): number {
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return el.value.length;
   if (el instanceof HTMLSelectElement) return el.value.length;
-  return 0;
+  return editableTextLen(el);
 }
 
 function computeState(el: Element, occluded: boolean, isVolatile: (el: Element) => boolean): RawScreenNodeState {
@@ -199,7 +206,7 @@ export function extractScreenGraph(
     const box = boxes.get(el);
     if (!box || !isVisible(el, box, viewport)) continue;
     const role = computeRole(el);
-    const name = computeAccessibleName(el);
+    const name = computeAccessibleName(el) || visualCaption(el);
     pending.push({
       el,
       box,

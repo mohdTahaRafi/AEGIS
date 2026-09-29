@@ -121,6 +121,18 @@ describe('extractScreenGraph', () => {
     expect(disabled.state.valueLen).toBe(1);
   });
 
+  it('a contenteditable editor with text has a value; an empty one does not (Gmail message body)', () => {
+    const { nodes } = extract(`
+      <div contenteditable="true" role="textbox" aria-label="Message Body">Dear Saood, thank you.</div>
+      <div contenteditable="true" role="textbox" aria-label="Subject box"> </div>
+    `);
+    const filled = nodes.find((n) => n.name === 'Message Body')!;
+    const empty = nodes.find((n) => n.name === 'Subject box')!;
+    expect(filled.state.hasValue).toBe(true);
+    expect(filled.state.valueLen).toBe('Dear Saood, thank you.'.length);
+    expect(empty.state.hasValue).toBe(false);
+  });
+
   // T-6.13 (FR-8) — a real reCAPTCHA container extracted the same way any other node is,
   // tagged with a presence-only Channel D signal (`classifyChannelD` itself never fires for a
   // div, since it only looks at form fields — this is the parallel, non-form check).
@@ -137,5 +149,35 @@ describe('extractScreenGraph', () => {
   it('does not tag an ordinary div as a CAPTCHA', () => {
     const { nodes } = extract('<div id="plain" tabindex="0">Just a focusable div</div>');
     expect(nodes.some((n) => n.domSignal?.entity === 'CAPTCHA')).toBe(false);
+  });
+});
+
+// Passport Seva (React Native Web): no <label>/aria on any input, captions are sibling divs five
+// wrappers up, and pictures are background-image divs with the real <img> at opacity 0.
+describe('extractScreenGraph — framework-rendered forms and pictures', () => {
+  const PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
+  const rnwField = (caption: string, type = 'text') => `
+    <div><div>${caption} <span>*</span></div>
+      <div><div><div><div><div><div><div></div><div><input type="${type}"></div></div></div></div></div></div></div></div>`;
+
+  it('an unlabelled field is named by its visual caption and classified from it', () => {
+    const { nodes } = extract(`<div>${rnwField('Full Name')}${rnwField('Email ID')}${rnwField('Login ID')}${rnwField('Password', 'password')}</div>`);
+    const boxes = nodes.filter((n) => n.role === 'textbox');
+    expect(boxes.map((n) => n.name)).toEqual(['Full Name *', 'Email ID *', 'Login ID *', 'Password *']);
+    expect(boxes.map((n) => n.domSignal?.entity)).toEqual(['PERSON_NAME', 'EMAIL', 'USERNAME', 'PASSWORD']);
+    expect(boxes[3]!.field?.valueRead).toBe(false);
+  });
+
+  it('a background-image picture is an img node (goes to vision); its opacity-0 <img> twin is not', () => {
+    const { nodes } = extract(`
+      <div style="position:relative;width:200px;height:70px">
+        <div style="position:absolute;inset:0;background-image:url(${PIXEL});background-size:cover"></div>
+        <img src="${PIXEL}" style="position:absolute;inset:0;width:100%;height:100%;opacity:0">
+      </div>
+      <div style="width:200px;height:40px;background-image:linear-gradient(red,blue)"></div>`);
+    const imgs = nodes.filter((n) => n.role === 'img');
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0]!.tagName).toBe('DIV');
+    expect(imgs[0]!.box.slice(2)).toEqual([200, 70]);
   });
 });

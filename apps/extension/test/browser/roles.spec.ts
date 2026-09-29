@@ -95,3 +95,9 @@ describe('computeRole — implicit roles', () => {
     expect(role('<span>x</span>')).toBe('generic');
   });
 });
+
+describe('computeRole — opaque embedded content goes to vision', () => {
+  it.each(['<iframe src="about:blank"></iframe>', '<embed src="x.pdf">', '<object data="x.pdf"></object>'])('%s is routed as img', (html) => {
+    expect(role(html)).toBe('img');
+  });
+});

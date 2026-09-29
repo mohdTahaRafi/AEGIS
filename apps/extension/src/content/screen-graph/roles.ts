@@ -34,6 +34,16 @@ function implicitInputRole(el: HTMLInputElement): string {
   }
 }
 
+/** A leaf element painted only by a CSS `url(...)` background: how React Native Web (Passport Seva)
+ * and many avatar/photo components draw a picture, keeping the real `<img>` at opacity 0 (so it is
+ * never visible) or omitting it. Routed to vision exactly like an `<img>`; gradients and elements
+ * with child elements or their own text (a hero section behind content) are not. */
+export function isBackgroundImageLeaf(el: Element): boolean {
+  if (el.childElementCount > 0) return false;
+  if ((el.textContent ?? '').trim()) return false;
+  return getComputedStyle(el).backgroundImage.includes('url(');
+}
+
 function implicitRole(el: Element): string {
   const tag = el.tagName;
   switch (tag) {
@@ -73,6 +83,9 @@ function implicitRole(el: Element): string {
     // about their actual ARIA role.
     case 'CANVAS':
     case 'VIDEO':
+    case 'IFRAME':
+    case 'EMBED':
+    case 'OBJECT':
       return 'img';
     case 'H1':
     case 'H2':
@@ -89,7 +102,7 @@ function implicitRole(el: Element): string {
     case 'TABLE':
       return 'table';
     default:
-      return 'generic';
+      return isBackgroundImageLeaf(el) ? 'img' : 'generic';
   }
 }
 

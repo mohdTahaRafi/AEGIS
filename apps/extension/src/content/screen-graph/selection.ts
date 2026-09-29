@@ -22,7 +22,10 @@ const INTERACTIVE_TAGS = new Set(['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA'])
 // design.md doesn't explicitly extend §5.2 to media elements, but its own architecture and every
 // phase since 4 clearly intend for them to reach Channel V — recorded here per CLAUDE.md rule 1
 // rather than silently assumed; see docs/HISTORY.md for the fuller account.
-const MEDIA_TAGS = new Set(['IMG', 'CANVAS', 'VIDEO']);
+// IFRAME/EMBED/OBJECT: opaque to the DOM (a cross-origin frame's content cannot be read), so like
+// images they go to vision; otherwise an enclosing cleared container copied their pixels (an
+// embedded payment field, a third-party widget) into the screenshot unscreened.
+const MEDIA_TAGS = new Set(['IMG', 'CANVAS', 'VIDEO', 'IFRAME', 'EMBED', 'OBJECT']);
 const INTERACTIVE_ROLES = new Set([
   'button', 'link', 'checkbox', 'radio', 'switch', 'tab', 'menuitem', 'menuitemcheckbox',
   'menuitemradio', 'combobox', 'listbox', 'textbox', 'slider', 'searchbox', 'spinbutton',
@@ -71,6 +74,7 @@ export function isCandidateNode(el: Element): boolean {
   if (isCaptchaElement(el)) return true;
 
   const role = computeRole(el);
+  if (role === 'img') return true; // incl. CSS background-image leaves (roles.ts)
   if (INTERACTIVE_ROLES.has(role)) return true;
   if (LANDMARK_ROLES.has(role)) return true;
   if (role === 'heading') return true;
