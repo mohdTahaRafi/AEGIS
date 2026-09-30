@@ -1,7 +1,7 @@
 // phase_2_spine.md §7 (T-2.28) — backend, memory estimate and per-step latency, updating live as
-// `steps` grows. "Backend" is the gateway's serving mode (live model vs. record/replay, T-2.39) —
-// the client only ever gets to say what it was told, not what mode is authoritative.
+// `steps` grows. Redesigned: minimal, compact status strip with subtle status dots.
 import type { StepRecord } from '../host/session';
+import { C, T } from './design';
 
 export interface MetricsBarProps {
   backend: 'live' | 'record' | 'replay' | 'not connected';
@@ -19,13 +19,50 @@ function deviceMemoryLabel(): string {
   return deviceMemory !== undefined ? `~${deviceMemory} GB` : 'unreported';
 }
 
+const BACKEND_DOT: Record<MetricsBarProps['backend'], string> = {
+  live: C.ok,
+  record: C.warn,
+  replay: C.warn,
+  'not connected': C.muted,
+};
+
 export function MetricsBar({ backend, steps }: MetricsBarProps) {
   const lastStep = steps.at(-1);
+  const dot = BACKEND_DOT[backend];
+
   return (
-    <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#444', padding: '4px 0', borderBottom: '1px solid #eee' }}>
-      <span>backend: {backend}</span>
-      <span>memory: {deviceMemoryLabel()}</span>
-      <span>last step: {lastStep ? `${stepTotal(lastStep).toFixed(0)} ms` : '—'}</span>
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        fontSize: T.xs,
+        color: C.secondary,
+        padding: '5px 0',
+        borderBottom: `1px solid ${C.border}`,
+      }}
+    >
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: '50%',
+            background: dot,
+            display: 'inline-block',
+            flexShrink: 0,
+          }}
+        />
+        <span>backend: {backend}</span>
+      </span>
+
+      <span>
+        memory: <span style={{ color: C.body }}>{deviceMemoryLabel()}</span>
+      </span>
+
+      <span style={{ marginLeft: 'auto' }}>
+        last step: <span style={{ color: C.body, fontWeight: lastStep ? 500 : 400 }}>{lastStep ? `${stepTotal(lastStep).toFixed(0)} ms` : '—'}</span>
+      </span>
     </div>
   );
 }

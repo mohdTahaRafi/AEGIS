@@ -1,8 +1,10 @@
 // design.md §12.1/§13.1 (T-3.33) — redaction counts by entity and channel, plus the coverage
 // triple, for the step whose payload is shown.
+// Redesigned: clean card layout with entity badges, visual coverage bar, and protected fields.
 
 import type { SanitizedContext } from '@aegis/protocol';
 import type { ProtectedField } from '../host/session';
+import { C, R, T } from './design';
 
 export interface RedactionSummaryProps {
   redactions: SanitizedContext['redactions'];
@@ -27,26 +29,51 @@ export function RedactionSummary({ redactions, coverage, protectedFields = [] }:
   const byEntity = countByEntity(redactions);
   const entries = Object.entries(byEntity);
 
+  const clearedPct = Math.round(coverage.cleared * 100);
+  const redactedPct = Math.round(coverage.redacted * 100);
+  const unanalysedPct = Math.round(coverage.unanalysed * 100);
+
   return (
-    <div style={{ fontSize: 12, margin: '8px 0' }}>
-      <p style={{ margin: '0 0 4px', fontWeight: 600 }}>
-        Redactions: {entries.length === 0 ? '0' : entries.map(([e, n]) => `${e} ${n}`).join(' · ')}
-      </p>
+    <div style={{ fontSize: T.sm, margin: '6px 0' }}>
+      {/* Redactions list */}
+      <div style={{ margin: '0 0 6px', fontWeight: 600, color: C.strong, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+        <span>Redactions: {entries.length === 0 ? '0' : entries.map(([e, n]) => `${e} ${n}`).join(' · ')}</span>
+      </div>
+
+      {/* Protected fields */}
       {protectedFields.length > 0 && (
-        <p data-testid="protected-fields" style={{ margin: '0 0 4px' }}>
-          Protected fields (by label, before sending):{' '}
+        <div data-testid="protected-fields" style={{ margin: '0 0 6px', fontSize: T.xs, color: C.secondary, lineHeight: 1.4 }}>
+          <span style={{ fontWeight: 500, color: C.body }}>Protected fields (by label, before sending): </span>
           {protectedFields.map((f, i) => (
-            <span key={i} style={{ color: f.sent === 'text' ? '#b00' : undefined }}>
+            <span key={i} style={{ color: f.sent === 'text' ? C.error : undefined }}>
               {i > 0 && ' · '}
               {f.entity} "{f.label.slice(0, 30)}" ({f.ref ?? SENT_AS[f.sent]})
             </span>
           ))}
-        </p>
+        </div>
       )}
-      <p style={{ margin: 0, color: '#666' }}>
-        Coverage — cleared {Math.round(coverage.cleared * 100)}% · redacted {Math.round(coverage.redacted * 100)}% · unanalysed{' '}
-        {Math.round(coverage.unanalysed * 100)}%
-      </p>
+
+      {/* Visual coverage bar */}
+      <div
+        style={{
+          display: 'flex',
+          height: 5,
+          borderRadius: R.sm,
+          overflow: 'hidden',
+          background: C.border,
+          margin: '6px 0 4px',
+        }}
+        aria-hidden="true"
+      >
+        <div style={{ width: `${clearedPct}%`, background: C.ok }} title={`Cleared ${clearedPct}%`} />
+        <div style={{ width: `${redactedPct}%`, background: C.warn }} title={`Redacted ${redactedPct}%`} />
+        <div style={{ width: `${unanalysedPct}%`, background: C.muted }} title={`Unanalysed ${unanalysedPct}%`} />
+      </div>
+
+      {/* Coverage text */}
+      <div style={{ margin: 0, color: C.secondary, fontSize: T.xs }}>
+        Coverage — cleared {clearedPct}% · redacted {redactedPct}% · unanalysed {unanalysedPct}%
+      </div>
     </div>
   );
 }

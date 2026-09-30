@@ -1,11 +1,8 @@
 // Shown while a step is paused because Chrome refused the screenshot for lack of the activeTab
-// grant (host/capture/grant-gate.ts). Nothing has been sent for this step yet. The card only ever
-// resolves by the user's own action: invoking AEGIS from the toolbar (detected by the background,
-// never by this card), allowing AEGIS on all sites from the card (a host permission Chrome grants on
-// this click, which also covers screenshots), or stopping. Every step carries a screenshot, so
-// there is no way to continue without one.
+// grant (host/capture/grant-gate.ts). Redesigned: clean, compact security alert card.
 
 import type { GrantExplanation } from '../shared/invocation';
+import { C, R, S, T } from './design';
 
 export interface GrantRequestProps {
   explanation: GrantExplanation;
@@ -26,16 +23,49 @@ function why(explanation: GrantExplanation): string {
 
 export function GrantRequest({ explanation, onAllowAllSites, onStop }: GrantRequestProps) {
   return (
-    <div role="alertdialog" data-testid="grant-request" style={{ border: '2px solid #2563eb', borderRadius: 6, padding: 10, margin: '8px 0', background: '#eff6ff' }}>
-      <p style={{ margin: '0 0 6px', fontWeight: 600 }}>Screenshot access needed</p>
-      <p style={{ margin: '0 0 6px' }}>{why(explanation)}</p>
-      <p style={{ margin: '0 0 8px' }}>
+    <div
+      role="alertdialog"
+      data-testid="grant-request"
+      style={{
+        border: `1px solid ${C.infoBorder}`,
+        borderLeft: `3px solid ${C.accent}`,
+        borderRadius: R.md,
+        padding: '10px 12px',
+        margin: '8px 0',
+        background: C.infoBg,
+      }}
+    >
+      <div style={{ fontSize: T.sm, fontWeight: 600, color: C.strong, marginBottom: 4 }}>
+        Screenshot access needed
+      </div>
+      <p style={{ margin: '0 0 6px', fontSize: T.xs, color: C.body, lineHeight: 1.4 }}>
+        {why(explanation)}
+      </p>
+      <p style={{ margin: '0 0 10px', fontSize: T.xs, color: C.secondary, lineHeight: 1.4 }}>
         With the task's tab in front, click the <strong>AEGIS icon in Chrome's toolbar</strong>, or allow AEGIS on all sites below. The task continues
         automatically. Nothing has been sent for this step yet.
       </p>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={onAllowAllSites}>Allow AEGIS on all sites</button>
-        <button onClick={onStop}>Stop</button>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <button
+          onClick={onAllowAllSites}
+          style={{
+            ...S.btnPrimary,
+            fontSize: T.sm,
+            padding: '5px 12px',
+          }}
+        >
+          Allow AEGIS on all sites
+        </button>
+        <button
+          onClick={onStop}
+          style={{
+            ...S.btnSecondary,
+            fontSize: T.sm,
+            padding: '5px 12px',
+          }}
+        >
+          Stop
+        </button>
       </div>
     </div>
   );

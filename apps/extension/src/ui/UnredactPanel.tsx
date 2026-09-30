@@ -1,11 +1,9 @@
-// design.md §7.1 step 9 / FR-36 (T-6.12) — the one UI surface for the session's own
-// user-un-redact action. Lists every distinct resolvable ref from the current step's own
-// `redactions[]` (a bare, non-resolvable `⟪ENTITY⟫` has no ref to un-redact at all) with a reason
-// field, since `Session.unredact` records that reason to the ledger — a reason is asked for here,
-// not defaulted, so the audit trail says something a reviewer can actually use.
+// design.md §7.1 step 9 / FR-36 (T-6.12) — user-un-redact action.
+// Redesigned: clean card layout, compact inputs, clear validation.
 
 import { useState } from 'preact/hooks';
 import type { SanitizedContext } from '@aegis/protocol';
+import { C, R, S, T } from './design';
 
 export interface UnredactPanelProps {
   redactions: SanitizedContext['redactions'];
@@ -30,37 +28,71 @@ export function UnredactPanel({ redactions, onUnredact }: UnredactPanelProps) {
   if (refs.length === 0) return null;
 
   return (
-    <div style={{ fontSize: 12, margin: '8px 0', border: '1px solid #ddd', borderRadius: 4, padding: 6 }}>
-      <div style={{ fontWeight: 600, marginBottom: 4 }}>Un-redact a region for this session</div>
-      {refs.map(({ ref, entity }) => (
-        <div key={ref} style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '4px 0' }}>
-          <span style={{ flex: '0 0 140px' }}>
-            {entity} {ref}
-          </span>
-          {done.has(ref) ? (
-            <span style={{ color: '#080' }}>un-redacted</span>
-          ) : (
-            <>
-              <input
-                type="text"
-                placeholder="reason"
-                value={reasons[ref] ?? ''}
-                onInput={(e) => setReasons((prev) => ({ ...prev, [ref]: (e.target as HTMLInputElement).value }))}
-                style={{ flex: 1 }}
-              />
-              <button
-                disabled={!(reasons[ref] ?? '').trim()}
-                onClick={() => {
-                  onUnredact(ref, (reasons[ref] ?? '').trim());
-                  setDone((prev) => new Set(prev).add(ref));
-                }}
-              >
-                Un-redact
-              </button>
-            </>
-          )}
-        </div>
-      ))}
+    <div
+      style={{
+        fontSize: T.xs,
+        margin: '8px 0',
+        border: `1px solid ${C.border}`,
+        borderRadius: R.sm,
+        padding: '8px 10px',
+        background: C.bg,
+      }}
+    >
+      <div style={{ fontWeight: 600, color: C.strong, marginBottom: 6 }}>
+        Un-redact a region for this session
+      </div>
+      {refs.map(({ ref, entity }) => {
+        const hasReason = Boolean((reasons[ref] ?? '').trim());
+        const isDone = done.has(ref);
+
+        return (
+          <div key={ref} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '5px 0' }}>
+            <span style={{ flex: '0 0 auto', minWidth: 120, color: C.body, fontWeight: 500 }}>
+              {entity} <span style={{ color: C.muted, fontWeight: 400 }}>{ref}</span>
+            </span>
+            {isDone ? (
+              <span style={{ color: C.ok, fontWeight: 500 }}>✓ un-redacted</span>
+            ) : (
+              <>
+                <input
+                  type="text"
+                  placeholder="reason"
+                  value={reasons[ref] ?? ''}
+                  onInput={(e) => setReasons((prev) => ({ ...prev, [ref]: (e.target as HTMLInputElement).value }))}
+                  style={{
+                    flex: 1,
+                    padding: '4px 8px',
+                    fontSize: T.xs,
+                    border: `1px solid ${C.borderMid}`,
+                    borderRadius: R.sm,
+                    background: C.white,
+                    outline: 'none',
+                    minWidth: 0,
+                  }}
+                />
+                <button
+                  disabled={!hasReason}
+                  onClick={() => {
+                    if (hasReason) {
+                      onUnredact(ref, (reasons[ref] ?? '').trim());
+                      setDone((prev) => new Set(prev).add(ref));
+                    }
+                  }}
+                  style={{
+                    ...S.btnSecondary,
+                    fontSize: T.xs,
+                    padding: '4px 10px',
+                    opacity: !hasReason ? 0.45 : 1,
+                    cursor: !hasReason ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Un-redact
+                </button>
+              </>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
