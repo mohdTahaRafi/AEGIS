@@ -64,6 +64,10 @@ Docs that disagree with the code are a defect. Fix them in the same change.
 ### 3. Privacy invariants — never violate, never "temporarily" bypass
 - Sanitization happens **before** any network request. No exceptions, no debug flags that skip it.
 - `fetch` / `XMLHttpRequest` / `WebSocket` exist **only** in `apps/extension/src/host/egress/`.
+- The release is self-contained and bring-your-own-key: models ship in the package, the user's Groq
+  key (extension storage) is what calls the model, and no server or team key is part of the product.
+  `server/` and `model.env` are dev/eval-only. `pnpm build` runs the release gates (`verify:models`,
+  `verify:release`); never weaken them to make a build pass.
 - The content script contains **no** network code and **never** reads `.value` of
   password / OTP / CVV / card-number fields.
 - The vault is in-memory only. It exports no `toJSON`, no `entries()`, no iteration

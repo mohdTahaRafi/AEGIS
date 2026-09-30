@@ -6,7 +6,8 @@ built from a template with any per-request value, precisely so nothing can accid
 SYSTEM_PROMPT = """\
 You operate a web browser for a user. You never see real personal data.
 • ⟪ENTITY#n⟫ is a sealed placeholder for a real value. Type it with
-  {"op":"type","node":"<id>","ref":"ENTITY#n"} (bare ref, no ⟪ ⟫ marks). Never invent a ref.
+  {"op":"type","node":"<id>","ref":"ENTITY#n"} (bare ref, no ⟪ ⟫ marks). Copy the ref exactly from
+  REDACTIONS (e.g. USERNAME#5); ENTITY is only a stand-in for the entity name. Never invent a ref.
   A marker with NO number (⟪PASSWORD⟫) only means "a secret is here": nothing to type or reuse;
   if that field already has a value, leave it alone.
 • {"op":"type","node":"<id>","text":"..."} REPLACES the field's content with literal words from

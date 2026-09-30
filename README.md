@@ -34,6 +34,13 @@ It does this with two ideas working together:
   resolves the reference to the real value **locally, inside the browser, under a confirmation
   policy** — the round trip to the server never carries it.
 
+## Install and use
+
+AEGIS is a single extension: **install it, paste your own [Groq API key](https://console.groq.com/keys),
+run a task.** Every on-device model is inside the package and there is no server to set up. The key
+stays in your browser and is sent only to `api.groq.com`; only redacted pages ever leave your device.
+See [DEPLOYMENT.md](DEPLOYMENT.md) (building and publishing a release) and [PRIVACY.md](PRIVACY.md).
+
 ## Key features
 
 - **Dual-channel PII detection** — DOM/accessibility signals (Channel D) and on-device computer
@@ -90,8 +97,9 @@ page → screen graph (DOM + a11y + exact geometry) ┐
 5. **Guard** — an independent re-scan of the final, fully-assembled payload checks for any raw
    value that slipped through. Any survivor blocks the send outright — fail closed, not fail open.
 6. **Reason** — the sanitized context, and only the sanitized context, goes to the remote model
-   (an open-weights model behind a FastAPI gateway), which returns a constrained action plan
-   referencing page elements and placeholders.
+   (an open-weights vision model on Groq, called directly from the extension with the user's own
+   API key), which returns a constrained action plan referencing page elements and placeholders.
+   The extension builds the prompt and validates the plan itself; no server sits in between.
 7. **Act** — the client validates every planned action against the live page (does this element
    still exist, is it still visible, is it still the same origin) before dispatching it, and
    resolves any placeholder argument back to its real value from the vault — locally, and only for
@@ -120,8 +128,8 @@ These are enforced, not just documented:
 | Extension | TypeScript (strict), [WXT](https://wxt.dev/) + Vite, [Preact](https://preactjs.com/), Manifest V3 (Chrome & Firefox) |
 | On-device inference | [onnxruntime-web](https://onnxruntime.ai/) (WebGPU → WASM fallback), a bundled YuNet face detector and PP-OCRv5 detection/recognition models |
 | Contract | JSON Schema (draft 2020-12) as the single source of truth — TypeScript types, Ajv validators and Pydantic v2 models are all generated from it |
-| Gateway server | Python 3.12, [FastAPI](https://fastapi.tiangolo.com/), Pydantic v2, served by Uvicorn |
-| Model serving | [vLLM](https://github.com/vllm-project/vllm) (OpenAI-compatible), open-weights models, record/replay mode for offline/no-GPU operation |
+| Planning model | Groq (OpenAI-compatible API), open-weights `qwen/qwen3.8-27b`, bring-your-own-key, called from the extension |
+| Legacy gateway (dev / eval only) | Python 3.12, [FastAPI](https://fastapi.tiangolo.com/), Pydantic v2 — the pre-release server path, not part of a release |
 | Evaluation harness | Python, [Playwright](https://playwright.dev/) (real headless Chromium), an independently re-implemented recognizer set for auditing |
 | Tooling | pnpm workspaces (JS/TS), `uv` workspaces (Python), ESLint (custom dependency-boundary + no-network rules), Vitest (jsdom + real-browser projects), pytest |
 
@@ -131,6 +139,8 @@ These are enforced, not just documented:
 apps/extension/        Browser extension (WXT + Preact), organised by JS runtime context:
   src/content/            page frames — DOM extraction, no pixels, no vault, no network
   src/host/               side panel — owns the vault, guard, egress, controller, UI
+    agent/                  prompt building, plan validation, session state (no network code)
+    egress/                 the only network code: the Groq client, guarded-payload check
   src/perception/         dedicated Web Worker — the only place raw pixels live, no network
   src/shared/              types shared across contexts that cannot import each other
   src/ui/                  panel components (payload viewer, settings, confirmations)
@@ -162,7 +172,7 @@ pnpm gen:protocol
 pnpm -r typecheck
 pnpm -r test
 
-# Build the extension for Chrome and Firefox
+# Build a release for Chrome and Firefox (checks every bundled model and the finished package)
 pnpm build
 # or individually:
 pnpm --filter @aegis/extension build           # → apps/extension/.output/chrome-mv3
@@ -261,8 +271,9 @@ auditor recognizer set, not the client's own code — see
 **Quick references (start here):**
 - [DEVELOPMENT.md](DEVELOPMENT.md) — Setup, local dev workflow, common tasks
 - [TESTING.md](TESTING.md) — Running & writing tests
-- [API.md](API.md) — Gateway API reference
-- [DEPLOYMENT.md](DEPLOYMENT.md) — Deployment modes, monitoring, scaling
+- [API.md](API.md) — Legacy gateway API reference (dev / eval only)
+- [DEPLOYMENT.md](DEPLOYMENT.md) — Building, verifying and publishing a release; bring-your-own-key setup
+- [PRIVACY.md](PRIVACY.md) — What is sent, to whom, and what is never collected
 
 **Design & architecture:**
 - [docs/product-requirements.md](docs/product-requirements.md) — Features, requirements, acceptance criteria

@@ -1,8 +1,7 @@
-// design.md §9.4 (T-3.31) — the confirmation card. 60s timeout → deny; no "always allow" in the
-// first build. The on-page outline (closed shadow root, injected content-side) is a separate
-// concern from this card — this component only renders the panel-side half.
-
+// design.md §9.4 (T-3.31) — the confirmation card. 60s timeout → deny.
+// Redesigned: minimal, clean card with amber security accent and crisp countdown timer.
 import { useEffect, useState } from 'preact/hooks';
+import { C, R, S, T } from './design';
 
 const TIMEOUT_MS = 60_000;
 
@@ -28,14 +27,51 @@ export function ConfirmAction({ description, risk, onDecide }: ConfirmActionProp
     return () => clearInterval(interval);
   }, [onDecide]);
 
+  const riskColor = risk === 'high' ? C.error : risk === 'medium' ? C.warn : C.info;
+
   return (
-    <div role="alertdialog" style={{ border: '2px solid #d97706', borderRadius: 6, padding: 10, margin: '8px 0', background: '#fffbeb' }}>
-      <p style={{ margin: '0 0 6px', fontWeight: 600 }}>Confirmation needed ({risk} risk)</p>
-      <p style={{ margin: '0 0 8px' }}>{description}</p>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={() => onDecide(true)}>Allow once</button>
-        <button onClick={() => onDecide(false)}>Deny</button>
-        <span style={{ marginLeft: 'auto', color: '#666', fontSize: 11 }}>{secondsLeft}s</span>
+    <div
+      role="alertdialog"
+      style={{
+        border: `1px solid ${C.warnBorder}`,
+        borderLeft: `3px solid ${riskColor}`,
+        borderRadius: R.md,
+        padding: '10px 12px',
+        margin: '8px 0',
+        background: C.warnBg,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <span style={{ fontSize: T.sm, fontWeight: 600, color: C.strong }}>
+          Confirmation needed ({risk} risk)
+        </span>
+        <span style={{ fontSize: T.xs, color: C.secondary, fontFamily: 'monospace' }}>
+          {secondsLeft}s
+        </span>
+      </div>
+      <p style={{ margin: '0 0 10px', fontSize: T.sm, color: C.body, lineHeight: 1.4 }}>{description}</p>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <button
+          onClick={() => onDecide(true)}
+          style={{
+            ...S.btnPrimary,
+            background: riskColor,
+            padding: '5px 12px',
+            fontSize: T.sm,
+          }}
+        >
+          Allow once
+        </button>
+        <button
+          onClick={() => onDecide(false)}
+          style={{
+            ...S.btnSecondary,
+            padding: '5px 12px',
+            fontSize: T.sm,
+          }}
+        >
+          Deny
+        </button>
       </div>
     </div>
   );

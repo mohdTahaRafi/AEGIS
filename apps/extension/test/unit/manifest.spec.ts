@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { verifyBuild } from '../../scripts/verify-release';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const FORBIDDEN = ['debugger', 'webRequest', 'history', 'cookies', 'clipboardRead'];
@@ -51,10 +52,11 @@ describe('built Chrome manifest — screenshot capture permission (production vi
   // `tabs.captureVisibleTab` rejects a per-origin host grant (reproduced in Chromium 153: "Either
   // the '<all_urls>' or 'activeTab' permission is required"). Without `activeTab` the production
   // build can never capture, and every step silently degrades to DOM-only.
-  it('declares activeTab, never requires host permissions, and keeps <all_urls> optional only', () => {
+  it('declares activeTab, requires only the model API as a host, and keeps <all_urls> optional only', () => {
     const manifest = build('chrome');
     expect(manifest.permissions as string[]).toContain('activeTab');
-    expect(manifest.host_permissions).toBeUndefined();
+    // The one required host is the model API the user's own key is for (bring your own key).
+    expect(manifest.host_permissions).toEqual(['https://api.groq.com/*']);
     expect(manifest.optional_host_permissions).toEqual(['<all_urls>']);
   }, 30_000);
 
@@ -93,5 +95,24 @@ describe('built manifests — platform shim parity (design.md §14, T-6.1/T-6.2)
     expect(chrome.cross_origin_opener_policy).toEqual({ value: 'same-origin' });
     expect(firefox.cross_origin_embedder_policy).toBeUndefined();
     expect(firefox.cross_origin_opener_policy).toBeUndefined();
+  }, 30_000);
+});
+
+describe('built release manifest — bring your own key', () => {
+  it('limits where extension pages may connect to the extension and the model API', () => {
+    const csp = (build('chrome').content_security_policy as { extension_pages: string }).extension_pages;
+    expect(csp).toContain("connect-src 'self' https://api.groq.com");
+    expect(csp).not.toMatch(/localhost|127\.0\.0\.1|\*/);
+  }, 30_000);
+
+  it('ships icons at every store size, and a minimum Chrome version that has the side panel', () => {
+    const manifest = build('chrome');
+    expect(Object.keys(manifest.icons as object).sort()).toEqual(['128', '16', '32', '48', '96']);
+    expect(Number(manifest.minimum_chrome_version)).toBeGreaterThanOrEqual(116);
+  }, 30_000);
+
+  it('passes the release gate: pinned models intact, nothing else in models/, no development strings', () => {
+    build('chrome');
+    expect(verifyBuild(path.join(ROOT, '.output', 'chrome-mv3'))).toEqual([]);
   }, 30_000);
 });

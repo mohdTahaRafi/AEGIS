@@ -205,7 +205,7 @@ export function buildPipelineTrace({ status, payload, protectedFields, timings, 
   });
   if (localOnly) return stages;
   stages.push({
-    title: 'Sent to gateway → VLM',
+    title: 'Sent to the model',
     ms: timings?.server,
     status: timings ? 'done' : 'pending',
     lines: payload ? [timings ? 'plan received (see Activity)' : 'sent, waiting for the plan'] : [],

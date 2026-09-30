@@ -1,3 +1,6 @@
+// Development/eval only: the HTTP client for the legacy server gateway (server/gateway, kept for the
+// eval harness's mock and the replay demo). A release build never uses it — see agent-client.ts.
+//
 // design.md §4.1 (T-2.31/T-2.32 client side) — session open/close carry **no page data**
 // (architecture §8.1), so they bypass the guard entirely; only the per-step payload goes through
 // `EgressClient.sendStep`, which refuses anything not `GuardedPayload`-branded.
@@ -9,6 +12,7 @@ import type { SessionCreate, SessionCreated } from '@aegis/protocol';
 import { defaultPolicy } from '@aegis/policy';
 import { createEgressClient } from './client';
 import type { GuardedPayload } from './brand';
+import { StepFailedError } from '../agent/errors';
 
 export interface GatewayClient {
   openSession(): Promise<SessionCreated>;
@@ -16,21 +20,7 @@ export interface GatewayClient {
   closeSession(sessionId: string): Promise<void>;
 }
 
-/** A failed step call, described only by the gateway's closed-vocabulary error envelope (its code
- * and, for MODEL_UNAVAILABLE, the reason) plus `Retry-After`. Never free text from the response,
- * so `detail` is safe to show in the panel. */
-export class StepFailedError extends Error {
-  constructor(
-    readonly status: number,
-    readonly detail: string,
-    /** The gateway's own `retryable` flag (its error envelope), and its `Retry-After` in seconds. */
-    readonly retryable = false,
-    readonly retryAfterS?: number,
-  ) {
-    super(`STEP_FAILED: ${status}${detail ? ` ${detail}` : ''}`);
-    this.name = 'StepFailedError';
-  }
-}
+export { StepFailedError };
 
 const ERROR_CODE = /^[A-Z_]{1,40}$/;
 // The reason, plus the gateway's optional detail: built only from numbers, HTTP statuses and

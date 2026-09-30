@@ -5,6 +5,9 @@ import {
   defaultSettings,
   loadSettings,
   saveSettings,
+  cleanApiKey,
+  looksLikeApiKey,
+  resolveModelConfig,
   type Settings,
   type SettingsStorageArea,
 } from '../../src/host/settings/store';
@@ -24,6 +27,9 @@ describe('defaultSettings (T-6.11, design.md §13.5)', () => {
   it('uses the build-time server URL/token and every documented default', () => {
     const d = defaultSettings('https://gw.example', 'tok-123');
     expect(d).toEqual({
+      apiKey: '',
+      modelUrl: 'https://api.groq.com/openai/v1',
+      modelName: 'qwen/qwen3.8-27b',
       serverUrl: 'https://gw.example',
       accessToken: 'tok-123',
       backend: 'auto',
@@ -100,5 +106,39 @@ describe('applyAlwaysRedact (T-6.11 Tier-2 per-type override)', () => {
   it('ignores an entity explicitly set to false — "follow policy"', () => {
     const result = applyAlwaysRedact(BASE_POLICY, { CITY: false });
     expect(result).toBe(BASE_POLICY);
+  });
+});
+
+describe('bring your own key', () => {
+  it('starts with no key, and a saved key survives a reload of the settings', async () => {
+    const storage = fakeStorage();
+    const defaults = defaultSettings('', '');
+    expect((await loadSettings(storage, defaults)).apiKey).toBe('');
+    await saveSettings(storage, { ...defaults, apiKey: 'gsk_abcdefghijklmnopqrstuvwxyz' });
+    expect((await loadSettings(storage, defaults)).apiKey).toBe('gsk_abcdefghijklmnopqrstuvwxyz');
+  });
+
+  it('a settings blob saved before keys existed still loads, with no key', async () => {
+    const storage = fakeStorage({ aegis_settings: { serverUrl: 'http://x', backend: 'wasm' } });
+    const loaded = await loadSettings(storage, defaultSettings('', ''));
+    expect(loaded.apiKey).toBe('');
+    expect(loaded.backend).toBe('wasm');
+  });
+
+  it('cleans copy-paste noise off a key', () => {
+    expect(cleanApiKey('  "gsk_abc123"  ')).toBe('gsk_abc123');
+    expect(cleanApiKey("Bearer gsk_abc123\n")).toBe('gsk_abc123');
+  });
+
+  it('checks the shape of a key only loosely (Test key is what proves it)', () => {
+    expect(looksLikeApiKey('gsk_' + 'a'.repeat(48))).toBe(true);
+    expect(looksLikeApiKey('short')).toBe(false);
+    expect(looksLikeApiKey('has space in the key of some length')).toBe(false);
+  });
+
+  it('a release build always talks to Groq, whatever endpoint is stored; a development build honours it', () => {
+    const settings: Settings = { ...defaultSettings('', ''), apiKey: 'gsk_k', modelUrl: 'http://evil.example/v1', modelName: 'other' };
+    expect(resolveModelConfig(settings, true)).toEqual({ apiKey: 'gsk_k', baseUrl: 'https://api.groq.com/openai/v1', model: 'qwen/qwen3.8-27b' });
+    expect(resolveModelConfig(settings, false)).toEqual({ apiKey: 'gsk_k', baseUrl: 'http://evil.example/v1', model: 'other' });
   });
 });

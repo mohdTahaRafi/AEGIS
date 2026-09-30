@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { defineConfig } from 'wxt';
 
@@ -13,6 +14,18 @@ const crossOriginIsolation = {
   cross_origin_embedder_policy: { value: 'require-corp' },
   cross_origin_opener_policy: { value: 'same-origin' },
 };
+
+// The only files of `public/models/` a release ships: exactly what `models.manifest.json` lists. A
+// developer's checkout may also hold the ~950 MB optional NER model and its runtime copies there
+// (gitignored, used by browser tests); a release must never pick those up by accident.
+function shippedModelFiles(): Set<string> {
+  const manifest = JSON.parse(readFileSync(path.join(ROOT_DIR, 'public/models/models.manifest.json'), 'utf8')) as { models: { file: string }[] };
+  return new Set(['models.manifest.json', ...manifest.models.map((m) => m.file)]);
+}
+
+// Where a release's extension pages may connect: the extension itself and the model API the user's
+// key is for. Nothing else — a page script or a bug cannot send data anywhere else.
+const MODEL_API_ORIGIN = 'https://api.groq.com';
 
 export default defineConfig({
   srcDir: '.',
@@ -48,15 +61,33 @@ export default defineConfig({
     // declared as optional above, just required for non-production builds. Scoped to
     // non-production builds only, the same way T-6.9's ablation switch is — this never ships in
     // the release manifest, which keeps `<all_urls>` strictly optional/user-granted.
-    ...(mode !== 'production' ? { host_permissions: ['<all_urls>'] } : {}),
+    // A release asks for one host only: the model API (the user's own key goes there). Site access
+    // stays optional and user-granted.
+    host_permissions: mode !== 'production' ? ['<all_urls>'] : [`${MODEL_API_ORIGIN}/*`],
     content_security_policy: {
-      extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'",
+      extension_pages:
+        "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; " +
+        // Development builds may also talk to a local model stand-in or the legacy gateway.
+        (mode === 'production' ? `connect-src 'self' ${MODEL_API_ORIGIN}` : `connect-src 'self' ${MODEL_API_ORIGIN} http://localhost:* http://127.0.0.1:*`),
     },
+    // Side panel (114), `AbortSignal.any` (116).
+    ...(browser === 'chrome' ? { minimum_chrome_version: '116' } : {}),
     ...(browser === 'chrome' ? crossOriginIsolation : {}),
     ...(browser === 'firefox'
-      ? { browser_specific_settings: { gecko: { id: 'aegis@sih26171.local' } } }
+      ? { browser_specific_settings: { gecko: { id: 'aegis@sih26171.local', strict_min_version: '128.0' } } }
       : {}),
   }),
+  zip: { name: 'aegis' },
+  hooks: {
+    'build:publicAssets': (wxt, files) => {
+      if (wxt.config.mode !== 'production') return;
+      const shipped = shippedModelFiles();
+      for (let i = files.length - 1; i >= 0; i--) {
+        const dest = files[i]!.relativeDest.replaceAll('\\', '/');
+        if (dest.startsWith('models/') && !shipped.has(dest.slice('models/'.length))) files.splice(i, 1);
+      }
+    },
+  },
   // Pre-submission / unpacked-only builds during SIH; store data-collection disclosure is
   // out of scope unless the team decides to publish (README.md "Store publication").
   suppressWarnings: { firefoxDataCollection: true },

@@ -3,7 +3,9 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { ContentPortClient, connectToTab } from '../../src/host/port';
 import { connectToLiveContent } from '../../src/host/content-connection';
 import { ensureTaskPermissions } from '../../src/host/platform/capabilities';
-import { createGatewayClient } from '../../src/host/egress/gateway-client';
+import { createGatewayClient, type GatewayClient } from '../../src/host/egress/gateway-client';
+import { createAgentClient } from '../../src/host/egress/agent-client';
+import { verifyApiKey } from '../../src/host/egress/model-client';
 import { Session, type SessionEvent, type StepRecord } from '../../src/host/session';
 import { PerceptionClient, type WorkerProblem } from '../../src/host/perception-client/client';
 import type { CaptureResult } from '../../src/host/capture/classify';
@@ -31,16 +33,23 @@ import type { SanitizedContext } from '@aegis/protocol';
 import type { EntityType } from '@aegis/recognizers';
 import type { AblationArm } from '../../src/shared/ablation';
 import { defaultPolicy } from '@aegis/policy';
-import { applyAlwaysRedact, defaultSettings, loadSettings, saveSettings, type Settings as SettingsValue } from '../../src/host/settings/store';
+import { applyAlwaysRedact, defaultSettings, loadSettings, resolveModelConfig, saveSettings, type Settings as SettingsValue } from '../../src/host/settings/store';
+import { ApiKeyCard } from '../../src/ui/ApiKeyCard';
+import { C, R, T } from '../../src/ui/design';
+
+// A release build (`wxt build`) has no server and no developer endpoints: every task goes straight
+// from this panel to Groq with the user's own key. Development builds may still use the legacy
+// gateway (eval harness, replay demo) when no key is saved.
+const RELEASE = import.meta.env.MODE === 'production';
 
 // phase_2_spine.md §6.7's demo default; overridable at build time. design.md §13.5's "Server URL"
 // setting (T-6.11) reads/writes these through `Settings`/`settings/store.ts` now — this constant
 // stays as the *build-time* default `defaultSettings()` falls back to on a fresh install, per
 // that row's own "Default: build-time value".
-const GATEWAY_URL = (import.meta.env.VITE_GATEWAY_URL as string | undefined) ?? 'http://localhost:8787';
+const GATEWAY_URL = RELEASE ? '' : ((import.meta.env.VITE_GATEWAY_URL as string | undefined) ?? 'http://localhost:8787');
 // design.md §4.1 (T-2.31); OQ-15 (docs/DECISIONS.md) leaves the finale's real provisioning model
 // open — `dev-token` matches the gateway's own `config.py` default for local/demo use.
-const GATEWAY_TOKEN = (import.meta.env.VITE_GATEWAY_TOKEN as string | undefined) ?? 'dev-token';
+const GATEWAY_TOKEN = RELEASE ? '' : ((import.meta.env.VITE_GATEWAY_TOKEN as string | undefined) ?? 'dev-token');
 
 // design.md §13.5, T-6.11: `Settings`'s "Per-type redaction policy" row needs every entity type
 // that exists — `defaultPolicy.entityClass`'s own keys are that list already (packages/policy's
@@ -249,6 +258,14 @@ declare global {
   }
 }
 
+/** A stopped task's message. A refused key or an exhausted quota is something the user can fix, so
+ * it says so (the detail is the closed-vocabulary one from `agent/errors.ts`). */
+function describeStop(reason: string, detail?: string): string {
+  if (detail?.includes('upstream_auth')) return 'API_KEY_REJECTED - Groq refused your API key (revoked, mistyped or from another account). Open Settings and enter a valid key.';
+  if (detail?.includes('upstream_429')) return `${reason}: ${detail} - your Groq rate or daily token limit is used up; wait, or use a key with more quota, then Run again`;
+  return detail ? `${reason}: ${detail}` : reason;
+}
+
 function App() {
   const [panelState, setPanelState] = useState<PanelState>('idle');
   const [steps, setSteps] = useState<StepRecord[]>([]);
@@ -270,6 +287,8 @@ function App() {
   const [workerProblems, setWorkerProblems] = useState<WorkerProblem[]>([]);
   const [settings, setSettings] = useState<SettingsValue>(() => defaultSettings(GATEWAY_URL, GATEWAY_TOKEN));
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The first-run key card stays up a few seconds after a key is saved, so its "Key works" is seen.
+  const [keyJustSaved, setKeyJustSaved] = useState(false);
   const sessionRef = useRef<Session | null>(null);
   sessionRef.current = session;
   // T-6.8, 2026-09-26: real, previously-undiscovered bug found while measuring NER profile L's
@@ -335,7 +354,7 @@ function App() {
     } else if (event.type === 'stopped') {
       setUserWait(null);
       setPanelState(event.reason === 'CANCELLED' ? 'idle' : 'error');
-      if (event.reason !== 'CANCELLED') setErrorMessage(event.detail ? `${event.reason}: ${event.detail}` : event.reason);
+      if (event.reason !== 'CANCELLED') setErrorMessage(describeStop(event.reason, event.detail));
     }
   }
 
@@ -343,6 +362,11 @@ function App() {
    * that tab's window (a visible run puts the panel in its own window beside the page). */
   async function handleStart(task: string, canaries?: readonly string[], targetTabId?: number): Promise<void> {
     setErrorMessage(null);
+    if (RELEASE && !settingsRef.current.apiKey) {
+      setPanelState('error');
+      setErrorMessage('API_KEY_MISSING - add your Groq API key in the box at the top of this panel, then Run again');
+      return;
+    }
     setRunLog(EMPTY_RUN_LOG);
     setProtectedFields([]);
     setSteps([]);
@@ -408,9 +432,15 @@ function App() {
     const target: CaptureTarget = { tabId: tab.id, origin };
     console.info('[aegis] task target', { tabId: tab.id, windowId: tab.windowId, origin });
 
-    const gateway = createGatewayClient(settingsRef.current.serverUrl, import.meta.env.BROWSER === 'firefox' ? 'firefox' : 'chrome', fetch, settingsRef.current.accessToken);
+    // Bring your own key: with a key saved (always, in a release build) the model is called directly
+    // from this panel; the gateway is a development fallback only.
+    const useOwnKey = RELEASE || settingsRef.current.apiKey !== '';
+    const gateway: GatewayClient = useOwnKey
+      ? createAgentClient(resolveModelConfig(settingsRef.current, RELEASE))
+      : createGatewayClient(settingsRef.current.serverUrl, import.meta.env.BROWSER === 'firefox' ? 'firefox' : 'chrome', fetch, settingsRef.current.accessToken);
     // A gateway that is starting, restarting or briefly unreachable is waited for; only a wrong
-    // token (retrying cannot fix it) or a gateway that never comes up ends the attempt.
+    // token (retrying cannot fix it) or a gateway that never comes up ends the attempt. Opening a
+    // session with the model directly is local and cannot fail.
     let created: Awaited<ReturnType<typeof gateway.openSession>> | undefined;
     let openStatus: string | undefined;
     for (let attempt = 0; attempt < GATEWAY_OPEN_ATTEMPTS; attempt++) {
@@ -442,7 +472,7 @@ function App() {
     }
     let gatewaySessionId = created.session_id;
     setGatewayMode(created.mode);
-    note(`Gateway session opened at ${settingsRef.current.serverUrl} (${created.mode} model)`);
+    note(useOwnKey ? `Model session opened (${created.model}, your API key)` : `Gateway session opened at ${settingsRef.current.serverUrl} (${created.mode} model)`);
 
     // Phase 4: one perception worker per task, matching the vault's own per-task lifetime
     // (design.md §8) — a fresh worker means a fresh model-registry/backend-probe cycle rather
@@ -465,7 +495,8 @@ function App() {
       const ready = await perceptionClient.init(
         settingsRef.current.backend,
         [FACE_MODEL_SPEC, OCR_DET_MODEL_SPEC, OCR_REC_EN_MODEL_SPEC, OCR_REC_DEVANAGARI_MODEL_SPEC, VIT_VISION_MODEL_SPEC],
-        settingsRef.current.nerProfile,
+        // The large NER model (profile L) is not part of the shipped package.
+        RELEASE ? 'S' : settingsRef.current.nerProfile,
       );
       setPerceptionBackend(ready.backend);
       setBackendDetail(describeReadyBackend(ready));
@@ -715,12 +746,27 @@ function App() {
     };
   }, []);
 
+  /** The key is stored as soon as it is saved (not with the rest of the Settings form). */
+  function saveApiKey(apiKey: string): void {
+    const next = { ...settingsRef.current, apiKey };
+    settingsRef.current = next;
+    setSettings(next);
+    void saveSettings(browser.storage.local, next);
+  }
+
+  function testApiKey(apiKey: string) {
+    return verifyApiKey(resolveModelConfig({ ...settingsRef.current, apiKey }, RELEASE));
+  }
+
   if (settingsOpen) {
     return (
-      <div style={{ fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>
         <Settings
           value={settings}
           entityTypes={SETTINGS_ENTITY_TYPES}
+          release={RELEASE}
+          onSaveKey={saveApiKey}
+          onTestKey={testApiKey}
           onSave={(next) => {
             setSettings(next);
             saveSettings(browser.storage.local, next);
@@ -732,27 +778,220 @@ function App() {
     );
   }
 
+  const isRunning =
+    panelState === 'running' ||
+    panelState === 'loading' ||
+    panelState === 'awaiting-grant' ||
+    panelState === 'awaiting-user' ||
+    panelState === 'awaiting-confirmation';
+
+  const isLogRunning =
+    panelState === 'running' ||
+    panelState === 'loading' ||
+    panelState === 'awaiting-confirmation' ||
+    panelState === 'awaiting-grant' ||
+    panelState === 'awaiting-user';
+
+  const statusDotColor =
+    panelState === 'error' ? C.error
+    : panelState === 'done' ? C.ok
+    : isRunning ? C.accent
+    : C.muted;
+
+  const statusBgColor =
+    panelState === 'error' ? C.errorBg
+    : panelState === 'done' ? C.okBg
+    : isRunning ? C.infoBg
+    : '#f3f4f6';
+
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', fontSize: 13, maxWidth: 480 }}>
-      <div style={{ padding: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-          <h2 style={{ margin: '0 0 4px' }}>AEGIS</h2>
-          <button onClick={() => setSettingsOpen(true)}>Settings</button>
+    <div
+      style={{
+        fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        fontSize: T.base,
+        maxWidth: 480,
+        background: C.bg,
+        minHeight: '100vh',
+        color: C.strong,
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      {/* ── Compact Sticky Header ────────────────────────────────────────────── */}
+      <header
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '10px 14px',
+          background: C.surface,
+          borderBottom: `1px solid ${C.border}`,
+          position: 'sticky',
+          top: 0,
+          zIndex: 10,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Shield Security Icon */}
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+            style={{ flexShrink: 0 }}
+          >
+            <path
+              d="M12 2L4 6v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V6l-8-4z"
+              fill={C.accent}
+            />
+            <path
+              d="M10 12l2 2 4-4"
+              stroke="#ffffff"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <div>
+            <div style={{ fontSize: T.md, fontWeight: 700, color: C.strong, lineHeight: 1.15, letterSpacing: '-0.01em' }}>
+              AEGIS
+            </div>
+            <div style={{ fontSize: 10, color: C.secondary, lineHeight: 1 }}>
+              AI Browser Security
+            </div>
+          </div>
         </div>
-        <p style={{ color: '#666', margin: '0 0 8px' }}>{panelStateLabel(panelState)}</p>
 
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* State pill */}
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              padding: '2px 8px',
+              borderRadius: 100,
+              fontSize: T.xs,
+              fontWeight: 500,
+              color: statusDotColor,
+              background: statusBgColor,
+            }}
+          >
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: statusDotColor,
+                display: 'inline-block',
+                flexShrink: 0,
+              }}
+            />
+            {panelStateLabel(panelState)}
+          </span>
+
+          {/* Settings button */}
+          <button
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Settings"
+            title="Settings"
+            style={{
+              background: 'none',
+              border: `1px solid ${C.border}`,
+              borderRadius: R.sm,
+              padding: '4px 6px',
+              cursor: 'pointer',
+              color: C.secondary,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      {/* ── Main Scrollable Area ──────────────────────────────────────────────── */}
+      <main style={{ padding: '10px 14px', flex: 1 }}>
+        {/* Permission and error notices */}
         {panelState === 'no-permission' && (
-          <p style={{ color: '#b00' }}>This site needs host permission before AEGIS can run a task here. Try Run again to be prompted.</p>
+          <div
+            style={{
+              border: `1px solid ${C.errorBorder}`,
+              borderLeft: `3px solid ${C.error}`,
+              borderRadius: R.sm,
+              padding: '8px 12px',
+              marginBottom: 8,
+              background: C.errorBg,
+              fontSize: T.xs,
+              color: C.error,
+              lineHeight: 1.4,
+            }}
+          >
+            This site needs host permission before AEGIS can run a task here. Try Run again to be prompted.
+          </div>
         )}
-        {panelState === 'error' && errorMessage && <p style={{ color: '#b00' }}>Error: {errorMessage}</p>}
 
-        <TaskInput running={panelState === 'running' || panelState === 'loading' || panelState === 'awaiting-grant' || panelState === 'awaiting-user' || panelState === 'awaiting-confirmation'} onStart={handleStart} onStop={handleStop} />
+        {panelState === 'error' && errorMessage && (
+          <div
+            style={{
+              border: `1px solid ${C.errorBorder}`,
+              borderLeft: `3px solid ${C.error}`,
+              borderRadius: R.sm,
+              padding: '8px 12px',
+              marginBottom: 8,
+              background: C.errorBg,
+              fontSize: T.xs,
+              color: C.error,
+              lineHeight: 1.4,
+            }}
+          >
+            <strong>Error:</strong> {errorMessage}
+          </div>
+        )}
 
+        {/* Bring your own key: nothing runs until one is saved (a release build has no other model). */}
+        {RELEASE && (!settings.apiKey || keyJustSaved) && (
+          <ApiKeyCard
+            savedKey={settings.apiKey}
+            onSave={(key) => {
+              saveApiKey(key);
+              setKeyJustSaved(true);
+              setTimeout(() => setKeyJustSaved(false), 6000);
+            }}
+            onRemove={() => saveApiKey('')}
+            onTest={testApiKey}
+          />
+        )}
+
+        {/* Primary task input */}
+        <TaskInput running={isRunning} disabled={RELEASE && !settings.apiKey} onStart={handleStart} onStop={handleStop} />
+
+        {/* Status bars */}
+        <MetricsBar backend={gatewayMode} steps={steps} />
+        <ResourceBar backend={perceptionBackend} modelsLoadedMB={modelsLoadedMB} detail={backendDetail} />
+
+        {/* Interactive request cards */}
         {grantRequest && (
           <GrantRequest
             explanation={grantRequest.explanation}
             onAllowAllSites={() => {
-              // Called from the click itself: Chrome grants a permission request only on a user gesture.
               void browser.permissions.request({ origins: ['<all_urls>'] }).then(
                 (granted) => granted && grantRequest.settle('retry'),
                 () => undefined,
@@ -761,13 +1000,37 @@ function App() {
             onStop={handleStop}
           />
         )}
-        {confirmRequest && <ConfirmAction risk={confirmRequest.risk} description={confirmRequest.description} onDecide={handleConfirmDecision} />}
-        {questionRequest && <AskUser question={questionRequest.question} onAnswer={handleAnswer} />}
+
+        {confirmRequest && (
+          <ConfirmAction
+            risk={confirmRequest.risk}
+            description={confirmRequest.description}
+            onDecide={handleConfirmDecision}
+          />
+        )}
+
+        {questionRequest && (
+          <AskUser question={questionRequest.question} onAnswer={handleAnswer} />
+        )}
+
         {userWait && (
-          <div data-testid="user-wait" style={{ border: '1px solid #c90', background: '#fff8e6', padding: 8, margin: '8px 0', borderRadius: 4 }}>
+          <div
+            data-testid="user-wait"
+            style={{
+              border: `1px solid ${C.warnBorder}`,
+              borderLeft: `3px solid ${C.warn}`,
+              background: C.warnBg,
+              padding: '8px 12px',
+              margin: '8px 0',
+              borderRadius: R.sm,
+              fontSize: T.xs,
+              color: C.warn,
+            }}
+          >
             {userWait}
           </div>
         )}
+
         {guardBlock && (
           <GuardBlockCard
             rule={guardBlock.rule}
@@ -781,23 +1044,38 @@ function App() {
           />
         )}
 
-        <MetricsBar backend={gatewayMode} steps={steps} />
-        <ResourceBar backend={perceptionBackend} modelsLoadedMB={modelsLoadedMB} detail={backendDetail} />
+        {/* Redactions (latest step) */}
+        {lastPayload && (
+          <Section
+            testId="run-redactions"
+            title="Redactions (latest step)"
+            summary={`${lastPayload.redactions.length} redaction(s)`}
+            open
+          >
+            <RedactionSummary
+              redactions={lastPayload.redactions}
+              coverage={lastPayload.coverage}
+              protectedFields={protectedFields}
+            />
+            <UnredactPanel
+              redactions={lastPayload.redactions}
+              onUnredact={(ref, reason) => session?.unredact(ref, reason)}
+            />
+          </Section>
+        )}
+
+        {/* Execution Log */}
         <RunLogView
           log={runLog}
-          running={panelState === 'running' || panelState === 'loading' || panelState === 'awaiting-confirmation' || panelState === 'awaiting-grant' || panelState === 'awaiting-user'}
+          running={isLogRunning}
           showRawPayload={settings.showRawPayload}
           loadFailures={modelLoadFailures}
           workerProblems={workerProblems}
         />
-        {lastPayload && (
-          <Section testId="run-redactions" title="Redactions (latest step)" summary={`${lastPayload.redactions.length} redaction(s)`} open>
-            <RedactionSummary redactions={lastPayload.redactions} coverage={lastPayload.coverage} protectedFields={protectedFields} />
-            <UnredactPanel redactions={lastPayload.redactions} onUnredact={(ref, reason) => session?.unredact(ref, reason)} />
-          </Section>
-        )}
+
+        {/* Developer Timeline (when enabled in settings) */}
         {settings.debugOverlay && <StepTimeline steps={steps} />}
-      </div>
+      </main>
     </div>
   );
 }

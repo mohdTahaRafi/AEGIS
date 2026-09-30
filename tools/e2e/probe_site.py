@@ -1,5 +1,8 @@
-"""Runs one task on any URL through the real extension and the running gateway, and reports what
-crossed the network boundary: step statuses, payload sizes, how many nodes/text runs were sent,
+"""Runs one task on any URL through the real extension and reports what crossed the network
+boundary. Two model paths: the running legacy gateway (default), or `--byok`, the shipped
+bring-your-own-key path where the extension calls the model API itself with a key saved in its
+settings (Groq by default; `--model-url` points it at tools/e2e/fake_vlm.py for a zero-quota
+debugging run). It reports: step statuses, payload sizes, how many nodes/text runs were sent,
 the prompt size the gateway builds from it, whether an image was sent, and the panel's final
 state. Pair it with tools/e2e/fake_vlm.py (FAKE_VLM_SCENARIO=probe) to check real sites without
 spending VLM quota, or with the live gateway for a real run.
@@ -28,6 +31,26 @@ from aegis_gateway.prompt import build_messages  # noqa: E402
 
 EXTENSION_DIR = REPO / "apps" / "extension" / ".output" / "chrome-mv3-dev"
 GATEWAY = "http://localhost:8787"
+MODEL_ENV = REPO / "server" / "deploy" / "model.env"
+
+
+def is_step_request(url: str) -> bool:
+    return url.endswith("/steps") or url.endswith("/chat/completions")
+
+
+def load_api_key() -> str:
+    """The key for --byok, from the environment or model.env. Never printed or logged."""
+    import os
+
+    key = os.environ.get("AEGIS_MODEL_API_KEY", "")
+    if not key and MODEL_ENV.exists():
+        for line in MODEL_ENV.read_text().splitlines():
+            if line.startswith("AEGIS_MODEL_API_KEY="):
+                key = line.split("=", 1)[1].split("#")[0].strip()
+    if not key:
+        sys.exit("--byok needs AEGIS_MODEL_API_KEY (or server/deploy/model.env)")
+    return key
+
 TERMINAL = ("Done", "Error", "Blocked", "Idle")
 
 
@@ -48,6 +71,8 @@ def main() -> int:
     parser.add_argument("--fill", action="append", default=[], help="synthetic value typed into the next visible text-like input, in page order (repeatable); audited as must-not-leak")
     parser.add_argument("--expect", help="text that must be on the page after the task")
     parser.add_argument("--gateway", help="server URL the extension uses (default: its build-time URL, :8787)")
+    parser.add_argument("--byok", action="store_true", help="no gateway: save the API key in the extension's settings and let it call the model itself. Key: $AEGIS_MODEL_API_KEY, else server/deploy/model.env (never printed)")
+    parser.add_argument("--model-url", help="--byok: OpenAI-compatible endpoint the key is used with (default: Groq); e.g. http://127.0.0.1:8799/v1 for fake_vlm.py")
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=800)
     args = parser.parse_args()
@@ -67,10 +92,10 @@ def main() -> int:
     with sync_playwright() as p:
         size = {"no_viewport": True} if args.watch else {"viewport": {"width": args.width, "height": args.height}}
         context = p.chromium.launch_persistent_context(user_data_dir="", headless=False, args=launch_args, **size)
-        context.on("request", lambda r: r.url.endswith("/steps") and sent.append({"body": r.post_data or ""}))
+        context.on("request", lambda r: is_step_request(r.url) and sent.append({"body": r.post_data or ""}))
 
         def on_response(r) -> None:
-            if r.url.endswith("/steps"):
+            if is_step_request(r.url):
                 try:
                     body = r.text()
                 except Exception:  # noqa: BLE001
@@ -112,7 +137,15 @@ def main() -> int:
         page.on("pageerror", lambda e: page_logs.append(f"[pageerror] {e}"[:300]))
         panel.goto(f"chrome-extension://{ext}/sidepanel.html")
         panel.wait_for_function("typeof window.__aegisRunTask === 'function'", timeout=15000)
-        if args.gateway:
+        if args.byok:
+            settings = {"apiKey": load_api_key(), "serverUrl": ""}
+            if args.model_url:
+                settings["modelUrl"] = args.model_url
+            panel.evaluate("(s) => chrome.storage.local.set({ aegis_settings: s })", settings)
+            panel.reload()
+            panel.wait_for_function("typeof window.__aegisRunTask === 'function'", timeout=15000)
+            time.sleep(0.5)
+        elif args.gateway:
             panel.evaluate("(u) => chrome.storage.local.set({ aegis_settings: { serverUrl: u } })", args.gateway)
             panel.reload()
             panel.wait_for_function("typeof window.__aegisRunTask === 'function'", timeout=15000)
@@ -139,7 +172,7 @@ def main() -> int:
         time.sleep(1.0)
         timed_out = False
         while True:
-            state = panel.evaluate("document.querySelector('p')?.innerText ?? ''")
+            state = panel.evaluate("(document.querySelector('header')?.innerText ?? '').trim().split('\\n').pop()")
             if any(state.startswith(w) for w in TERMINAL):
                 break
             allow = panel.locator("button", has_text="Allow once")
@@ -174,6 +207,26 @@ def main() -> int:
             payload = json.loads(request["body"])
         except json.JSONDecodeError:
             continue
+        if "messages" in payload:  # --byok: what the extension sent to the model API itself
+            texts = []
+            image_b64 = None
+            for m in payload["messages"]:
+                for part in m["content"] if isinstance(m["content"], list) else [{"type": "text", "text": m["content"]}]:
+                    if part.get("type") == "text":
+                        texts.append(part["text"])
+                    elif part.get("type") == "image_url":
+                        image_b64 = part["image_url"]["url"].split("base64,", 1)[1]
+            if image_b64:
+                (out / f"step{i}-sent-image.webp").write_bytes(base64.b64decode(image_b64))
+            (out / f"step{i}-sent.txt").write_text("\n\n".join(texts))
+            steps.append({
+                "bytes": len(request["body"]),
+                "model": payload.get("model"),
+                "image": bool(image_b64),
+                "prompt_text_chars": sum(len(t) for t in texts),
+                "elements": sum(1 for t in texts for line in t.splitlines() if line.startswith("e") and " | " in line),
+            })
+            continue
         image = payload.get("image")
         prompt_chars = sum(
             len(part["text"]) if isinstance(part, dict) and part.get("type") == "text" else 0
@@ -204,7 +257,7 @@ def main() -> int:
         "load_s": round(load_s, 1),
         "task_s": round(elapsed, 1),
         "timed_out": timed_out,
-        "panel_state": lines[2] if len(lines) > 2 else "",
+        "panel_state": next((l for l in lines if l in ("Done", "Error", "Blocked by guard", "Idle", "Running", "Loading")), ""),
         "panel_error": next((l for l in lines if l.startswith("Error:")), None),
         "panel_perception": [l for l in lines if l.startswith(("Perception", "ran:", "crops:", "redactions by source", "Redactions"))],
         "filled_values_leaked": leaks,
