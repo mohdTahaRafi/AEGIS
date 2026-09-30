@@ -56,3 +56,6 @@ coverage/
 
 # E2E demo driver artifacts (payloads, screenshots)
 tools/e2e/out/
+
+# Intermediate fp32 export (351 MB) of the CLIP screener; the shipped model is the int8 one
+tools/models/*.fp32.onnx
