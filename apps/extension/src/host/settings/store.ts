@@ -6,6 +6,7 @@
 
 import type { EntityType } from '@aegis/recognizers';
 import type { Policy } from '@aegis/policy';
+import { DEFAULT_MODEL_NAME, DEFAULT_MODEL_URL } from '../egress/model-client';
 
 export type BackendPref = 'auto' | 'webgpu' | 'wasm';
 export type NerProfile = 'S' | 'L';
@@ -18,6 +19,14 @@ export type NerProfile = 'S' | 'L';
 export type AlwaysRedactMap = Partial<Record<EntityType, boolean>>;
 
 export interface Settings {
+  /** The user's own model API key (bring your own key). Kept only in this browser's extension
+   * storage; it goes to the model API and nowhere else, and is never logged. */
+  apiKey: string;
+  /** Development builds only: the OpenAI-compatible endpoint and model the key is used with. A
+   * release build always uses Groq's (`resolveModelConfig`). */
+  modelUrl: string;
+  modelName: string;
+  /** Development/eval builds only: the legacy server gateway, used when no `apiKey` is set. */
   serverUrl: string;
   accessToken: string;
   backend: BackendPref;
@@ -43,6 +52,9 @@ export interface SettingsStorageArea {
  * with no saved settings behaves exactly as it did before this module existed. */
 export function defaultSettings(buildTimeServerUrl: string, buildTimeAccessToken: string): Settings {
   return {
+    apiKey: '',
+    modelUrl: DEFAULT_MODEL_URL,
+    modelName: DEFAULT_MODEL_NAME,
     serverUrl: buildTimeServerUrl,
     accessToken: buildTimeAccessToken,
     backend: 'auto',
@@ -66,6 +78,9 @@ export async function loadSettings(storage: SettingsStorageArea, defaults: Setti
   // blob saved by an older build that's missing a newly-added field (e.g. `alwaysRedact`) still
   // gets that field's default instead of `undefined`.
   return {
+    apiKey: typeof raw.apiKey === 'string' ? raw.apiKey : defaults.apiKey,
+    modelUrl: raw.modelUrl ?? defaults.modelUrl,
+    modelName: raw.modelName ?? defaults.modelName,
     serverUrl: raw.serverUrl ?? defaults.serverUrl,
     accessToken: raw.accessToken ?? defaults.accessToken,
     backend: raw.backend ?? defaults.backend,
@@ -89,4 +104,26 @@ export function applyAlwaysRedact(policy: Policy, alwaysRedact: AlwaysRedactMap)
   const entityClass = { ...policy.entityClass };
   for (const entity of forced) entityClass[entity] = 'CRITICAL';
   return { ...policy, entityClass };
+}
+
+/** What a pasted key needs before it is stored: surrounding whitespace, quotes and a stray
+ * `Bearer ` prefix are copy-paste noise, not part of the key. */
+export function cleanApiKey(input: string): string {
+  return input.trim().replace(/^["']|["']$/g, '').replace(/^Bearer\s+/i, '').trim();
+}
+
+/** A shape check only (Groq keys are `gsk_` plus ~50 characters): "Test key" is what proves a key
+ * works. */
+export function looksLikeApiKey(key: string): boolean {
+  return /^[A-Za-z0-9_-]{20,}$/.test(key);
+}
+
+/** The endpoint, model and key a task talks to. A release build ignores any stored endpoint or
+ * model: the key is only ever sent to Groq. */
+export function resolveModelConfig(settings: Settings, release: boolean): { apiKey: string; baseUrl: string; model: string } {
+  return {
+    apiKey: settings.apiKey,
+    baseUrl: release ? DEFAULT_MODEL_URL : settings.modelUrl || DEFAULT_MODEL_URL,
+    model: release ? DEFAULT_MODEL_NAME : settings.modelName || DEFAULT_MODEL_NAME,
+  };
 }

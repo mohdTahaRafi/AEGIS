@@ -56,7 +56,7 @@ describe('buildPipelineTrace', () => {
       'Text recognisers + merge (sanitize)',
       'Screenshot redaction (compositor)',
       'Guard',
-      'Sent to gateway → VLM',
+      'Sent to the model',
     ]);
   });
 
@@ -106,7 +106,7 @@ describe('buildPipelineTrace', () => {
 
   it('stages still to come are pending, not reported as done', () => {
     const stages = buildPipelineTrace({ status, payload: null, protectedFields: [], guardBlock: null });
-    expect(stages.at(-1)).toMatchObject({ title: 'Sent to gateway → VLM', status: 'pending' });
+    expect(stages.at(-1)).toMatchObject({ title: 'Sent to the model', status: 'pending' });
     expect(stages[0]!.status).toBe('pending');
   });
 

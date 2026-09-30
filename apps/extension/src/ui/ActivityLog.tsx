@@ -39,7 +39,7 @@ export function ActivityLog({ entries }: { entries: ActivityEntry[] }) {
   if (entries.length === 0) return null;
   return (
     <div data-testid="activity" style={{ margin: '8px 0', fontSize: 12 }}>
-      <strong>Activity</strong> (VLM plan → validated by gateway + extension → executed on this page)
+      <strong>Activity</strong> (model plan → validated on this device → executed on this page)
       {entries.map((entry, i) =>
         entry.kind === 'note' ? (
           <div key={i} style={{ color: '#555', margin: '4px 0' }}>

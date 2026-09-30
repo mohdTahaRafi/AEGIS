@@ -20,7 +20,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 # probe: always done (for tools/e2e/probe_site.py on arbitrary sites).
 SCENARIO = os.environ.get("FAKE_VLM_SCENARIO", "one_shot")
 
-ELEMENT = re.compile(r"^(n-[0-9a-z]+) \| (\w+) \| \"([^\"]*)\"", re.M)
+ELEMENT = re.compile(r"^(n-[0-9a-z]+|e[0-9]+) \| (\w+) \| \"([^\"]*)\"", re.M)
 USERNAME_REF = re.compile(r"⟪(USERNAME#\d+)⟫")
 VIEWPORT = re.compile(r"^VIEWPORT: ([\d.]+)x([\d.]+)", re.M)
 
