@@ -6,16 +6,18 @@
   "scripts": {
     "dev": "wxt",
     "dev:firefox": "wxt -b firefox",
-    "build": "wxt build",
-    "build:firefox": "wxt build -b firefox",
+    "build": "pnpm run verify:models && wxt build && tsx scripts/verify-release.ts chrome-mv3",
+    "build:firefox": "pnpm run verify:models && wxt build -b firefox && tsx scripts/verify-release.ts firefox-mv3",
     "build:debug": "wxt build --mode development",
-    "zip": "wxt zip",
-    "zip:firefox": "wxt zip -b firefox",
+    "zip": "pnpm run verify:models && wxt zip && tsx scripts/verify-release.ts chrome-mv3",
+    "zip:firefox": "pnpm run verify:models && wxt zip -b firefox && tsx scripts/verify-release.ts firefox-mv3",
     "postinstall": "wxt prepare",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:firefox": "vitest run --config vitest.config.firefox.ts",
-    "check:no-network": "tsx scripts/check-no-network.ts"
+    "check:no-network": "tsx scripts/check-no-network.ts",
+    "verify:models": "tsx scripts/verify-models.ts",
+    "verify:release": "tsx scripts/verify-release.ts chrome-mv3 firefox-mv3"
   },
   "dependencies": {
     "@aegis/policy": "workspace:*",
