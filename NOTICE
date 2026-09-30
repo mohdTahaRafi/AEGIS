@@ -3,29 +3,36 @@
 AEGIS bundles or depends on the following third-party components. Each ships with its own licence;
 nothing here is redistributed under the MIT licence in LICENSE.
 
-## Models
+## Models bundled in the extension package
+
+Exactly these files, pinned by sha256 in `apps/extension/public/models/models.manifest.json`
+(the release build refuses to complete if any differs):
 
 | Model | Licence | Source | Used for |
 |---|---|---|---|
-| YuNet face detector (`face_detection_yunet_2023mar.onnx`) | MIT (Shiqi Yu) | [opencv/opencv_zoo](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) | Face detection (design.md §6.4, F-C04). Fetched and sha256-verified by `apps/extension/scripts/fetch-models.ts`; see `apps/extension/public/models/models.manifest.json`. |
+| YuNet face detector (`face_detection_yunet_2023mar.onnx`) | MIT (Shiqi Yu) | [opencv/opencv_zoo](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) | Face detection |
+| PP-OCRv5 mobile text detector and English / Devanagari recognizers, with their character dictionaries | Apache-2.0 (PaddleOCR; ONNX exports by RapidAI RapidOCR) | [RapidAI/RapidOCR v3.9.2](https://www.modelscope.cn/models/RapidAI/RapidOCR) | On-device text reading (OCR) |
+| CLIP ViT-B/32 image encoder (`vit-vision.onnx`, int8-quantized) and precomputed text-prompt embeddings (`vit-prompts.bin`) | MIT (OpenAI CLIP weights, via open_clip_torch's `openai` tag) | [openai/CLIP](https://github.com/openai/CLIP), exported with `tools/models/` | Zero-shot screening of pictures and the screen-state label |
 
-Models to be added as later phases land (architecture.md §6.3), each recorded here on arrival:
-- CLIP-family zero-shot ViT image encoder (Phase 4, F-C05)
-- PP-OCRv5 mobile detector + recognizer (Phase 6, F-C07)
-- PII token classifier, profile S (Phase 3, F-C09)
-- OpenAI Privacy Filter, profile L, optional (Phase 6, F-C09)
-- Qwen3-VL-8B-Instruct or equivalent, server-side only, not bundled (Phase 2, F-I05)
+## Model used through an API, not bundled
 
-## Key libraries
+| Model | Licence | Used for |
+|---|---|---|
+| Qwen3.8-27B (`qwen/qwen3.8-27b`), hosted by Groq | as published by its authors | Planning each step, from the redacted context. Called from the extension with the user's own Groq API key (bring your own key); subject to Groq's terms |
+
+## Development-only components (not in a release)
+
+- OpenAI Privacy Filter (profile L NER, ~950 MB): fetched separately for browser tests; never part of a release build.
+- FastAPI, Pydantic and vLLM (MIT, MIT, Apache-2.0): the legacy server gateway and its self-hosted model option, used by the evaluation harness and dev runs only.
+
+## Key libraries in the extension
 
 | Library | Licence | Used for |
 |---|---|---|
-| ONNX Runtime Web | MIT | On-device inference (WebGPU / WASM) |
+| ONNX Runtime Web (JS and the WebAssembly binary in the package) | MIT | On-device inference (WebGPU / WASM) |
 | Preact | MIT | Panel UI |
 | WXT | MIT | Cross-browser extension build |
-| FastAPI | MIT | Agent Gateway |
-| Pydantic | MIT | Protocol validation (server side) |
-| vLLM | Apache-2.0 | Model serving (server side) |
+| Ajv (generated validators) | MIT | Validating protocol messages |
 
 Full dependency licences are also available via each package's own `package.json` /
 `pyproject.toml` and the resolved lockfiles (`pnpm-lock.yaml`, `uv.lock`).
