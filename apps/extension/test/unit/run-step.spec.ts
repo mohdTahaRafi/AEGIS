@@ -85,12 +85,23 @@ describe('runPerceptionStep — capture outcomes are reported, never swallowed',
     expect(client.perceive).not.toHaveBeenCalled();
   });
 
-  it("reports geometry-changed when the page moved during capture", async () => {
+  it('reports geometry-changed when text on the page moved during capture', async () => {
     const bitmap = fakeBitmap();
-    const d = { ...deps(async () => ({ ok: true as const, bitmap }), clientReturning(new Error('unused'))), reobserveGeometry: async () => [TEXT, node('n-2', 'img', [300, 300, 200, 200])] };
-    const result = await runPerceptionStep([TEXT, IMG], d);
+    const label = { ...node('n-3', 'paragraph', [20, 300, 300, 20]), name: 'Email: someone' };
+    const moved = { ...label, box: [20, 340, 300, 20] as [number, number, number, number] };
+    const d = { ...deps(async () => ({ ok: true as const, bitmap }), clientReturning(new Error('unused'))), reobserveGeometry: async () => [TEXT, IMG, moved] };
+    const result = await runPerceptionStep([TEXT, IMG, label], d);
     expect(result.status.capture).toBe('geometry-changed');
     expect(bitmap.close).toHaveBeenCalled();
+  });
+
+  it('a picture that moved, or content that appeared, during the capture does not void it (the pixels are screened)', async () => {
+    const bitmap = fakeBitmap();
+    const label = { ...node('n-3', 'paragraph', [20, 300, 300, 20]), name: 'Email: someone' };
+    const arrived = { ...node('n-4', 'paragraph', [20, 400, 300, 20]), name: 'New banner' };
+    const d = { ...deps(async () => ({ ok: true as const, bitmap }), clientReturning(new Error('unused'))), reobserveGeometry: async () => [TEXT, label, node('n-2', 'img', [300, 300, 200, 200]), arrived] };
+    const result = await runPerceptionStep([TEXT, IMG, label], d);
+    expect(result.status.capture).not.toBe('geometry-changed');
   });
 
   it('a HiDPI capture that cannot be resized to CSS pixels yields no image (fails closed)', async () => {

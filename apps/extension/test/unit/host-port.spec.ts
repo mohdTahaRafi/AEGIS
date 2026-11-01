@@ -35,7 +35,6 @@ describe('ContentPortClient', () => {
       onGraph: vi.fn(),
       onActionResult: vi.fn(),
       onSettled: vi.fn(),
-      onNavigated: vi.fn(),
       onDisconnect: vi.fn(),
     };
     new ContentPortClient(port, handlers);
@@ -44,14 +43,12 @@ describe('ContentPortClient', () => {
     port.emit({ type: 'graph', frame: 'f-0', nodes: [], removed: [], textRuns: [], privacyEpoch: 0, reason: 'initial', hostileDynamic: false });
     port.emit({ type: 'action-result', actionId: 'a-1', ok: true });
     port.emit({ type: 'settled', actionId: 'a-1' });
-    port.emit({ type: 'navigated' });
     port.disconnect();
 
     expect(handlers.onReady).toHaveBeenCalledWith('f-0');
     expect(handlers.onGraph).toHaveBeenCalledTimes(1);
     expect(handlers.onActionResult).toHaveBeenCalledTimes(1);
     expect(handlers.onSettled).toHaveBeenCalledTimes(1);
-    expect(handlers.onNavigated).toHaveBeenCalledTimes(1);
     expect(handlers.onDisconnect).toHaveBeenCalledTimes(1);
   });
 

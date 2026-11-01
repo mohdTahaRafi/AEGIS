@@ -1,7 +1,5 @@
 /// <reference lib="webworker" />
-// design.md §11.1 — the real perception-worker message loop, replacing the Phase-0 spike's
-// probe/bench handlers (kept as `spike-protocol.ts`; its pure math is still locked down by
-// `test/unit/percentile.test.ts`). This is the only place raw pixels live (architecture §5.3):
+// design.md §11.1 — the perception-worker message loop. This is the only place raw pixels live (architecture §5.3):
 // an `ImageBitmap` arrives transferred from the host, is closed once its capture's `compose`/
 // `rescan` finish, and nothing here ever calls `fetch`/`XMLHttpRequest` for anything but a
 // same-origin, extension-bundled model file (verified by sha256 in `runtime/sessions.ts` before
@@ -540,6 +538,7 @@ async function handleCompose(msg: Extract<ToWorker, { t: 'compose' }>): Promise<
     unlabelled: msg.unlabelled,
     clearDefault: msg.clearDefault,
     grey: msg.grey,
+    marks: msg.marks,
   });
   const webp = await encodeWebp(output.canvas);
   // T-6.10: NOT closed here. This file's own `currentCapture` doc comment already says the
@@ -720,6 +719,11 @@ self.addEventListener('message', (event: MessageEvent<ToWorker>) => {
       }
       if (msg.t === 'evict') {
         registry?.evict(msg.model);
+        return;
+      }
+      if (msg.t === 'reset') {
+        closeCurrentCapture();
+        regionCache.clear();
         return;
       }
     } catch (err) {

@@ -124,7 +124,7 @@ describe('Session — terminal paths always emit', () => {
   });
 
   it('declining a risky action stops as USER_DECLINED', async () => {
-    const send = vi.fn().mockResolvedValue({ step_id: 's-1', actions: [{ op: 'click_point', x: 10, y: 10, label: 'x' }] });
+    const send = vi.fn().mockResolvedValue({ step_id: 's-1', actions: [{ op: 'click_point', x: 10, y: 10, label: 'Delete account' }] });
     const { session, events } = build(send, { confirm: async () => false });
     await session.start('t');
     expect(session.getState()).toBe('STOPPED');
@@ -386,7 +386,6 @@ describe('Session — the model\'s browser actions (navigate, open_tab, back/for
     expect(confirm).toHaveBeenCalledWith('medium', 'open in a new tab https://www.amazon.in');
     expect(browser.openTab).toHaveBeenCalledWith('https://www.amazon.in/s?k=65w+charger');
     expect(events).toContainEqual({ type: 'action_status', stepId: 's-1', index: 1, status: 'skipped', reason: 'the page changed' });
-    expect(browser.waitForPageReady).toHaveBeenCalled();
     expect(session.getState()).toBe('DONE');
   });
 

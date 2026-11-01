@@ -152,7 +152,7 @@ describe('Session — budgets (T-2.18 AC)', () => {
   it('stops with STEPS_EXCEEDED, distinct reason code, when the step budget is hit', async () => {
     const sendToGateway = vi.fn().mockResolvedValue({ step_id: 's-1', actions: [{ op: 'wait', ms: 1 }] });
     const { session, events } = buildSession(sendToGateway, graphResponder, {
-      budgetLimits: { stepsPerTask: 1, serverCallsPerStep: 4, localRepairsPerAction: 2, capturesPerStep: 3, settleTimeoutMs: 1500, serverResponseTimeoutMs: 20_000, taskWallClockMs: 600_000 },
+      budgetLimits: { stepsPerTask: 1, serverCallsPerStep: 4, taskWallClockMs: 600_000 },
     });
 
     await session.start('loop forever');
@@ -164,7 +164,7 @@ describe('Session — budgets (T-2.18 AC)', () => {
   it('a schema-invalid plan is rejected and does not dispatch anything', async () => {
     const sendToGateway = vi.fn().mockResolvedValue({ not: 'a valid plan' });
     const { session, events, port } = buildSession(sendToGateway, graphResponder, {
-      budgetLimits: { stepsPerTask: 1, serverCallsPerStep: 4, localRepairsPerAction: 2, capturesPerStep: 3, settleTimeoutMs: 1500, serverResponseTimeoutMs: 20_000, taskWallClockMs: 600_000 },
+      budgetLimits: { stepsPerTask: 1, serverCallsPerStep: 4, taskWallClockMs: 600_000 },
     });
 
     await session.start('do something');

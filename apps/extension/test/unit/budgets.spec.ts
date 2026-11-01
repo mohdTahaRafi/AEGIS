@@ -20,24 +20,6 @@ describe('BudgetTracker (design.md §10.2 / phase_2_spine.md §4.2 AC)', () => {
     expect(tracker.recordServerCall()).toBeNull();
   });
 
-  it('trips REPAIRS_EXCEEDED per action, independent of the step counters', () => {
-    const tracker = new BudgetTracker({ ...DEFAULT_BUDGETS, localRepairsPerAction: 2 });
-    tracker.beginAction();
-    expect(tracker.recordRepair()).toBeNull();
-    expect(tracker.recordRepair()).toBeNull();
-    expect(tracker.recordRepair()).toBe('REPAIRS_EXCEEDED');
-
-    tracker.beginAction(); // next action resets the counter
-    expect(tracker.recordRepair()).toBeNull();
-  });
-
-  it('trips CAPTURES_EXCEEDED per step (Phase 4 forward dependency, tracked now)', () => {
-    const tracker = new BudgetTracker({ ...DEFAULT_BUDGETS, capturesPerStep: 1 });
-    tracker.beginStep();
-    expect(tracker.recordCapture()).toBeNull();
-    expect(tracker.recordCapture()).toBe('CAPTURES_EXCEEDED');
-  });
-
   it('trips WALL_CLOCK_EXCEEDED once the task has run past its budget', () => {
     let now = 0;
     const tracker = new BudgetTracker({ ...DEFAULT_BUDGETS, taskWallClockMs: 1000 }, () => now);

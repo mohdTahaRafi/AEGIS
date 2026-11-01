@@ -2,10 +2,12 @@ import { render } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { ContentPortClient, connectToTab } from '../../src/host/port';
 import { connectToLiveContent } from '../../src/host/content-connection';
-import { ensureTaskPermissions } from '../../src/host/platform/capabilities';
+import { ensureTaskPermissions, listenForPermissionRevocation } from '../../src/host/platform/capabilities';
 import { createGatewayClient, type GatewayClient } from '../../src/host/egress/gateway-client';
 import { createAgentClient } from '../../src/host/egress/agent-client';
 import { verifyApiKey } from '../../src/host/egress/model-client';
+import { PROVIDERS, type ProviderId } from '../../src/host/egress/providers';
+import { PERCEPTION_MODELS } from '../../src/host/perception-client/model-specs';
 import { Session, type SessionEvent, type StepRecord } from '../../src/host/session';
 import { PerceptionClient, type WorkerProblem } from '../../src/host/perception-client/client';
 import type { CaptureResult } from '../../src/host/capture/classify';
@@ -23,22 +25,24 @@ import { ConfirmAction } from '../../src/ui/ConfirmAction';
 import { AskUser } from '../../src/ui/AskUser';
 import { GrantRequest } from '../../src/ui/GrantRequest';
 import { GuardBlockCard } from '../../src/ui/GuardBlockCard';
-import { RedactionSummary } from '../../src/ui/RedactionSummary';
 import { applyRunLogEvent, EMPTY_RUN_LOG, type RunLog } from '../../src/ui/RunLog';
-import { RunLogView, Section } from '../../src/ui/RunLogView';
+import { ResultCard, RunLogView } from '../../src/ui/RunLogView';
 import type { ProtectedField } from '../../src/host/session';
-import { UnredactPanel } from '../../src/ui/UnredactPanel';
+import { PrivacyCard } from '../../src/ui/PrivacyCard';
+import { TaskProgress } from '../../src/ui/TaskProgress';
+import { ErrorNotice, Notice } from '../../src/ui/Notice';
+import { IconGear, Logo } from '../../src/ui/icons';
 import { Settings } from '../../src/ui/Settings';
 import type { SanitizedContext } from '@aegis/protocol';
 import type { EntityType } from '@aegis/recognizers';
 import type { AblationArm } from '../../src/shared/ablation';
 import { defaultPolicy } from '@aegis/policy';
-import { applyAlwaysRedact, defaultSettings, loadSettings, resolveModelConfig, saveSettings, type Settings as SettingsValue } from '../../src/host/settings/store';
+import { activeApiKey, applyAlwaysRedact, defaultSettings, loadSettings, resolveModelConfig, saveSettings, type Settings as SettingsValue } from '../../src/host/settings/store';
 import { ApiKeyCard } from '../../src/ui/ApiKeyCard';
-import { C, R, T } from '../../src/ui/design';
+import { C, R, S, T } from '../../src/ui/design';
 
 // A release build (`wxt build`) has no server and no developer endpoints: every task goes straight
-// from this panel to Groq with the user's own key. Development builds may still use the legacy
+// from this panel to the chosen model API (egress/providers.ts) with the user's own key. Development builds may still use the legacy
 // gateway (eval harness, replay demo) when no key is saved.
 const RELEASE = import.meta.env.MODE === 'production';
 
@@ -55,64 +59,6 @@ const GATEWAY_TOKEN = RELEASE ? '' : ((import.meta.env.VITE_GATEWAY_TOKEN as str
 // that exists — `defaultPolicy.entityClass`'s own keys are that list already (packages/policy's
 // real data), not a second hardcoded enum living here.
 const SETTINGS_ENTITY_TYPES = Object.keys(defaultPolicy.entityClass) as EntityType[];
-
-// Mirrors public/models/models.manifest.json's face entry (T-4.3). [A] Duplicated rather than
-// imported: `public/` assets are runtime-fetched static files in WXT/Vite's model, not part of
-// the module graph — importing JSON from there would require a build-time file read this
-// entrypoint has no reason to also own. Kept in sync by hand; a mismatch fails loudly (sha256
-// verification in `runtime/sessions.ts` rejects a stale hash) rather than silently.
-const FACE_MODEL_SPEC = {
-  id: 'face-yunet-2023mar',
-  role: 'face' as const,
-  url: '/models/face_detection_yunet_2023mar.onnx',
-  sha256: '8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4',
-  resident: true,
-};
-
-// Mirrors models.manifest.json's three OCR entries (T-6.3/T-6.4) — same hand-duplication pattern
-// and the same reason (public/ assets aren't part of the module graph). `resident: false`: OCR
-// lazy-loads on first use (the halo re-scan today; a future T-6.5/T-6.6 fusion integration would
-// be its other caller), per design.md §6.4's degradation ladder.
-const OCR_DET_MODEL_SPEC = {
-  id: 'ocr-det-ppocrv5-mobile',
-  role: 'ocr-det' as const,
-  url: '/models/ocr_det_ppocrv5_mobile.onnx',
-  sha256: '4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae',
-  resident: false,
-};
-const OCR_REC_EN_MODEL_SPEC = {
-  id: 'ocr-rec-ppocrv5-mobile-en',
-  role: 'ocr-rec' as const,
-  script: 'latin' as const,
-  url: '/models/ocr_rec_ppocrv5_mobile_en.onnx',
-  sha256: 'c3461add59bb4323ecba96a492ab75e06dda42467c9e3d0c18db5d1d21924be8',
-  dictUrl: '/models/ocr_rec_ppocrv5_mobile_en.dict.txt',
-  dictSha256: 'e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6',
-  resident: false,
-};
-const OCR_REC_DEVANAGARI_MODEL_SPEC = {
-  id: 'ocr-rec-ppocrv5-mobile-devanagari',
-  role: 'ocr-rec' as const,
-  script: 'devanagari' as const,
-  url: '/models/ocr_rec_ppocrv5_mobile_devanagari.onnx',
-  sha256: 'd6f0a906580e3fa6b324a318718f1f31f268b6ea8ef985f91c2012a37f52c91e',
-  dictUrl: '/models/ocr_rec_ppocrv5_mobile_devanagari.dict.txt',
-  dictSha256: '09c7440bfc5477e5c41052304b6b185aff8c4a5e8b2b4c23c1c706f6fe1ee9fc',
-  resident: false,
-};
-
-// Mirrors models.manifest.json's `vit-vision-clip-b32`/`vit-prompts-b32` entries (T-4.5/T-4.6),
-// same hand-duplication pattern. `resident: true`: design.md §19 keeps the ViT encoder resident
-// alongside the face detector, unlike OCR.
-const VIT_VISION_MODEL_SPEC = {
-  id: 'vit-vision-clip-b32',
-  role: 'vit' as const,
-  url: '/models/vit-vision.onnx',
-  sha256: '2d070b5e6edc1ab9c849333753154025e780491b870bf4d0360f40b8378f19d6',
-  assetUrl: '/models/vit-prompts.bin',
-  assetSha256: '4bc4eecc655897ad2b48f2b79a965cd6fc888b8608b7f7ba422af70403d105e1',
-  resident: true,
-};
 
 /** design.md §11.1 — the host's only reference to `perception/worker.ts`, via the `new
  * Worker(url, {type:'module'})` constructor rather than an import (the ESLint boundary rule
@@ -157,7 +103,9 @@ function dataUrlToBlob(dataUrl: string): Blob {
  * A failure carries its reason and Chrome's own error text so the panel and ledger show why vision
  * was not used; a missing activeTab grant is handled one level up (grant-gate.ts). */
 async function captureTabAsBitmap(target: CaptureTarget): Promise<CaptureResult> {
-  const captured = await captureTargetTab(browser.tabs, target);
+  // No `update`/`query`: the task tab is never pulled to the front behind the user's back — the
+  // capture waits until the user is back on it (`waitForTaskTabVisible` below).
+  const captured = await captureTargetTab({ get: (id) => browser.tabs.get(id), captureVisibleTab: (w, o) => browser.tabs.captureVisibleTab(w, o) }, target);
   if (!captured.ok) {
     let invocation: unknown;
     try {
@@ -258,12 +206,64 @@ declare global {
   }
 }
 
+/** The user's country from the browser's language ("en-IN" → "IN"), for picking shops that serve
+ * it. Undefined when the language names no country. */
+function browserRegion(): string | undefined {
+  for (const tag of navigator.languages ?? [navigator.language]) {
+    const region = /^[a-z]{2,3}-([A-Z]{2})\b/.exec(tag)?.[1];
+    if (region) return region;
+  }
+  return undefined;
+}
+
 /** A stopped task's message. A refused key or an exhausted quota is something the user can fix, so
  * it says so (the detail is the closed-vocabulary one from `agent/errors.ts`). */
-function describeStop(reason: string, detail?: string): string {
-  if (detail?.includes('upstream_auth')) return 'API_KEY_REJECTED - Groq refused your API key (revoked, mistyped or from another account). Open Settings and enter a valid key.';
-  if (detail?.includes('upstream_429')) return `${reason}: ${detail} - your Groq rate or daily token limit is used up; wait, or use a key with more quota, then Run again`;
+function describeStop(reason: string, detail: string | undefined, provider: string): string {
+  if (detail?.includes('upstream_auth')) return `API_KEY_REJECTED - ${provider} refused your API key (revoked, mistyped or from another account). Open Settings and enter a valid key.`;
+  if (detail?.includes('upstream_quota_day')) return `DAILY_LIMIT_REACHED - today's free requests on ${provider} are used up for every model AEGIS can use there. Switch provider in Settings, or Run again tomorrow.`;
+  if (detail?.includes('upstream_429')) return `${reason}: ${detail} - your ${provider} free-tier limit is used up for now; wait, or switch provider in Settings, then Run again`;
   return detail ? `${reason}: ${detail}` : reason;
+}
+
+/** Resolves once the tab is the front tab of its window (immediately if it already is), or false if
+ * `signal` aborts or the tab closes first. `captureVisibleTab` can only see a front tab. */
+function waitForTabVisible(tabId: number, signal: AbortSignal): Promise<boolean> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (visible: boolean) => {
+      if (done) return;
+      done = true;
+      browser.tabs.onActivated.removeListener(onActivated);
+      browser.tabs.onRemoved.removeListener(onRemoved);
+      signal.removeEventListener('abort', onAbort);
+      resolve(visible);
+    };
+    const onActivated = (info: { tabId: number }) => {
+      if (info.tabId === tabId) finish(true);
+    };
+    const onRemoved = (id: number) => {
+      if (id === tabId) finish(false);
+    };
+    const onAbort = () => finish(false);
+    browser.tabs.onActivated.addListener(onActivated);
+    browser.tabs.onRemoved.addListener(onRemoved);
+    signal.addEventListener('abort', onAbort, { once: true });
+    browser.tabs.get(tabId).then(
+      (t) => {
+        if (t.active) finish(true);
+      },
+      () => finish(false),
+    );
+  });
+}
+
+/** The panel's one perception worker: created when the panel opens (models load while the user
+ * types the task) and kept across tasks; `reset` between tasks drops each task's capture and
+ * cached findings. Recreated only when the backend or NER profile setting changes. */
+interface PerceptionHandle {
+  key: string;
+  client: PerceptionClient;
+  ready: Promise<Extract<FromWorker, { t: 'ready' }> | null>;
 }
 
 function App() {
@@ -272,6 +272,8 @@ function App() {
   const [runLog, setRunLog] = useState<RunLog>(EMPTY_RUN_LOG);
   const [protectedFields, setProtectedFields] = useState<ProtectedField[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // The task last started from this panel and when, for the progress card.
+  const [currentTask, setCurrentTask] = useState<{ text: string; startedAt: number } | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [lastPayload, setLastPayload] = useState<SanitizedContext | null>(null);
   const [grantRequest, setGrantRequest] = useState<{ explanation: GrantExplanation; settle: (outcome: 'retry' | 'cancelled') => void } | null>(null);
@@ -286,50 +288,99 @@ function App() {
   const [modelLoadFailures, setModelLoadFailures] = useState<ModelLoadFailure[]>([]);
   const [workerProblems, setWorkerProblems] = useState<WorkerProblem[]>([]);
   const [settings, setSettings] = useState<SettingsValue>(() => defaultSettings(GATEWAY_URL, GATEWAY_TOKEN));
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // The first-run key card stays up a few seconds after a key is saved, so its "Key works" is seen.
   const [keyJustSaved, setKeyJustSaved] = useState(false);
   const sessionRef = useRef<Session | null>(null);
   sessionRef.current = session;
-  // T-6.8, 2026-09-26: real, previously-undiscovered bug found while measuring NER profile L's
-  // corpus recall — `handleStart` (below) is assigned to `window.__aegisRunTask` exactly once, via
-  // an empty-deps effect (see that effect's own comment for why: `handleStart` must stay a stable
-  // reference across renders). That comment reasoned `handleStart` "closes over only stable
-  // setters and module-level constants" — true for `session`/`panelState`, but NOT for `settings`,
-  // which the ORIGINAL, now-fixed code read directly from component state. Every render's
-  // `handleStart` closure captured THAT render's `settings` — but only the FIRST render's
-  // `handleStart` is ever installed as `window.__aegisRunTask`, so it permanently saw the
-  // hardcoded defaults (`nerProfile: 'S'`, `backend: 'auto'`, ...) from before `loadSettings()`'s
-  // async `browser.storage.local` read had even resolved. Invisible to a real user (human reaction
-  // time to click "Run" is far longer than one storage read), but genuinely means NO settings
-  // change has ever actually reached a task run when `__aegisRunTask` fires programmatically before
-  // that read resolves — the eval harness's `--ner-profile L` measurement above always silently ran
-  // against profile S regardless of what was written to storage.local. Fixed the same way
-  // `sessionRef` already fixes the identical class of problem one line up: a ref `handleStart`
-  // reads from, kept current on every render rather than closed over once.
+  // The model "Test key" picked on the first-run card, saved with the key.
+  const pickedModel = useRef<string | undefined>(undefined);
+  // Read by `handleStart`, which the harness hook installs once: it must see the current settings,
+  // not the first render's (the async storage read resolves after that render).
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const perceptionRef = useRef<PerceptionHandle | null>(null);
+  // Aborted by Stop: ends the task's own waits (the task tab coming back to the front, ...).
+  const taskAbortRef = useRef<AbortController | null>(null);
+  // The user declined "all sites" once in this panel session: not asked again on every Run.
+  const allSitesDeclinedRef = useRef(false);
+  // Pending user-facing promises, so Stop can settle every one of them.
+  const confirmRef = useRef(confirmRequest);
+  confirmRef.current = confirmRequest;
+  const questionRef = useRef(questionRequest);
+  questionRef.current = questionRequest;
+  const grantRef = useRef(grantRequest);
+  grantRef.current = grantRequest;
 
   useEffect(() => {
-    loadSettings(browser.storage.local, defaultSettings(GATEWAY_URL, GATEWAY_TOKEN)).then(setSettings);
+    void loadSettings(browser.storage.local, defaultSettings(GATEWAY_URL, GATEWAY_TOKEN)).then((loaded) => {
+      settingsRef.current = loaded;
+      setSettings(loaded);
+      setSettingsLoaded(true);
+    });
+    const onUnload = () => perceptionRef.current?.client.terminate();
+    window.addEventListener('pagehide', onUnload);
+    return () => window.removeEventListener('pagehide', onUnload);
   }, []);
+
+  /** The panel's perception worker for the current settings, created (and its models loading) on
+   * first use; a worker for different backend/NER settings is replaced. */
+  function ensurePerception(current: SettingsValue): PerceptionHandle {
+    const profile: 'S' | 'L' = RELEASE ? 'S' : current.nerProfile;
+    const key = `${current.backend}|${profile}`;
+    const existing = perceptionRef.current;
+    if (existing && existing.key === key) return existing;
+    existing?.client.terminate();
+    const client = createPerceptionClient();
+    client.onProblem((problem) => {
+      console.error('[aegis] perception worker problem', problem);
+      setWorkerProblems((prev) => [...prev.slice(-9), problem]);
+    });
+    const ready = client.init(current.backend, PERCEPTION_MODELS, profile).then(
+      (info) => {
+        setPerceptionBackend(info.backend);
+        setBackendDetail(describeReadyBackend(info));
+        setModelsLoadedMB(info.loaded.reduce((sum, m) => sum + m.bytes, 0) / (1024 * 1024));
+        setModelLoadFailures(info.failed);
+        console.info('[aegis] perception backend', info.backend, { adapter: info.adapterInfo, webgpuRejected: info.webgpuRejected, models: info.loaded.map((m) => ({ role: m.role, provider: m.provider, probeMs: m.probeMs })) });
+        if (info.failed.length > 0) console.error('[aegis] perception models failed to load', info.failed);
+        return info;
+      },
+      (err: unknown) => {
+        // The client re-initialises on the next request (a fresh worker if this one died).
+        console.error('[aegis] perception init failed', err);
+        setPerceptionBackend(null);
+        setBackendDetail(undefined);
+        setModelsLoadedMB(0);
+        setWorkerProblems((prev) => [...prev.slice(-9), { kind: 'error', code: 'INIT_FAILED' }]);
+        return null;
+      },
+    );
+    const handle = { key, client, ready };
+    perceptionRef.current = handle;
+    return handle;
+  }
+
+  // Preload: the models load while the user reads the page and types the task.
+  useEffect(() => {
+    if (settingsLoaded) ensurePerception(settings);
+  }, [settingsLoaded, settings.backend, settings.nerProfile]);
 
   function note(text: string): void {
     setRunLog((prev) => applyRunLogEvent(prev, { type: 'note', text }));
   }
 
-  function handleSessionEvent(event: SessionEvent, activeSession: Session): void {
+  function handleSessionEvent(event: SessionEvent, activeSession: Session | null): void {
     setRunLog((prev) => applyRunLogEvent(prev, event));
     if (event.type === 'step') {
       // Numbers only (closed vocabulary): per-stage wall time of this step, in ms.
       console.info('[aegis] step timings', event.step.stepId, JSON.stringify(Object.fromEntries(Object.entries(event.step.stageTimings).map(([k, v]) => [k, Math.round(v)]))));
       setSteps((prev) => [...prev, event.step]);
-      const latest = activeSession.getLedger().latest();
+      const latest = activeSession?.getLedger().latest();
       if (latest) setLastPayload(latest.payload);
     } else if (event.type === 'sanitized_preview') {
-      // Fires before the network call (session.ts, T-7.4/DR-2) so the sanitized preview survives
-      // a SERVER_ERROR — the 'step' handler above still overwrites this once a step fully
-      // completes, same payload shape either way.
+      // Fires before the network call, so the sanitized preview survives a server error.
       setLastPayload(event.payload);
       setProtectedFields(event.protectedFields ?? []);
     } else if (event.type === 'perception') {
@@ -346,15 +397,18 @@ function App() {
       setUserWait(event.detail ?? 'AEGIS is waiting for you on the page');
     } else if (event.type === 'plan') {
       setUserWait(null);
+      setGuardBlock(null);
     } else if (event.type === 'recovering') {
       console.warn('[aegis] recovering', event.what, event.detail);
     } else if (event.type === 'confirmation_required') {
       setPanelState('awaiting-confirmation');
-      // The Promise this creates is handed to Session via `confirm` below — see handleStart.
     } else if (event.type === 'stopped') {
       setUserWait(null);
+      setConfirmRequest(null);
+      setQuestionRequest(null);
+      setGrantRequest(null);
       setPanelState(event.reason === 'CANCELLED' ? 'idle' : 'error');
-      if (event.reason !== 'CANCELLED') setErrorMessage(describeStop(event.reason, event.detail));
+      if (event.reason !== 'CANCELLED') setErrorMessage(describeStop(event.reason, event.detail, PROVIDERS[settingsRef.current.provider].label.replace(/ \(.*\)$/, '')));
     }
   }
 
@@ -362,19 +416,24 @@ function App() {
    * that tab's window (a visible run puts the panel in its own window beside the page). */
   async function handleStart(task: string, canaries?: readonly string[], targetTabId?: number): Promise<void> {
     setErrorMessage(null);
-    if (RELEASE && !settingsRef.current.apiKey) {
+    const current = settingsRef.current;
+    const apiKey = activeApiKey(current);
+    const providerName = PROVIDERS[current.provider].label.replace(/ \(.*\)$/, '');
+    if (RELEASE && !apiKey) {
       setPanelState('error');
-      setErrorMessage('API_KEY_MISSING - add your Groq API key in the box at the top of this panel, then Run again');
+      setErrorMessage(`API_KEY_MISSING - add your free ${providerName} API key in the box at the top of this panel, then Run again`);
       return;
     }
+    setCurrentTask({ text: task, startedAt: Date.now() });
     setRunLog(EMPTY_RUN_LOG);
     setProtectedFields([]);
     setSteps([]);
     setLastPayload(null);
     setGuardBlock(null);
-    setModelLoadFailures([]);
     setWorkerProblems([]);
     setPanelState('loading');
+    const taskAbort = new AbortController();
+    taskAbortRef.current = taskAbort;
 
     const [tab] = targetTabId !== undefined ? [await browser.tabs.get(targetTabId).catch(() => undefined)] : await browser.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id || !tab.url) {
@@ -391,15 +450,16 @@ function App() {
     const origin = new URL(tab.url).origin;
     note(`AEGIS build ${import.meta.env.VITE_AEGIS_BUILD ?? 'unknown'} UTC`);
     note(`Task "${task}" on ${origin}`);
-    const permissions = await ensureTaskPermissions(browser.permissions, origin);
+    const permissions = await ensureTaskPermissions(browser.permissions, origin, !allSitesDeclinedRef.current);
     if (permissions.state === 'denied') {
       setPanelState('no-permission');
       return;
     }
+    if (!permissions.allSites) allSitesDeclinedRef.current = true;
     note(
       permissions.allSites
-        ? 'Site access: all sites (screenshots of any tab this task moves into)'
-        : 'Site access: this site only - a tab the task opens on another site cannot be screenshotted until you click the AEGIS icon on it (allow "all sites" at Run to avoid this)',
+        ? 'Site access: all sites (the task can move to other sites by itself)'
+        : 'Site access: this site only - a tab the task opens on another site needs a click on the AEGIS icon there (allow "all sites" to avoid this)',
     );
     // After the permission prompt (it needs the Run click's user gesture): a page still loading
     // shows the model a half-empty page on step 1, so let it finish first.
@@ -409,10 +469,9 @@ function App() {
       await sleep(PAINT_MS);
     }
 
-    // Before the gateway session and the model load: a tab with no live content script (open
-    // since before an extension reload, or loaded before its host grant) can never produce a
-    // graph, and a session built on it would wait forever. The port is buffered, so nothing the
-    // content script sends during the awaits below is lost.
+    // Before the model session: a tab with no live content script (open since before an extension
+    // reload, or loaded before its host grant) can never produce a graph. The port is buffered, so
+    // nothing the content script sends during the awaits below is lost.
     const connection = await connectToLiveContent(tab.id, {
       connect: (tabId) => connectToTab(browser.tabs, tabId),
       inject: injectContentScript,
@@ -425,19 +484,33 @@ function App() {
       return;
     }
     const port = connection.port;
-    note('Connected to the page (content script ready)');
+    note('Connected to the page');
     let currentPort = port;
     // The task's target: every capture is of this tab. Its origin follows the page when one of
     // AEGIS's own actions navigates (reconnect below).
     const target: CaptureTarget = { tabId: tab.id, origin };
-    console.info('[aegis] task target', { tabId: tab.id, windowId: tab.windowId, origin });
+    // Every tab this task has worked in, in first-use order: the model sees them as TABS and can go
+    // back to one (switch_tab) or close it. Tabs the user had open otherwise are never listed.
+    const taskTabs: number[] = [tab.id];
 
     // Bring your own key: with a key saved (always, in a release build) the model is called directly
     // from this panel; the gateway is a development fallback only.
-    const useOwnKey = RELEASE || settingsRef.current.apiKey !== '';
+    const useOwnKey = RELEASE || apiKey !== '';
+    let lastStepId = 's-0';
+    const modelConfig = resolveModelConfig(current, RELEASE);
     const gateway: GatewayClient = useOwnKey
-      ? createAgentClient(resolveModelConfig(settingsRef.current, RELEASE))
-      : createGatewayClient(settingsRef.current.serverUrl, import.meta.env.BROWSER === 'firefox' ? 'firefox' : 'chrome', fetch, settingsRef.current.accessToken);
+      ? createAgentClient(
+          modelConfig,
+          {
+            onModelSwitch: (from, to) => {
+              const label = (id: string) => PROVIDERS[modelConfig.provider].models.find((m) => m.id === id)?.label.replace(/ \(.*\)$/, '') ?? id;
+              note(`Today's free requests for ${label(from)} are used up: continuing with ${label(to)}`);
+            },
+          },
+          (commentary) => handleSessionEvent({ type: 'commentary', stepId: lastStepId, ...commentary }, sessionRef.current),
+          browserRegion(),
+        )
+      : createGatewayClient(current.serverUrl, import.meta.env.BROWSER === 'firefox' ? 'firefox' : 'chrome', fetch, current.accessToken);
     // A gateway that is starting, restarting or briefly unreachable is waited for; only a wrong
     // token (retrying cannot fix it) or a gateway that never comes up ends the attempt. Opening a
     // session with the model directly is local and cannot fail.
@@ -464,7 +537,7 @@ function App() {
           ? 'GATEWAY_REJECTED_TOKEN (401) - the access token in Settings must match the gateway\'s AEGIS_TOKEN'
           : openStatus
             ? `GATEWAY_SESSION_FAILED (HTTP ${openStatus})`
-            : `GATEWAY_UNREACHABLE - is the gateway running at ${settingsRef.current.serverUrl}? (server/deploy/run-gateway.sh)`,
+            : `GATEWAY_UNREACHABLE - is the gateway running at ${current.serverUrl}? (server/deploy/run-gateway.sh)`,
       );
       setGatewayMode('not connected');
       port.disconnect?.();
@@ -472,81 +545,44 @@ function App() {
     }
     let gatewaySessionId = created.session_id;
     setGatewayMode(created.mode);
-    note(useOwnKey ? `Model session opened (${created.model}, your API key)` : `Gateway session opened at ${settingsRef.current.serverUrl} (${created.mode} model)`);
+    note(useOwnKey ? `Model: ${created.model} on ${providerName} (your API key)` : `Gateway session opened at ${current.serverUrl} (${created.mode} model)`);
 
-    // Phase 4: one perception worker per task, matching the vault's own per-task lifetime
-    // (design.md §8) — a fresh worker means a fresh model-registry/backend-probe cycle rather
-    // than pixels or model state surviving across unrelated tasks.
-    //
-    // [Fixed, Phase 5] This `await` used to sit BETWEEN `contentPort`'s construction and
-    // `newSession`'s assignment below, which left a real window where a graph message arriving
-    // from the content script mid-`init()` called `newSession.onGraph(m)` while `newSession` was
-    // still the forward-reference's `undefined` — a genuine race, not a hypothetical one: it fired
-    // in this project's very first real end-to-end Playwright run against the built extension
-    // (Phase 5's harness-integration work), which no unit test's fake, synchronous content port
-    // could ever have hit. Moved here so every `await` between the forward-reference and the real
-    // assignment is gone — see docs/HISTORY.md's Phase 5 entry.
-    const perceptionClient = createPerceptionClient();
-    perceptionClient.onProblem((problem) => {
-      console.error('[aegis] perception worker problem', problem);
-      setWorkerProblems((prev) => [...prev, problem]);
-    });
-    try {
-      const ready = await perceptionClient.init(
-        settingsRef.current.backend,
-        [FACE_MODEL_SPEC, OCR_DET_MODEL_SPEC, OCR_REC_EN_MODEL_SPEC, OCR_REC_DEVANAGARI_MODEL_SPEC, VIT_VISION_MODEL_SPEC],
-        // The large NER model (profile L) is not part of the shipped package.
-        RELEASE ? 'S' : settingsRef.current.nerProfile,
-      );
-      setPerceptionBackend(ready.backend);
-      setBackendDetail(describeReadyBackend(ready));
-      console.info('[aegis] perception backend', ready.backend, { adapter: ready.adapterInfo, webgpuRejected: ready.webgpuRejected, models: ready.loaded.map((m) => ({ role: m.role, provider: m.provider, probeMs: m.probeMs })) });
-      setModelsLoadedMB(ready.loaded.reduce((sum, m) => sum + m.bytes, 0) / (1024 * 1024));
-      setModelLoadFailures(ready.failed);
+    // The panel's worker, usually loaded already (it starts when the panel opens). No `await` may
+    // sit between the ContentPortClient's construction and `newSession`'s assignment below (a graph
+    // arriving in between would reach an undefined session), so the wait happens here.
+    const perception = ensurePerception(current);
+    if (!perception.client.isReady()) note('Loading the local vision models (first run on this panel)');
+    const ready = await perception.ready;
+    if (ready) {
       note(
-        `Local models loaded on ${ready.backend}: ${ready.loaded.map((m) => `${ROLE_NAME[m.role] ?? m.role} (${m.provider})`).join(', ')}` +
+        `Local models on ${ready.backend}: ${ready.loaded.map((m) => `${ROLE_NAME[m.role] ?? m.role} (${m.provider})`).join(', ')}` +
           `${ready.failed.length > 0 ? `; failed: ${ready.failed.map((f) => f.role).join(', ')}` : ''}`,
       );
-      if (ready.failed.length > 0) console.error('[aegis] perception models failed to load', ready.failed);
-    } catch (err) {
-      // Backend probe or worker startup failed. The task still starts: every step tries the local
-      // models again (the client replaces the worker and re-initialises it), and a step without
-      // them goes without a screenshot — its text part is sanitized on its own — never with an
-      // unredacted one. (One model failing to load is different: the worker runs, and what that
-      // model would have analysed stays grey in the screenshot, never cleared.)
-      console.error('[aegis] perception init failed', err);
-      setPerceptionBackend(null);
-      setBackendDetail(undefined);
-      setModelsLoadedMB(0);
-      setWorkerProblems((prev) => [...prev, { kind: 'error', code: 'INIT_FAILED' }]);
-      note('Local models failed to start: retrying on every step; until they load, steps are sent without a screenshot');
+    } else {
+      // Every step retries them (the client replaces the worker and re-initialises it); a step is
+      // only sent with a redacted screenshot, so until they load the task waits rather than sends.
+      note('Local vision models failed to start: retrying on every step (nothing is sent without a redacted screenshot)');
     }
 
-    // design.md §18.3, T-6.9: the debug-only ablation switch. `import.meta.env.DEV` is Vite's own
-    // build-mode flag (WXT wraps Vite) — a plain `wxt build`/`pnpm build` sets it `false`, so this
-    // dynamic import (and `debug/ablations.ts` itself) never lands in a release bundle at all;
-    // `test/unit/ablation-build.spec.ts` asserts that against the real built output, not just this
-    // source line. Placed here, BEFORE the `newSession` forward-reference below, for the same
-    // no-`await`-between-forward-reference-and-assignment reason `perceptionClient.init()` above
-    // already has to be (see that block's own comment — a real race Phase 5 found and fixed).
+    // The debug-only ablation switch (never in a release bundle; test/unit/ablation-build.spec.ts).
     const ablationArm: AblationArm | undefined = import.meta.env.DEV
       ? await (await import('../../src/debug/ablations')).currentAblationArm(browser.storage.local)
       : undefined;
 
     // Forward reference: ContentPortClient needs its handlers now, Session needs the constructed
-    // ContentPortClient — see test/unit/session.spec.ts's buildSession() for the same pattern.
-    // No `await` follows until `newSession` is actually assigned, by construction — see this
-    // block's comment above for why that invariant matters.
+    // ContentPortClient. No `await` follows until `newSession` is assigned.
     // eslint-disable-next-line prefer-const
     let newSession!: Session;
+    // Messages from a port that is no longer the task's (a page AEGIS left, a superseded
+    // connection) are ignored: they describe a document the session is not looking at.
     const wirePort = (hostPort: typeof port) =>
       new ContentPortClient(hostPort, {
-        onGraph: (m) => newSession.onGraph(m),
-        onActionResult: (m) => newSession.onActionResult(m.actionId, m.ok, m.reason),
-        onSettled: (m) => newSession.onSettled(m.actionId),
+        onGraph: (m) => hostPort === currentPort && newSession.onGraph(m),
+        onActionResult: (m) => hostPort === currentPort && newSession.onActionResult(m.actionId, m.ok, m.reason, m.openUrl),
+        onSettled: (m) => hostPort === currentPort && newSession.onSettled(m.actionId),
         onDisconnect: () => {
           void browser.runtime.lastError;
-          newSession.onContentDisconnected();
+          if (hostPort === currentPort) newSession.onContentDisconnected();
         },
       });
     const contentPort = wirePort(port);
@@ -554,14 +590,19 @@ function App() {
     // After an AEGIS action loads a new page in this tab, or opens one in a new tab: wait for it,
     // check the host permission WITHOUT prompting (a prompt needs a user gesture and would hang),
     // then attach. The attached tab becomes the task's target (every capture is of it).
-    const attachTab = async (tabId: number, what: string) => {
+    // `loadWaitMs`: how long to wait for the tab's load event first. Zero after a navigation in the
+    // task's tab, which Session already waited for (`waitForPageReady`): waiting again cost up to
+    // 2.5 s on every ad-heavy page, which fires its load event long after it is usable.
+    const attachTab = async (tabId: number, what: string, loadWaitMs: number) => {
       const deadline = Date.now() + ATTACH_DEADLINE_MS;
-      await sleep(300);
-      // A heavy page (a shop's search results on a slow connection) can take far longer than
-      // PAGE_LOAD_TIMEOUT_MS to fire its load event, yet it is usable long before that: past the
-      // wait, connect anyway. The content script's own `ready` is what says the page can be read.
-      await waitForTabComplete(tabId, PAGE_LOAD_TIMEOUT_MS);
-      for (let attempt = 0; Date.now() < deadline; attempt++) {
+      // A heavy page can take far longer than PAGE_LOAD_TIMEOUT_MS to fire its load event, yet it
+      // is usable long before that: past the wait, connect anyway. The content script's own
+      // `ready` is what says the page can be read.
+      if (loadWaitMs > 0) {
+        await sleep(150);
+        await waitForTabComplete(tabId, loadWaitMs);
+      }
+      for (let attempt = 0; Date.now() < deadline && !taskAbort.signal.aborted; attempt++) {
         await sleep(attempt === 0 ? PAINT_MS : 1000);
         const next = await browser.tabs.get(tabId).catch(() => null);
         if (!next) {
@@ -588,31 +629,34 @@ function App() {
           console.warn(`[aegis] ${what}; cannot attach yet`, { attempt, reason: reconnected.reason, origin: nextOrigin });
           continue;
         }
-        if (tabId !== target.tabId) currentPort.disconnect?.();
+        // The previous connection (a document that is gone, or a content script that stopped
+        // answering) is closed so it cannot keep observing or sending.
+        currentPort.disconnect?.();
         currentPort = reconnected.port;
         target.tabId = tabId;
+        if (!taskTabs.includes(tabId)) taskTabs.push(tabId);
         target.origin = nextOrigin;
         console.info(`[aegis] ${what}; reconnected`, { tabId, origin: nextOrigin });
-        note(`${what}: ${nextOrigin}; reconnected`);
+        note(`${what}: ${nextOrigin}`);
         return { contentPort: wirePort(reconnected.port), origin: nextOrigin, title: next.title ?? '' };
       }
       console.warn(`[aegis] ${what}; cannot attach`, { reason: 'deadline' });
       return null;
     };
-    const reconnect = () => attachTab(target.tabId, 'page navigated');
+    const reconnect = () => attachTab(target.tabId, 'page changed', 0);
     // Tabs opened FROM the task's tab (a target=_blank link, a shop's product page). Only an AEGIS
-    // action consumes one (Session.observe after acting), and the task then continues in it — it
-    // used to stay on the old tab, now behind the new one, so the next capture was refused.
+    // action consumes one (Session.observe after acting), and the task then continues in it.
     let openedTabId: number | null = null;
-    const onTabCreated = (created: { id?: number; openerTabId?: number }): void => {
-      if (created.id !== undefined && created.openerTabId === target.tabId) openedTabId = created.id;
+    const onTabCreated = (createdTab: { id?: number; openerTabId?: number }): void => {
+      if (createdTab.id !== undefined && createdTab.openerTabId === target.tabId) openedTabId = createdTab.id;
     };
     browser.tabs.onCreated.addListener(onTabCreated);
-    // The model's navigation ops, on the task's tab. Each waits for the load it started.
+    // The model's navigation ops, on the task's tab. Each waits only for the load to start: the
+    // one wait for it to finish is Session's `waitForPageReady`, right after the step's actions.
     const runNavigation = async (trigger: () => Promise<unknown>) => {
       const started = waitForLoadStart(target.tabId, 3000);
       await trigger();
-      if (await started) await waitForTabComplete(target.tabId, PAGE_LOAD_TIMEOUT_MS);
+      await started;
     };
     const browserControl = {
       navigate: (url: string) => runNavigation(() => browser.tabs.update(target.tabId, { url })),
@@ -631,22 +675,67 @@ function App() {
         await waitForTabComplete(target.tabId, PAGE_LOAD_TIMEOUT_MS);
         await sleep(PAINT_MS);
       },
+      listTabs: async () => {
+        const live: { title: string; current: boolean }[] = [];
+        for (const id of [...taskTabs]) {
+          const t = await browser.tabs.get(id).catch(() => null);
+          if (!t) {
+            taskTabs.splice(taskTabs.indexOf(id), 1);
+            continue;
+          }
+          live.push({ title: t.title ?? '', current: id === target.tabId });
+        }
+        return live;
+      },
+      switchTab: async (index: number) => {
+        const tabId = taskTabs[index - 1];
+        if (tabId === undefined) return null;
+        const exists = await browser.tabs.update(tabId, { active: true }).then(
+          () => true,
+          () => false,
+        );
+        if (!exists) return null;
+        return attachTab(tabId, 'switched to tab', PAGE_LOAD_TIMEOUT_MS);
+      },
+      closeTab: async (index: number) => {
+        const tabId = taskTabs[index - 1];
+        if (tabId === undefined || tabId === target.tabId) return false;
+        await browser.tabs.remove(tabId).catch(() => undefined);
+        taskTabs.splice(taskTabs.indexOf(tabId), 1);
+        return true;
+      },
     };
     const followOpenedTab = async () => {
       const tabId = openedTabId;
       openedTabId = null;
       if (tabId === null) return null;
-      return attachTab(tabId, 'the action opened a new tab');
+      return attachTab(tabId, 'the action opened a new tab', PAGE_LOAD_TIMEOUT_MS);
+    };
+    // The screenshot can only be taken of the front tab: if the user is on another tab, the task
+    // pauses (never pulls its tab to the front behind the user's back) and resumes when they return.
+    const captureWhenVisible = async (): Promise<CaptureResult> => {
+      const visibleNow = await browser.tabs.get(target.tabId).then((t) => t.active, () => false);
+      if (!visibleNow) {
+        setUserWait('Paused: AEGIS can only see the task\'s tab while it is in front. Switch back to that tab and it continues by itself.');
+        const visible = await waitForTabVisible(target.tabId, taskAbort.signal);
+        setUserWait(null);
+        if (!visible) return { ok: false, reason: 'not-visible' };
+        await sleep(250);
+      }
+      return captureTabAsBitmap(target);
     };
 
     newSession = new Session({
       contentPort,
-      sendToGateway: (payload, signal) => gateway.sendStep(gatewaySessionId, payload, signal),
+      sendToGateway: (payload, signal) => {
+        lastStepId = payload.step_id;
+        return gateway.sendStep(gatewaySessionId, payload, signal);
+      },
       pageQueries: true,
       reopenSession: async () => {
         const reopened = await gateway.openSession();
         gatewaySessionId = reopened.session_id;
-        note('Gateway session re-opened');
+        note('Model session re-opened');
       },
       askUser: (question) =>
         new Promise<string | null>((resolve) => {
@@ -662,9 +751,9 @@ function App() {
           setConfirmRequest({ risk, description, resolve });
         }),
       perception: {
-        client: perceptionClient,
+        client: perception.client,
         capture: createGatedCapture({
-          capture: () => captureTabAsBitmap(target),
+          capture: captureWhenVisible,
           readInvocation: () => readInvocation(browser.storage.session, target.tabId),
           currentOrigin: () => browser.tabs.get(target.tabId).then((t) => originOf(t.url), () => null),
           onInvoked: (cb) => {
@@ -686,39 +775,61 @@ function App() {
           sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
         }),
       },
+      promptProfile: PROVIDERS[current.provider].profile,
+      // NER runs only where its model exists (profile L, development builds).
+      ner: !RELEASE && current.nerProfile === 'L',
       canaries,
       reconnect,
       followOpenedTab,
       browser: browserControl,
       ablation: ablationArm,
-      policy: applyAlwaysRedact(defaultPolicy, settingsRef.current.alwaysRedact),
+      policy: applyAlwaysRedact(defaultPolicy, current.alwaysRedact),
     });
+
+    // Site access removed while the task runs (chrome://extensions, or the browser's own menu):
+    // the task stops instead of failing step after step.
+    let revocationActive = true;
+    listenForPermissionRevocation(
+      { addMessageListener: (cb) => browser.runtime.onMessage.addListener((m: unknown) => void (revocationActive && cb(m))) },
+      () => (permissions.allSites ? null : target.origin),
+      () => newSession.abort('PAGE_DISCONNECTED', 'site access was removed'),
+    );
 
     setSession(newSession);
     setPanelState('running');
-    note('Task started: observing the page');
+    note('Task started');
     try {
       await newSession.start(task);
     } catch (err) {
       console.error('[aegis] task failed', err);
       setPanelState('error');
       setErrorMessage('INTERNAL_ERROR - see the panel console');
+    } finally {
+      // Ends the content script's per-connection session (observers included), the model session
+      // and this task's state in the worker; the worker itself (and its models) stays loaded.
+      revocationActive = false;
+      taskAbort.abort();
+      if (taskAbortRef.current === taskAbort) taskAbortRef.current = null;
+      browser.tabs.onCreated.removeListener(onTabCreated);
+      currentPort.disconnect?.();
+      await gateway.closeSession(gatewaySessionId).catch(() => undefined);
+      perception.client.reset();
+      setUserWait(null);
     }
-    // Ends the content script's per-connection session (observers included) — otherwise every
-    // finished run leaves one behind in the page, still auto-sending graphs to a dead Session.
-    browser.tabs.onCreated.removeListener(onTabCreated);
-    currentPort.disconnect?.();
-    await gateway.closeSession(gatewaySessionId);
-    perceptionClient.terminate(); // per-task lifetime — see the construction site's comment
-    setPerceptionBackend(null);
   }
 
   function handleStop(): void {
-    grantRequest?.settle('cancelled');
-    questionRequest?.resolve(null);
+    // Every card that is waiting on the user is settled first, so the task's own waits unwind and
+    // nothing queued behind a card can still act on the page.
+    grantRef.current?.settle('cancelled');
+    confirmRef.current?.resolve(false);
+    questionRef.current?.resolve(null);
+    setGrantRequest(null);
+    setConfirmRequest(null);
     setQuestionRequest(null);
     setUserWait(null);
-    session?.cancel();
+    taskAbortRef.current?.abort();
+    sessionRef.current?.cancel();
   }
 
   function handleAnswer(answer: string | null): void {
@@ -733,10 +844,7 @@ function App() {
     setPanelState('running');
   }
 
-  // Installed once — `handleStart` closes over only stable setters and module-level constants,
-  // never over a render's `session`/`panelState` snapshot, so a single assignment stays correct
-  // across the whole panel's lifetime (see `sessionRef` above for the one value that DOES need to
-  // stay current across renders).
+  // Installed once — `handleStart` reads everything that changes through refs.
   useEffect(() => {
     window.__aegisRunTask = handleStart;
     window.__aegisLedgerExport = () => sessionRef.current?.getLedger().export() ?? [];
@@ -746,16 +854,27 @@ function App() {
     };
   }, []);
 
-  /** The key is stored as soon as it is saved (not with the rest of the Settings form). */
-  function saveApiKey(apiKey: string): void {
-    const next = { ...settingsRef.current, apiKey };
+  function updateSettings(next: SettingsValue): void {
     settingsRef.current = next;
     setSettings(next);
     void saveSettings(browser.storage.local, next);
   }
 
-  function testApiKey(apiKey: string) {
-    return verifyApiKey(resolveModelConfig({ ...settingsRef.current, apiKey }, RELEASE));
+  /** The key (and the model "Test key" picked for it) is stored as soon as it is saved. */
+  function saveApiKey(provider: ProviderId, apiKey: string, model?: string): void {
+    const base = settingsRef.current;
+    const apiKeys = { ...base.apiKeys };
+    if (apiKey) apiKeys[provider] = apiKey;
+    else delete apiKeys[provider];
+    updateSettings({ ...base, provider, apiKeys, models: model ? { ...base.models, [provider]: model } : base.models });
+  }
+
+  function testApiKey(provider: ProviderId, apiKey: string) {
+    return verifyApiKey(resolveModelConfig({ ...settingsRef.current, provider }, RELEASE, apiKey));
+  }
+
+  function changeProvider(provider: ProviderId): void {
+    updateSettings({ ...settingsRef.current, provider });
   }
 
   if (settingsOpen) {
@@ -767,9 +886,12 @@ function App() {
           release={RELEASE}
           onSaveKey={saveApiKey}
           onTestKey={testApiKey}
+          onProviderChange={changeProvider}
           onSave={(next) => {
-            setSettings(next);
-            saveSettings(browser.storage.local, next);
+            // Keys and the provider are saved the moment they change; never overwrite them with
+            // the form's copy.
+            const { provider, apiKeys } = settingsRef.current;
+            updateSettings({ ...next, provider, apiKeys });
             setSettingsOpen(false);
           }}
           onClose={() => setSettingsOpen(false)}
@@ -785,31 +907,32 @@ function App() {
     panelState === 'awaiting-user' ||
     panelState === 'awaiting-confirmation';
 
-  const isLogRunning =
-    panelState === 'running' ||
-    panelState === 'loading' ||
-    panelState === 'awaiting-confirmation' ||
-    panelState === 'awaiting-grant' ||
-    panelState === 'awaiting-user';
-
   const statusDotColor =
-    panelState === 'error' ? C.error
+    panelState === 'error' || panelState === 'no-permission' || panelState === 'blocked' ? C.error
     : panelState === 'done' ? C.ok
+    : panelState === 'awaiting-confirmation' || panelState === 'awaiting-grant' || panelState === 'awaiting-user' ? C.warn
     : isRunning ? C.accent
     : C.muted;
 
   const statusBgColor =
-    panelState === 'error' ? C.errorBg
-    : panelState === 'done' ? C.okBg
+    statusDotColor === C.error ? C.errorBg
+    : statusDotColor === C.ok ? C.okBg
+    : statusDotColor === C.warn ? C.warnBg
     : isRunning ? C.infoBg
-    : '#f3f4f6';
+    : '#f1f3f5';
+
+  const keySaved = activeApiKey(settings) !== '';
+  const needsKey = RELEASE && !keySaved;
+  const providerPreset = PROVIDERS[settings.provider];
+  const configuredModel = resolveModelConfig(settings, RELEASE).model;
+  const modelName = providerPreset.models.find((m) => m.id === configuredModel)?.label.replace(/ \(.*\)$/, '') ?? configuredModel;
+  const hasRun = runLog.setup.length > 0 || runLog.steps.length > 0 || runLog.result !== undefined;
+  const latestStep = runLog.steps.at(-1);
 
   return (
     <div
       style={{
-        fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         fontSize: T.base,
-        maxWidth: 480,
         background: C.bg,
         minHeight: '100vh',
         color: C.strong,
@@ -817,12 +940,12 @@ function App() {
         flexDirection: 'column',
       }}
     >
-      {/* ── Compact Sticky Header ────────────────────────────────────────────── */}
       <header
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          gap: 8,
           padding: '10px 14px',
           background: C.surface,
           borderBottom: `1px solid ${C.border}`,
@@ -831,163 +954,115 @@ function App() {
           zIndex: 10,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {/* Shield Security Icon */}
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            aria-hidden="true"
-            style={{ flexShrink: 0 }}
-          >
-            <path
-              d="M12 2L4 6v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V6l-8-4z"
-              fill={C.accent}
-            />
-            <path
-              d="M10 12l2 2 4-4"
-              stroke="#ffffff"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          <div>
-            <div style={{ fontSize: T.md, fontWeight: 700, color: C.strong, lineHeight: 1.15, letterSpacing: '-0.01em' }}>
-              AEGIS
-            </div>
-            <div style={{ fontSize: 10, color: C.secondary, lineHeight: 1 }}>
-              AI Browser Security
-            </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+          <Logo size={24} color={C.accent} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.strong, lineHeight: 1.15, letterSpacing: '0.02em' }}>AEGIS</div>
+            <div style={{ fontSize: T.xs, color: C.secondary, lineHeight: 1.2 }}>Private browser agent</div>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {/* State pill */}
-          <span
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 5,
-              padding: '2px 8px',
-              borderRadius: 100,
-              fontSize: T.xs,
-              fontWeight: 500,
-              color: statusDotColor,
-              background: statusBgColor,
-            }}
-          >
-            <span
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                background: statusDotColor,
-                display: 'inline-block',
-                flexShrink: 0,
-              }}
-            />
-            {panelStateLabel(panelState)}
-          </span>
-
-          {/* Settings button */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexDirection: 'row-reverse' }}>
+          {/* The state pill is the header's last line of text: the e2e harness reads it there. */}
           <button
+            class="ag-ghost"
             onClick={() => setSettingsOpen(true)}
             aria-label="Settings"
             title="Settings"
             style={{
-              background: 'none',
+              background: C.surface,
               border: `1px solid ${C.border}`,
-              borderRadius: R.sm,
-              padding: '4px 6px',
+              borderRadius: R.md,
+              width: 30,
+              height: 30,
               cursor: 'pointer',
               color: C.secondary,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              padding: 0,
             }}
           >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
-            </svg>
+            <IconGear size={15} />
           </button>
+          <span
+            data-testid="panel-state"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '3px 9px',
+              borderRadius: 100,
+              fontSize: T.xs,
+              fontWeight: 600,
+              color: statusDotColor,
+              background: statusBgColor,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span class={isRunning ? 'ag-pulse' : undefined} style={S.dot(statusDotColor)} />
+            {panelStateLabel(panelState)}
+          </span>
         </div>
       </header>
 
-      {/* ── Main Scrollable Area ──────────────────────────────────────────────── */}
-      <main style={{ padding: '10px 14px', flex: 1 }}>
-        {/* Permission and error notices */}
-        {panelState === 'no-permission' && (
-          <div
-            style={{
-              border: `1px solid ${C.errorBorder}`,
-              borderLeft: `3px solid ${C.error}`,
-              borderRadius: R.sm,
-              padding: '8px 12px',
-              marginBottom: 8,
-              background: C.errorBg,
-              fontSize: T.xs,
-              color: C.error,
-              lineHeight: 1.4,
-            }}
-          >
-            This site needs host permission before AEGIS can run a task here. Try Run again to be prompted.
-          </div>
-        )}
-
-        {panelState === 'error' && errorMessage && (
-          <div
-            style={{
-              border: `1px solid ${C.errorBorder}`,
-              borderLeft: `3px solid ${C.error}`,
-              borderRadius: R.sm,
-              padding: '8px 12px',
-              marginBottom: 8,
-              background: C.errorBg,
-              fontSize: T.xs,
-              color: C.error,
-              lineHeight: 1.4,
-            }}
-          >
-            <strong>Error:</strong> {errorMessage}
-          </div>
-        )}
-
-        {/* Bring your own key: nothing runs until one is saved (a release build has no other model). */}
-        {RELEASE && (!settings.apiKey || keyJustSaved) && (
-          <ApiKeyCard
-            savedKey={settings.apiKey}
-            onSave={(key) => {
-              saveApiKey(key);
-              setKeyJustSaved(true);
-              setTimeout(() => setKeyJustSaved(false), 6000);
-            }}
-            onRemove={() => saveApiKey('')}
-            onTest={testApiKey}
-          />
-        )}
-
-        {/* Primary task input */}
-        <TaskInput running={isRunning} disabled={RELEASE && !settings.apiKey} onStart={handleStart} onStop={handleStop} />
-
-        {/* Status bars */}
-        <MetricsBar backend={gatewayMode} steps={steps} />
+      {/* Connection and on-device status */}
+      <div style={{ padding: '7px 14px 8px', background: C.surface, borderBottom: `1px solid ${C.border}` }}>
+        <MetricsBar backend={gatewayMode} steps={steps} model={keySaved || RELEASE ? { name: modelName, keySaved } : undefined} />
         <ResourceBar backend={perceptionBackend} modelsLoadedMB={modelsLoadedMB} detail={backendDetail} />
+      </div>
 
-        {/* Interactive request cards */}
+      <main style={{ padding: '2px 14px 16px', flex: 1 }}>
+        {/* Bring your own key: nothing runs until one is saved (a release build has no other model). */}
+        {RELEASE && (!keySaved || keyJustSaved) && (
+          <div style={{ marginTop: 12 }}>
+            <ApiKeyCard
+              provider={settings.provider}
+              onProviderChange={changeProvider}
+              savedKey={activeApiKey(settings)}
+              onSave={(key) => {
+                saveApiKey(settingsRef.current.provider, key, pickedModel.current);
+                setKeyJustSaved(true);
+                setTimeout(() => setKeyJustSaved(false), 6000);
+              }}
+              onRemove={() => saveApiKey(settingsRef.current.provider, '')}
+              onTest={async (key) => {
+                const check = await testApiKey(settingsRef.current.provider, key);
+                pickedModel.current = check.ok ? check.model : undefined;
+                return check;
+              }}
+            />
+          </div>
+        )}
+
+        <TaskInput running={isRunning} disabled={needsKey} onStart={handleStart} onStop={handleStop} />
+
+        {/* What AEGIS does, until the first task is run */}
+        {!hasRun && !needsKey && panelState !== 'error' && (
+          <ol style={{ listStyle: 'none', margin: '4px 0 0', padding: '2px 2px', display: 'flex', flexDirection: 'column', gap: 7, fontSize: T.xs, color: C.secondary }}>
+            {[
+              'AEGIS reads this page and its screenshot on your device.',
+              'Private details (IDs, faces, card numbers, passwords) are hidden before anything leaves the browser.',
+              'The model sees only the redacted view and tells AEGIS what to do; AEGIS acts on the page for you.',
+            ].map((line, i) => (
+              <li key={i} style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                <span style={{ width: 16, height: 16, borderRadius: '50%', border: `1px solid ${C.borderMid}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: C.body, flexShrink: 0 }}>{i + 1}</span>
+                <span>{line}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+
+        {panelState === 'no-permission' && (
+          <Notice tone="error" title="AEGIS needs access to this site">
+            Allow site access when Chrome asks, then press Run again.
+          </Notice>
+        )}
+
+        {/* A stop that ended a task is explained in the result card instead. */}
+        {panelState === 'error' && errorMessage && !runLog.result && <ErrorNotice message={errorMessage} />}
+
+        {/* Requests that need the user, first: the task is waiting on them */}
         {grantRequest && (
           <GrantRequest
             explanation={grantRequest.explanation}
@@ -1001,34 +1076,14 @@ function App() {
           />
         )}
 
-        {confirmRequest && (
-          <ConfirmAction
-            risk={confirmRequest.risk}
-            description={confirmRequest.description}
-            onDecide={handleConfirmDecision}
-          />
-        )}
+        {confirmRequest && <ConfirmAction risk={confirmRequest.risk} description={confirmRequest.description} onDecide={handleConfirmDecision} />}
 
-        {questionRequest && (
-          <AskUser question={questionRequest.question} onAnswer={handleAnswer} />
-        )}
+        {questionRequest && <AskUser question={questionRequest.question} onAnswer={handleAnswer} />}
 
         {userWait && (
-          <div
-            data-testid="user-wait"
-            style={{
-              border: `1px solid ${C.warnBorder}`,
-              borderLeft: `3px solid ${C.warn}`,
-              background: C.warnBg,
-              padding: '8px 12px',
-              margin: '8px 0',
-              borderRadius: R.sm,
-              fontSize: T.xs,
-              color: C.warn,
-            }}
-          >
+          <Notice tone="warn" title="Paused" testId="user-wait">
             {userWait}
-          </div>
+          </Notice>
         )}
 
         {guardBlock && (
@@ -1039,41 +1094,22 @@ function App() {
             onRetry={() => setGuardBlock(null)}
             onStop={() => {
               setGuardBlock(null);
-              session?.cancel();
+              handleStop();
             }}
           />
         )}
 
-        {/* Redactions (latest step) */}
-        {lastPayload && (
-          <Section
-            testId="run-redactions"
-            title="Redactions (latest step)"
-            summary={`${lastPayload.redactions.length} redaction(s)`}
-            open
-          >
-            <RedactionSummary
-              redactions={lastPayload.redactions}
-              coverage={lastPayload.coverage}
-              protectedFields={protectedFields}
-            />
-            <UnredactPanel
-              redactions={lastPayload.redactions}
-              onUnredact={(ref, reason) => session?.unredact(ref, reason)}
-            />
-          </Section>
+        {currentTask && (isRunning || runLog.steps.length > 0 || runLog.result) && (
+          <TaskProgress task={currentTask.text} startedAt={currentTask.startedAt} panelState={panelState} log={runLog} />
         )}
 
-        {/* Execution Log */}
-        <RunLogView
-          log={runLog}
-          running={isLogRunning}
-          showRawPayload={settings.showRawPayload}
-          loadFailures={modelLoadFailures}
-          workerProblems={workerProblems}
-        />
+        <ResultCard log={runLog} stopMessage={errorMessage} />
 
-        {/* Developer Timeline (when enabled in settings) */}
+        <PrivacyCard payload={lastPayload} protectedFields={protectedFields} latest={latestStep} onUnredact={(ref, reason) => session?.unredact(ref, reason)} />
+
+        <RunLogView log={runLog} running={isRunning} showRawPayload={settings.showRawPayload} loadFailures={modelLoadFailures} workerProblems={workerProblems} />
+
+        {/* Developer timeline (when enabled in settings) */}
         {settings.debugOverlay && <StepTimeline steps={steps} />}
       </main>
     </div>

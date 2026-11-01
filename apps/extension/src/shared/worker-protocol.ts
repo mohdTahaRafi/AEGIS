@@ -1,6 +1,4 @@
-// design.md §11.1 — the real perception-worker message interface, replacing the Phase-0 spike
-// protocol (`perception/spike-protocol.ts`, kept only for the probe/bench types the percentile
-// math test still mirrors). Every message is a plain, structured-clone-safe object; the one
+// design.md §11.1 — the perception-worker message interface. Every message is a plain, structured-clone-safe object; the one
 // exception is `perceive`'s `bitmap`, which is transferred (see `perception/worker.ts`'s doc
 // comment on the pixel-ownership rule, architecture §5.3).
 //
@@ -158,13 +156,16 @@ export type ToWorker =
   // (every pre-T-6.9 caller unaffected).
   // `clearDefault` (a completed whole-frame analysis only): the capture is drawn everywhere, then
   // `grey` over unanalysed pixels, then the redactions; `cleared` is ignored.
-  | { t: 'compose'; jobId: string; regions: { entity: string; boxes: Box[]; placeholder: string | null }[]; cleared: Box[]; scale: number; unlabelled?: boolean; clearDefault?: boolean; grey?: Box[] }
+  | { t: 'compose'; jobId: string; regions: { entity: string; boxes: Box[]; placeholder: string | null }[]; cleared: Box[]; scale: number; unlabelled?: boolean; clearDefault?: boolean; grey?: Box[]; marks?: { box: Box; label: string }[] }
   // `image`/`redactionBoxes` are the just-composed output and the boxes that produced it — the
   // worker needs the actual pixels to re-run face detection over the composed result
   // (phase_4_vision.md §8); `halos` narrows where the OCR half looks (default: a ring around every
   // redaction box). Boxes are CSS px; `scale` maps them onto the composed image.
   | { t: 'rescan'; jobId: string; image: ArrayBuffer; redactionBoxes: Box[]; halos: Box[]; scale?: number }
   | { t: 'evict'; model: string }
+  /** A task ended: drop its last capture and every cached per-region result (which can hold
+   * recognised values). Loaded models stay, so the next task starts without reloading them. */
+  | { t: 'reset' }
   | { t: 'stats' };
 
 export interface AdapterInfo {

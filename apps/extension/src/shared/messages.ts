@@ -95,7 +95,9 @@ export type PreflightFailureReason =
   | 'LEASE_EXPIRED'
   | 'NODE_VOLATILE'
   /** The content script threw while handling the action: reported, never left unanswered. */
-  | 'INTERNAL_ERROR';
+  | 'INTERNAL_ERROR'
+  /** `find`: the text is not in the page. */
+  | 'NOT_FOUND';
 
 export interface WireActionExpect {
   role?: string;
@@ -112,7 +114,8 @@ export type WireAction =
   | { op: 'click_point'; x: number; y: number; label: string }
   | { op: 'press_key'; key: PressKey; node?: string }
   | { op: 'hover'; node: string }
-  | { op: 'double_click'; node: string; expect?: WireActionExpect };
+  | { op: 'double_click'; node: string; expect?: WireActionExpect }
+  | { op: 'find'; text: string };
 
 /** The protocol's `press_key` keys (action-plan.schema.json). */
 export type PressKey = 'Enter' | 'Tab' | 'Escape' | 'Backspace' | 'Delete' | 'Space' | 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight' | 'PageUp' | 'PageDown' | 'Home' | 'End';
@@ -137,7 +140,7 @@ export interface MeasureSpansMessage {
   spans: { runId: string; start: number; end: number }[];
 }
 
-export type HostToContentMessage = { type: 'extract' } | DispatchActionMessage | { type: 'ping' } | AwaitReadyMessage | MeasureSpansMessage;
+export type HostToContentMessage = { type: 'extract'; fullText?: boolean } | DispatchActionMessage | { type: 'ping' } | AwaitReadyMessage | MeasureSpansMessage;
 
 export interface GraphMessage {
   type: 'graph';
@@ -154,6 +157,9 @@ export interface GraphMessage {
   /** The page's own viewport, measured in the page. The host runs in the side panel, whose
    * `window` is the panel, not the page — this is the only source of the page's real size. */
   viewport?: PageViewport;
+  /** `page`: `textRuns` cover the whole document (an `extract` with `fullText`), not only the view
+   * and one screen around it. */
+  textScope?: 'page';
 }
 
 export interface PageViewport {
@@ -174,15 +180,14 @@ export interface ActionResultMessage {
   actionId: string;
   ok: boolean;
   reason?: PreflightFailureReason;
+  /** The clicked element is a link that opens a new tab: not clicked (a synthetic click is
+   * popup-blocked); the host opens this http(s) URL in a tab itself. */
+  openUrl?: string;
 }
 
 export interface SettledMessage {
   type: 'settled';
   actionId: string;
-}
-
-export interface NavigatedMessage {
-  type: 'navigated';
 }
 
 export interface SpanBoxesMessage {
@@ -205,7 +210,6 @@ export type ContentToHostMessage =
   | GraphMessage
   | ActionResultMessage
   | SettledMessage
-  | NavigatedMessage
   | PageReadyMessage
   | SpanBoxesMessage
   | { type: 'pong' };
@@ -243,7 +247,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const HOST_TO_CONTENT_TYPES = new Set(['extract', 'dispatch-action', 'ping', 'await-ready', 'measure-spans']);
-const CONTENT_TO_HOST_TYPES = new Set(['ready', 'graph', 'action-result', 'settled', 'navigated', 'pong', 'page-ready', 'span-boxes']);
+const CONTENT_TO_HOST_TYPES = new Set(['ready', 'graph', 'action-result', 'settled', 'pong', 'page-ready', 'span-boxes']);
 
 /**
  * Validated, not merely typed: a message arrives as `unknown` off a port, and a malformed one
@@ -279,7 +283,7 @@ export function isContentToHostMessage(value: unknown): value is ContentToHostMe
     );
   }
   if (value.type === 'action-result') {
-    return typeof value.actionId === 'string' && typeof value.ok === 'boolean';
+    return typeof value.actionId === 'string' && typeof value.ok === 'boolean' && (value.openUrl === undefined || typeof value.openUrl === 'string');
   }
   if (value.type === 'settled') {
     return typeof value.actionId === 'string';

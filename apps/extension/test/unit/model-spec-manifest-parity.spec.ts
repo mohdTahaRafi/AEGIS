@@ -1,4 +1,4 @@
-// entrypoints/sidepanel/main.tsx hand-duplicates each public/models/models.manifest.json entry's
+// src/host/perception-client/model-specs.ts hand-duplicates each public/models/models.manifest.json entry's
 // sha256 into a *_MODEL_SPEC constant (public/ assets aren't part of the module graph, so this
 // can't just be an import — see that file's own comment on FACE_MODEL_SPEC). Those comments
 // promise a mismatch "fails loudly" — true, but only at runtime, for a real user, after a real
@@ -24,7 +24,7 @@ describe('models.manifest.json / main.tsx MODEL_SPEC parity', () => {
     readFileSync(path.join(ROOT, 'public/models/models.manifest.json'), 'utf8'),
   ) as { models: ManifestModel[] };
   const mainTsxSource = readFileSync(
-    path.join(ROOT, 'entrypoints/sidepanel/main.tsx'),
+    path.join(ROOT, 'src/host/perception-client/model-specs.ts'),
     'utf8',
   );
 

@@ -13,7 +13,7 @@
 import type { ContentToHostMessage, HostToContentMessage, WireAction, WireScreenNode } from '../shared/messages';
 import { PORT_NAME, isHostToContentMessage } from '../shared/messages';
 import { log } from '../shared/logger';
-import { dispatchClick, dispatchClickPoint, dispatchScroll, dispatchSelect, dispatchType } from './execute/dispatch';
+import { dispatchClick, dispatchClickPoint, dispatchScroll, dispatchSelect, dispatchType, dispatchFind } from './execute/dispatch';
 import { dispatchDoubleClick, dispatchHover, dispatchPressKey } from './execute/keys';
 import { NodeResolutionRegistry, passesHitTest, runPreflight } from './execute/preflight';
 import { waitForSettle } from './execute/settle';
@@ -55,8 +55,13 @@ export class TopFrameSession {
   // storm would trigger a full `sendGraph` (a real DOM walk) on every qualifying batch, which is
   // itself expensive work a hostile page could use to burn CPU indefinitely. Only applies while
   // hostile-dynamic is active; a normal page's `onChange` still fires uncapped, same as before.
-  private static readonly HOSTILE_CADENCE_CAP_MS = 500;
-  private lastAutoSendAt = 0;
+  private static readonly HOSTILE_CADENCE_CAP_MS = 600;
+  // Every DOM change, resize and focus used to trigger a full extraction (a DOM walk with
+  // accessible names and computed styles) and a port message: a busy page (carousels, ads, live
+  // counters) did that many times a second. Changes are now coalesced into one extraction per
+  // window; the host's own `extract` requests are never delayed.
+  private static readonly AUTO_SEND_DEBOUNCE_MS = 250;
+  private autoSendTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly port: PortLike) {}
 
@@ -70,20 +75,22 @@ export class TopFrameSession {
       this.containerResolver,
       this.epochTracker,
       () => {
-        const now = Date.now();
-        if (this.hostileDynamicTracker.isHostileDynamic(now) && now - this.lastAutoSendAt < TopFrameSession.HOSTILE_CADENCE_CAP_MS) {
-          return;
-        }
-        this.lastAutoSendAt = now;
-        void this.sendGraph('after_action');
+        if (this.autoSendTimer !== null) return;
+        const delay = this.hostileDynamicTracker.isHostileDynamic(Date.now()) ? TopFrameSession.HOSTILE_CADENCE_CAP_MS : TopFrameSession.AUTO_SEND_DEBOUNCE_MS;
+        this.autoSendTimer = setTimeout(() => {
+          this.autoSendTimer = null;
+          this.sendGraph('after_action').catch(() => log({ code: 'port_handler_failed' }));
+        }, delay);
       },
       { volatilityTracker: this.volatilityTracker, hostileDynamicTracker: this.hostileDynamicTracker },
     );
     this.send({ type: 'ready', frame: 'f-0' });
-    void this.sendGraph('initial');
+    this.sendGraph('initial').catch(() => log({ code: 'port_handler_failed' }));
   }
 
   private teardown = (): void => {
+    if (this.autoSendTimer !== null) clearTimeout(this.autoSendTimer);
+    this.autoSendTimer = null;
     this.observerHandle?.disconnect();
     this.observerHandle = null;
     log({ code: 'observers_stopped' });
@@ -113,7 +120,7 @@ export class TopFrameSession {
       return;
     }
     if (message.type === 'extract') {
-      await this.sendGraph('requested');
+      await this.sendGraph('requested', message.fullText === true);
       return;
     }
     if (message.type === 'measure-spans') {
@@ -145,7 +152,9 @@ export class TopFrameSession {
     return { graph: { nodes, elements }, wireNodes: nodes.map(toWireNode) };
   }
 
-  private async sendGraph(reason: 'initial' | 'after_action' | 'requested' | 'reconcile'): Promise<void> {
+  /** `fullText`: the text runs of the whole document (the model asked with read_page), not only
+   * the view and one screen around it. The element list keeps its usual range. */
+  private async sendGraph(reason: 'initial' | 'after_action' | 'requested' | 'reconcile', fullText = false): Promise<void> {
     const { graph, wireNodes } = await this.extractMerged();
     this.resolutionRegistry.observe(graph, this.containerResolver);
     const delta = this.deltaTracker.compute(wireNodes, this.epochTracker.privacyEpoch);
@@ -154,7 +163,7 @@ export class TopFrameSession {
       {
         width: window.innerWidth,
         height: window.innerHeight,
-        verticalMarginPx: window.innerHeight,
+        verticalMarginPx: fullText ? Math.max(window.innerHeight, document.documentElement.scrollHeight) : window.innerHeight,
       },
       this.isVolatile,
     );
@@ -168,6 +177,7 @@ export class TopFrameSession {
       reason,
       hostileDynamic: this.hostileDynamicTracker.isHostileDynamic(Date.now()),
       viewport: { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio, scrollY: window.scrollY, docH: document.documentElement.scrollHeight },
+      ...(fullText ? { textScope: 'page' as const } : {}),
     });
   }
 
@@ -184,6 +194,12 @@ export class TopFrameSession {
       this.send({ type: 'action-result', actionId, ok: false, reason: preflight.reason });
       return;
     }
+    const newTabUrl = action.op === 'click' ? newTabLinkOf(preflight.element) : null;
+    if (newTabUrl) {
+      this.send({ type: 'action-result', actionId, ok: true, openUrl: newTabUrl });
+      this.send({ type: 'settled', actionId });
+      return;
+    }
     const dispatched = this.dispatchOne(action, preflight.element);
     log({ code: 'action_dispatched' });
     if (!dispatched.ok) {
@@ -195,17 +211,21 @@ export class TopFrameSession {
     const outcome = await waitForSettle(document.body);
     this.send({ type: 'settled', actionId });
     if (outcome === 'navigated') return; // the new document boots its own session
+    if (this.autoSendTimer !== null) {
+      clearTimeout(this.autoSendTimer);
+      this.autoSendTimer = null;
+    }
     await this.sendGraph('after_action');
   }
 
-  private dispatchOne(action: WireAction, element: Element): { ok: true } | { ok: false; reason: 'HIT_TEST_FAILED' | 'DISABLED' | 'NODE_UNRESOLVED' } {
+  private dispatchOne(action: WireAction, element: Element): { ok: true } | { ok: false; reason: 'HIT_TEST_FAILED' | 'DISABLED' | 'NODE_UNRESOLVED' | 'NOT_FOUND' } {
     switch (action.op) {
       case 'click':
         return dispatchClick(element, passesHitTest);
       case 'click_point':
         return dispatchClickPoint(action.x, action.y);
       case 'type':
-        return dispatchType(element, action.text, { clearFirst: action.clearFirst, willMoveFocusNext: false });
+        return dispatchType(element, action.text, { clearFirst: action.clearFirst, willMoveFocusNext: false, commit: true });
       case 'select':
         return dispatchSelect(element, action.option);
       case 'scroll': {
@@ -219,8 +239,20 @@ export class TopFrameSession {
         return dispatchHover(element);
       case 'double_click':
         return dispatchDoubleClick(element, (el) => dispatchClick(el, passesHitTest));
+      case 'find':
+        return dispatchFind(action.text);
     }
   }
+}
+
+/** The http(s) URL of a link that opens in a new tab (`target="_blank"` or any named target), when
+ * `el` is or sits inside one; null otherwise. Only the link's own `href` is read. */
+function newTabLinkOf(el: Element): string | null {
+  const anchor = el.closest('a[href]');
+  if (!(anchor instanceof HTMLAnchorElement)) return null;
+  const target = anchor.target.trim().toLowerCase();
+  if (!target || target === '_self' || target === '_top' || target === '_parent') return null;
+  return /^https?:$/.test(anchor.protocol) ? anchor.href : null;
 }
 
 /**

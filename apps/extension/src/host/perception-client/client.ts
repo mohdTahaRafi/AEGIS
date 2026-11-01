@@ -12,6 +12,8 @@ export interface WorkerLike {
   postMessage(message: ToWorker, transfer?: Transferable[]): void;
   addEventListener(type: 'message', listener: (event: MessageEvent<FromWorker>) => void): void;
   addEventListener(type: 'error', listener: (event: ErrorEvent) => void): void;
+  removeEventListener?(type: 'message', listener: (event: MessageEvent<FromWorker>) => void): void;
+  removeEventListener?(type: 'error', listener: (event: ErrorEvent) => void): void;
   terminate(): void;
 }
 
@@ -183,20 +185,32 @@ export class PerceptionClient {
     this.initArgs = [backendPref, models, profile];
     const worker = this.worker;
     const ready = await new Promise<Extract<FromWorker, { t: 'ready' }>>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('INIT_TIMEOUT')), INIT_TIMEOUT_MS);
-      worker.addEventListener('message', (event: MessageEvent<FromWorker>) => {
+      // Removed once init settles: a worker lives across many tasks now, and every init used to
+      // leave two more listeners on it.
+      const cleanup = () => {
+        clearTimeout(timer);
+        worker.removeEventListener?.('message', onMessage);
+        worker.removeEventListener?.('error', onError);
+      };
+      const onMessage = (event: MessageEvent<FromWorker>) => {
         if (event.data.t === 'ready') {
-          clearTimeout(timer);
+          cleanup();
           resolve(event.data);
         } else if (event.data.t === 'error' && event.data.jobId === undefined) {
-          clearTimeout(timer);
+          cleanup();
           reject(new Error(event.data.detail ?? event.data.code));
         }
-      });
-      worker.addEventListener('error', () => {
-        clearTimeout(timer);
+      };
+      const onError = () => {
+        cleanup();
         reject(new WorkerTerminatedError());
-      });
+      };
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error('INIT_TIMEOUT'));
+      }, INIT_TIMEOUT_MS);
+      worker.addEventListener('message', onMessage);
+      worker.addEventListener('error', onError);
       worker.postMessage({ t: 'init', backendPref, models, profile });
     });
     if (worker === this.worker) this.ready = true;
@@ -219,10 +233,19 @@ export class PerceptionClient {
     cleared: Extract<ToWorker, { t: 'compose' }>['cleared'],
     scale: number,
     unlabelled = false,
-    options: { clearDefault?: boolean; grey?: Extract<ToWorker, { t: 'compose' }>['grey'] } = {},
+    options: { clearDefault?: boolean; grey?: Extract<ToWorker, { t: 'compose' }>['grey']; marks?: Extract<ToWorker, { t: 'compose' }>['marks'] } = {},
   ): Promise<Extract<FromWorker, { t: 'composed' }>> {
     const jobId = nextJobId();
-    const msg = await this.request({ t: 'compose', jobId, regions, cleared, scale, unlabelled, ...(options.clearDefault ? { clearDefault: true, grey: options.grey ?? [] } : {}) });
+    const msg = await this.request({
+      t: 'compose',
+      jobId,
+      regions,
+      cleared,
+      scale,
+      unlabelled,
+      ...(options.clearDefault ? { clearDefault: true, grey: options.grey ?? [] } : {}),
+      ...(options.marks && options.marks.length > 0 ? { marks: options.marks } : {}),
+    });
     return msg as Extract<FromWorker, { t: 'composed' }>;
   }
 
@@ -241,6 +264,16 @@ export class PerceptionClient {
     const jobId = nextJobId();
     const msg = await this.request({ t: 'ner', jobId, chunks });
     return msg as Extract<FromWorker, { t: 'nerResult' }>;
+  }
+
+  /** Ends a task's use of the worker without unloading its models (see the `reset` message). */
+  reset(): void {
+    if (this.terminated || this.terminatedByCaller) return;
+    try {
+      this.worker.postMessage({ t: 'reset' });
+    } catch {
+      // A dead worker holds nothing.
+    }
   }
 
   terminate(): void {

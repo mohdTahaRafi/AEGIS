@@ -27,7 +27,6 @@ export interface ContentPortHandlers {
   onGraph?(message: GraphMessage): void;
   onActionResult?(message: ActionResultMessage): void;
   onSettled?(message: SettledMessage): void;
-  onNavigated?(): void;
   onDisconnect?(): void;
 }
 
@@ -74,9 +73,6 @@ export class ContentPortClient {
         return;
       case 'settled':
         this.handlers.onSettled?.(message);
-        return;
-      case 'navigated':
-        this.handlers.onNavigated?.();
         return;
       case 'span-boxes':
         this.spanWaiters.get(message.requestId)?.(message.boxes);
@@ -131,8 +127,9 @@ export class ContentPortClient {
     });
   }
 
-  requestExtract(): void {
-    this.port.postMessage({ type: 'extract' });
+  /** `fullText`: ask for the whole document's text runs (read_page), not only the view's. */
+  requestExtract(fullText = false): void {
+    this.port.postMessage(fullText ? { type: 'extract', fullText: true } : { type: 'extract' });
   }
 
   dispatchAction(actionId: string, action: WireAction): void {

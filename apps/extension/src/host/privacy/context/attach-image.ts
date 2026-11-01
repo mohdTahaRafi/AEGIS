@@ -13,6 +13,8 @@ type SanitizedNode = SanitizedContext['nodes'][number];
 export interface ComposeOptions {
   clearDefault?: boolean;
   grey?: Box[];
+  /** Set-of-Marks tags (the model's element ids), drawn over everything else. */
+  marks?: { box: Box; label: string }[];
 }
 
 export interface ComposeCall {
@@ -34,8 +36,7 @@ export interface AttachImageInput {
    * call's `candidates`/non-`timedOut` regions) — an image-bearing node not in this set was never
    * screened and must stay uncleared regardless of whether it happens to carry no redaction. */
   visionAnalyzedNodeIds: ReadonlySet<string>;
-  /** True for nodes whose content type needs vision to clear at all (img/canvas/video — see
-   * `structural-coverage.ts`'s `CoverageNode.requiresVision`). */
+  /** True for nodes whose content type needs vision to clear at all (img/canvas/video). */
   nodeRequiresVision: (node: SanitizedNode) => boolean;
   legend: string;
   /** Form fields classified sensitive by their label/type whose value produced no redaction (empty,
@@ -46,6 +47,7 @@ export interface AttachImageInput {
   maskedFields?: readonly { entity: string; box: Box }[];
   /** The worker's whole-frame analysis for this capture (see `composeOptionsFor`). */
   frameAnalysis?: FrameAnalysis;
+  marks?: { box: Box; label: string }[];
 }
 
 function nodeHasRedaction(node: SanitizedNode): boolean {
@@ -93,13 +95,14 @@ function toClearanceCandidates(context: SanitizedContext, visionAnalyzedNodeIds:
 /** Returns `context` unchanged if there is nothing to redact into an image at all (no nodes) —
  * otherwise always returns a context with `image` set (never partially attached). */
 export async function attachImage(input: AttachImageInput): Promise<SanitizedContext> {
-  const { context, compose, scale, visionAnalyzedNodeIds, nodeRequiresVision, legend, maskedFields = [], frameAnalysis } = input;
+  const { context, compose, scale, visionAnalyzedNodeIds, nodeRequiresVision, legend, maskedFields = [], frameAnalysis, marks = [] } = input;
 
   const options = composeOptionsFor(frameAnalysis);
   const cleared = options.clearDefault ? [] : computeClearedBoxes(toClearanceCandidates(context, visionAnalyzedNodeIds, nodeRequiresVision));
   const regions = [...toRegionInput(context), ...maskedFields.map((f) => ({ entity: f.entity, boxes: [f.box], placeholder: `${f.entity} field` }))];
 
-  const composed = options.clearDefault ? await compose(regions, cleared, scale, options) : await compose(regions, cleared, scale);
+  const withMarks = marks.length > 0 ? { marks } : {};
+  const composed = options.clearDefault ? await compose(regions, cleared, scale, { ...options, ...withMarks }) : await compose(regions, cleared, scale, marks.length > 0 ? withMarks : undefined);
   const sha256 = await sha256Hex(composed.webp);
 
   return {

@@ -20,7 +20,7 @@ import type { Policy } from '@aegis/policy';
 import { defaultPolicy } from '@aegis/policy';
 import { classifyAction } from './actions/dispatch';
 import { rehydrationRequiresConfirmation, resolveRehydration } from './actions/rehydrate';
-import { classifyRisk, requiresConfirmation, type RiskLevel, type RiskSignals, hasHighRiskVerb } from './actions/risk';
+import { classifyRisk, requiresConfirmation, type RiskLevel, type RiskSignals, hasHighRiskVerb, isOneTimeAction } from './actions/risk';
 import { validatePlan, type HardDenialContext } from './actions/validator';
 import { BudgetTracker, DEFAULT_BUDGETS, type BudgetLimits } from './controller/budgets';
 import { Controller, TERMINAL_STATES } from './controller/machine';
@@ -30,6 +30,8 @@ import { StepFailedError } from './egress/gateway-client';
 import { Ledger } from './ledger/ledger';
 import type { ContentPortClient } from './port';
 import { attachImage, composeOptionsFor } from './privacy/context/attach-image';
+import { markLabelsFor } from './agent/prompt';
+import type { PromptProfile } from './egress/providers';
 import { buildSanitizedContext, collectFreeTextSources, redactionSpanOrigin } from './privacy/context/builder';
 import { GuardBlockedError, guard } from './privacy/guard/guard';
 import { scrubPayloadText } from './privacy/guard/sweeps';
@@ -87,7 +89,10 @@ export type SessionEvent =
   /** The task is paused on something only the user can do (solve a CAPTCHA, answer a question). */
   | { type: 'waiting_user'; reason: 'captcha' | 'question'; detail?: string }
   /** How long the page took to be visually complete before this step's observation. */
-  | { type: 'page_ready'; waitedMs: number; pendingImages: number; timedOut: boolean };
+  | { type: 'page_ready'; waitedMs: number; pendingImages: number; timedOut: boolean }
+  /** The model's own reasoning line and notes for this step's plan (written about the sanitized
+   * page; shown in the panel, never sent anywhere). */
+  | { type: 'commentary'; stepId: string; thought?: string; notes?: string; checklist?: string; model?: string; tier?: 'fast' | 'smart' };
 
 export type StopReason =
   | BudgetReasonCode
@@ -151,6 +156,22 @@ export function labelProtectedFieldsWithoutRedaction(pageNodes: readonly WireScr
 }
 
 type SentNodeValue = { kind: 'empty' } | { kind: 'presence' } | { kind: 'placeholder'; ref: string } | { kind: 'text'; text: string };
+
+/** A short fingerprint of what the model would see of the page: every node's id, name and value
+ * state, the scroll position and the title. Equal before and after a plan = the plan changed
+ * nothing visible. */
+function pageSignature(nodes: readonly WireScreenNode[], viewport: PageViewport, title: string): string {
+  let hash = 2166136261;
+  const mix = (text: string) => {
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+  };
+  for (const node of [...nodes].sort((a, b) => (a.id < b.id ? -1 : 1))) mix(`${node.id}|${node.name}|${node.state.hasValue ? 1 : 0}|${node.state.valueLen}|${node.state.checked ? 1 : 0}|${node.state.expanded ? 1 : 0};`);
+  mix(`${Math.round(viewport.scrollY)}|${title}`);
+  return `${nodes.length}:${(hash >>> 0).toString(36)}`;
+}
 
 function countBy<T>(items: readonly T[], keyOf: (item: T) => string): Record<string, number> {
   const counts: Record<string, number> = {};
@@ -223,6 +244,16 @@ export interface SessionDeps {
   pageQueries?: boolean;
   /** Every wait the session makes (retry back-off, CAPTCHA polling); tests pass an instant one. */
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  /** Run the worker's NER over free text each step. Off when the active NER profile has no model
+   * (profile S), so a step does not pay a worker round trip that finds nothing. Default on. */
+  ner?: boolean;
+  /** Draw the model's element ids on the screenshot (Set-of-Marks). Default on. */
+  marks?: boolean;
+  /** The prompt profile the model is called with: the tags match its element list. */
+  promptProfile?: PromptProfile;
+  /** Longest wait for one graph from the content script before the page is treated as gone and
+   * re-attached. */
+  graphTimeoutMs?: number;
 }
 
 export interface BrowserControl {
@@ -236,7 +267,18 @@ export interface BrowserControl {
   /** After a step's actions: resolves once the task's tab has finished loading and painted, so the
    * next observation and screenshot show the page the actions produced. */
   waitForPageReady(): Promise<void>;
+  /** The tabs this task has used, in the order it first used them, the current one marked. */
+  listTabs?(): Promise<{ title: string; current: boolean }[]>;
+  /** Makes tab `index` (1-based, as `listTabs` numbers them) the task's tab and attaches to its page;
+   * null when that tab is gone or cannot be attached. */
+  switchTab?(index: number): Promise<{ contentPort: ContentPortClient; origin: string; title: string } | null>;
+  /** Closes tab `index`; false when it is the current tab or not there. */
+  closeTab?(index: number): Promise<boolean>;
 }
+
+/** Search text that looks like personal data or names a sealed value: an email address, a run of
+ * six or more digits (phone, account, ID numbers), or a placeholder. */
+const SENSITIVE_PROBE = /[@\u27ea\u27eb]|\d[\d\s-]{4,}\d/;
 
 /** A URL the model asked to open: http(s) only, no credentials, no sealed placeholder in it. */
 export function parseWebUrl(raw: string): URL | null {
@@ -255,6 +297,9 @@ export function parseWebUrl(raw: string): URL | null {
 interface PendingGraph {
   resolve: (message: GraphMessage) => void;
   reject: (err: Error) => void;
+  /** Only a graph carrying the whole page's text answers this request (an automatic one sent after
+   * an action does not). */
+  fullText?: boolean;
 }
 
 /** The content-script port closed mid-task (tab closed, navigated, reloaded, or the extension was
@@ -272,6 +317,14 @@ class PageDisconnectedError extends Error {
   }
 }
 
+/** The user pressed Stop: every pending wait of the step loop ends with this. */
+class CancelledError extends Error {
+  constructor() {
+    super('CANCELLED');
+    this.name = 'CancelledError';
+  }
+}
+
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     const timer = setTimeout(done, ms);
@@ -286,11 +339,16 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 
 /** How a failed gateway call is handled: sent again (after `waitS`), sent again on a fresh gateway
  * session, or given up on. */
-type SendFailure = { kind: 'retry'; waitS?: number } | { kind: 'reopen' } | { kind: 'fatal' };
+type SendFailure = { kind: 'retry'; waitS?: number } | { kind: 'reopen' } | { kind: 'step' } | { kind: 'fatal' };
 
+/** `step`: this step's request cannot succeed as it is (the model's answer was invalid even after
+ * its corrective retry, or the prompt was too large even after shrinking), but the next step — a
+ * fresh observation, with the failure in its HISTORY — can. Only a refused key, another permanent
+ * 4xx or an exhausted daily quota ends the task. */
 function classifySendFailure(err: unknown, maxWaitS: number): SendFailure {
   if (err instanceof StepFailedError) {
     if (err.status === 404 || err.status === 409) return { kind: 'reopen' };
+    if (err.detail.startsWith('PLAN_INVALID') || err.detail.includes('upstream_too_large')) return { kind: 'step' };
     if (err.retryable) {
       // A Retry-After of many minutes is a daily quota, not a busy minute: report it.
       if (err.retryAfterS !== undefined && err.retryAfterS > maxWaitS) return { kind: 'fatal' };
@@ -339,7 +397,7 @@ export class Session {
   private readonly vault = new Vault();
   private readonly ledger = new Ledger();
   private pendingGraph: PendingGraph | null = null;
-  private pendingActions = new Map<string, { resolveOk: (ok: boolean, reason?: string) => void; reject: (err: Error) => void }>();
+  private pendingActions = new Map<string, { resolveOk: (ok: boolean, reason?: string, openUrl?: string) => void; reject: (err: Error) => void }>();
   private pageDisconnected = false;
   private contentPort: ContentPortClient;
   private originKey: string;
@@ -356,7 +414,14 @@ export class Session {
   private allSeenNodes = new Map<string, WireScreenNode>();
   /** Node names exactly as sent in the last payload: the panel describes plans with these. */
   private sentNames = new Map<string, string>();
-  private history: { step_id: string; actions: { op: string; node?: string }[]; outcome: string }[] = [];
+  private history: { step_id: string; page?: string; actions: { op: string; node?: string; name?: string }[]; outcome: string }[] = [];
+  /** One-time clicks already done this task ("Add to Cart"…), by page title and element name, with
+   * the step that did them: a model that lost track and comes back is told, not obeyed. */
+  private doneOnce = new Map<string, string>();
+  /** Appended to this step's HISTORY outcome (a one-time click that was not repeated). */
+  private stepOutcomeNote: string | null = null;
+  /** The model asked for the whole page's text (read_page): the next graph request asks for it. */
+  private fullTextNext = false;
   private readonly digestGuard: GeometryDigestGuard;
   // design.md §5.5, T-6.7: consecutive steps observed under hostile-dynamic mode. A single step
   // disables the image path (see the perception gate below) but does not itself stop the agent —
@@ -373,9 +438,11 @@ export class Session {
   private static readonly SEND_ATTEMPTS = 6;
   /** How long a CAPTCHA may wait for the user before the task stops. */
   private static readonly CAPTCHA_WAIT_MS = 5 * 60_000;
-  /** Page readiness: the first look at a page (it may still be loading) and every later one. */
-  private static readonly READY_FIRST_MS = 8000;
-  private static readonly READY_MS = 3000;
+  /** Page readiness: the first look at a page (it may still be loading) and every later one. Shops
+   * lazy-load pictures without end, so these caps were often spent in full (8 s per new page); the
+   * text is there long before, and a picture still loading is sent grey (unanalysed). */
+  private static readonly READY_FIRST_MS = 3000;
+  private static readonly READY_MS = 1500;
   /** Tries per step to get a redacted screenshot before the step is retried from a fresh
    * observation (every step carries one: none, nothing is sent). */
   private static readonly VISION_ATTEMPTS = 4;
@@ -396,6 +463,13 @@ export class Session {
   // The next observation is the first of its page (task start, a navigation, a new tab).
   private freshPage = true;
   private pageQueriesUnanswered = false;
+  /** Aborted by `cancel()`: ends every wait the step loop is in. */
+  private readonly cancelled = new AbortController();
+  private static readonly GRAPH_TIMEOUT_MS = 12_000;
+  /** What the page looked like before the last plan ran, and that plan's actions: an action list
+   * that left the page exactly as it was is reported to the model as "no visible change". */
+  private pageSignatureBeforeAct: string | null = null;
+  private lastPlanKeys: string[] = [];
 
   constructor(private readonly deps: SessionDeps) {
     this.contentPort = deps.contentPort;
@@ -408,7 +482,26 @@ export class Session {
   }
 
   private pause(ms: number, signal?: AbortSignal): Promise<void> {
-    return (this.deps.sleep ?? sleep)(ms, signal);
+    return (this.deps.sleep ?? sleep)(ms, signal ? AbortSignal.any([signal, this.cancelled.signal]) : this.cancelled.signal);
+  }
+
+  /** Races a user-facing wait (a confirmation, a question) against Stop. */
+  private untilCancelled<T>(promise: Promise<T>, onCancel: T): Promise<T> {
+    if (this.cancelled.signal.aborted) return Promise.resolve(onCancel);
+    return new Promise<T>((resolve, reject) => {
+      const abort = () => resolve(onCancel);
+      this.cancelled.signal.addEventListener('abort', abort, { once: true });
+      promise.then(
+        (value) => {
+          this.cancelled.signal.removeEventListener('abort', abort);
+          resolve(value);
+        },
+        (err: unknown) => {
+          this.cancelled.signal.removeEventListener('abort', abort);
+          reject(err);
+        },
+      );
+    });
   }
 
   getLedger(): Ledger {
@@ -450,6 +543,7 @@ export class Session {
     this.lastGraphMessage = message;
     for (const node of message.nodes) this.allSeenNodes.set(node.id, node);
     for (const id of message.removed) this.allSeenNodes.delete(id);
+    if (this.pendingGraph?.fullText && message.textScope !== 'page') return;
     this.pendingGraph?.resolve(message);
     this.pendingGraph = null;
   }
@@ -459,8 +553,8 @@ export class Session {
     if (this.settleWaiter?.actionId === actionId) this.settleWaiter.resolve();
   }
 
-  onActionResult(actionId: string, ok: boolean, reason?: string): void {
-    this.pendingActions.get(actionId)?.resolveOk(ok, reason);
+  onActionResult(actionId: string, ok: boolean, reason?: string, openUrl?: string): void {
+    this.pendingActions.get(actionId)?.resolveOk(ok, reason, openUrl);
     this.pendingActions.delete(actionId);
   }
 
@@ -485,9 +579,32 @@ export class Session {
   }
 
   cancel(): void {
+    if (this.isFinished()) return;
     this.controller.send({ type: 'cancel' });
     this.vault.clear();
+    // Every wait unwinds now (graph, action result, confirmation, question, back-off), so `start()`
+    // returns and its caller's cleanup runs; nothing queued can reach the page afterwards.
+    this.cancelled.abort();
+    const err = new CancelledError();
+    this.pendingGraph?.reject(err);
+    this.pendingGraph = null;
+    for (const pending of this.pendingActions.values()) pending.reject(err);
+    this.pendingActions.clear();
+    this.settleWaiter?.resolve();
     this.deps.onEvent({ type: 'stopped', reason: 'CANCELLED' });
+  }
+
+  /** Called by the panel when the user's own page interaction or a permission change ends the
+   * task's access to its page for good. */
+  abort(reason: Exclude<StopReason, 'CANCELLED'>, detail?: string): void {
+    if (this.isFinished()) return;
+    this.cancelled.abort();
+    const err = new CancelledError();
+    this.pendingGraph?.reject(err);
+    this.pendingGraph = null;
+    for (const pending of this.pendingActions.values()) pending.reject(err);
+    this.pendingActions.clear();
+    this.stop(reason, detail);
   }
 
   private isFinished(): boolean {
@@ -552,27 +669,44 @@ export class Session {
   /** Observes the current page, re-attaching first if AEGIS's own action loaded a new document
    * in the task's tab or opened a new tab (which then becomes the task's tab). */
   private async observe(): Promise<GraphMessage> {
-    if (this.actedSinceObserve && !this.navigationPending && this.deps.followOpenedTab) {
-      const opened = await this.deps.followOpenedTab();
-      if (opened) {
-        this.attach(opened, 'opened a new tab');
-        await this.awaitPageReady();
-        return this.requestGraph();
+    // Where an observation's time goes (numbers only): a slow step is otherwise one opaque figure.
+    const spent = { attach: 0, ready: 0, graph: 0 };
+    const timed = async <T>(stage: keyof typeof spent, run: () => Promise<T>): Promise<T> => {
+      const start = this.now();
+      try {
+        return await run();
+      } finally {
+        spent[stage] += this.now() - start;
       }
-    }
+    };
+    const report = () => {
+      if (spent.attach + spent.ready + spent.graph > 2000) console.info('[aegis] observe timings', spent);
+    };
     try {
-      if (!this.navigationPending) {
-        await this.awaitPageReady();
-        return await this.requestGraph();
+      if (this.actedSinceObserve && !this.navigationPending && this.deps.followOpenedTab) {
+        const opened = await timed('attach', () => this.deps.followOpenedTab!());
+        if (opened) {
+          this.attach(opened, 'opened a new tab');
+          await timed('ready', () => this.awaitPageReady());
+          return await timed('graph', () => this.requestGraph());
+        }
       }
-    } catch (err) {
-      if (!(err instanceof PageDisconnectedError) || !this.navigationPending) throw err;
+      try {
+        if (!this.navigationPending) {
+          await timed('ready', () => this.awaitPageReady());
+          return await timed('graph', () => this.requestGraph());
+        }
+      } catch (err) {
+        if (!(err instanceof PageDisconnectedError) || !this.navigationPending) throw err;
+      }
+      const next = this.deps.reconnect ? await timed('attach', () => this.deps.reconnect!()) : null;
+      if (!next) throw new PageDisconnectedError('NEW_PAGE_UNREACHABLE', true);
+      this.attach(next, 'page navigated');
+      await timed('ready', () => this.awaitPageReady());
+      return await timed('graph', () => this.requestGraph());
+    } finally {
+      report();
     }
-    const next = this.deps.reconnect ? await this.deps.reconnect() : null;
-    if (!next) throw new PageDisconnectedError('NEW_PAGE_UNREACHABLE', true);
-    this.attach(next, 'page navigated');
-    await this.awaitPageReady();
-    return this.requestGraph();
   }
 
   /** Waits for the page to be visually complete (its pictures loaded, its content no longer
@@ -606,15 +740,45 @@ export class Session {
     if (last) last.outcome = `${last.outcome}; ${outcome}`;
   }
 
+  /** The next graph from the page. A content script that does not answer within the timeout
+   * (its handler threw, the page froze it) is treated like a page that dropped its document: the
+   * next observation re-attaches (re-injecting the script) instead of waiting forever. */
   private requestGraph(): Promise<GraphMessage> {
+    if (this.cancelled.signal.aborted) return Promise.reject(new CancelledError());
     if (this.pageDisconnected) return Promise.reject(new PageDisconnectedError(undefined, !this.navigationPending));
+    this.pendingGraph?.reject(new PageDisconnectedError('superseded'));
+    const fullText = this.fullTextNext;
+    this.fullTextNext = false;
     return new Promise((resolve, reject) => {
-      this.pendingGraph = { resolve, reject };
-      this.contentPort.requestExtract();
+      const timer = setTimeout(() => {
+        if (this.pendingGraph?.resolve !== wrappedResolve) return;
+        this.pendingGraph = null;
+        if (this.deps.reconnect) this.navigationPending = true;
+        this.pageDisconnected = true;
+        reject(new PageDisconnectedError('NO_GRAPH', !this.deps.reconnect));
+      }, this.deps.graphTimeoutMs ?? Session.GRAPH_TIMEOUT_MS);
+      const wrappedResolve = (message: GraphMessage) => {
+        clearTimeout(timer);
+        resolve(message);
+      };
+      this.pendingGraph = {
+        resolve: wrappedResolve,
+        reject: (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+        fullText,
+      };
+      try {
+        this.contentPort.requestExtract(fullText);
+      } catch {
+        // A port that is already gone: its disconnect handler (or the timeout) ends the wait.
+      }
     });
   }
 
-  private dispatchAndAwait(actionId: string, action: Parameters<ContentPortClient['dispatchAction']>[1]): Promise<{ ok: boolean; reason?: string }> {
+  private dispatchAndAwait(actionId: string, action: Parameters<ContentPortClient['dispatchAction']>[1]): Promise<{ ok: boolean; reason?: string; openUrl?: string }> {
+    if (this.isFinished() || this.cancelled.signal.aborted) return Promise.reject(new CancelledError());
     if (this.pageDisconnected) return Promise.reject(new PageDisconnectedError(undefined, !this.navigationPending));
     return new Promise((resolve, reject) => {
       // The content script answers right after dispatching (before any settle wait); no answer at
@@ -625,9 +789,9 @@ export class Session {
         resolve({ ok: false, reason: 'NO_RESULT' });
       }, Session.ACTION_RESULT_TIMEOUT_MS);
       this.pendingActions.set(actionId, {
-        resolveOk: (ok, reason) => {
+        resolveOk: (ok, reason, openUrl) => {
           clearTimeout(timer);
-          resolve({ ok, reason });
+          resolve(openUrl ? { ok, reason, openUrl } : { ok, reason });
         },
         reject: (err) => {
           clearTimeout(timer);
@@ -661,7 +825,7 @@ export class Session {
         outcome = await this.runStep(stepIndex);
       } catch (err) {
         crashed = true;
-        if (this.isFinished()) break;
+        if (this.isFinished() || err instanceof CancelledError) break;
         if (err instanceof PageDisconnectedError && err.fatal) {
           this.stop('PAGE_DISCONNECTED', err.detail);
           break;
@@ -790,6 +954,14 @@ export class Session {
       }
     }
     if (this.isFinished()) return 'ok';
+    // The last plan's actions left the page exactly as it was: say so, or the model repeats them.
+    const signature = pageSignature(pageNodes, viewport, this.pageTitle);
+    if (this.pageSignatureBeforeAct !== null && signature === this.pageSignatureBeforeAct) {
+      const last = this.history[this.history.length - 1];
+      // Only for a plan that ran: a failed action already says why it changed nothing.
+      if (last && last.outcome.startsWith('acted') && !last.outcome.includes('no visible change')) last.outcome = `${last.outcome}; no visible change on the page`;
+    }
+    this.pageSignatureBeforeAct = null;
     this.controller.send({ type: 'perceived' });
     timings.perceive = this.now() - t;
     const perceptionStatus: PerceptionStepStatus | undefined = perceptionResult
@@ -808,7 +980,7 @@ export class Session {
     // T-6.8: NER (profile L) runs in the perception worker, over the exact free-text sources the
     // builder will scan; a dead worker means no NER contribution, never a thrown error.
     let nerMatchesByKey: Map<string, RecognizerMatch[]> | undefined;
-    if (this.deps.perception) {
+    if (this.deps.perception && this.deps.ner !== false) {
       const freeTextSources = collectFreeTextSources({
         task: this.task,
         pageTitle: this.pageTitle,
@@ -842,12 +1014,16 @@ export class Session {
 
     t = this.now();
     this.controller.send({ type: 'sanitized' });
+    // The task's tabs, so the model can go back to one (switch_tab) instead of reloading it.
+    const tabs = (await this.deps.browser?.listTabs?.().catch(() => undefined)) ?? undefined;
     let context = buildSanitizedContext({
       stepId,
       task: this.task,
       reason: graphMessage.reason,
       deltaOf: null,
       viewport,
+      tabs,
+      textScope: graphMessage.textScope,
       pageCategory: this.deps.pageCategory,
       pageTitle: this.pageTitle,
       nodes: pageNodes,
@@ -872,7 +1048,8 @@ export class Session {
     if (perceptionResult?.captured && this.deps.perception) {
       const client = this.deps.perception.client;
       const scale = perceptionResult.scale;
-      const composeOptions = composeOptionsFor(perceptionResult.analysis);
+      const marks = this.deps.marks === false || this.deps.ablation === 'blackbox' ? [] : markLabelsFor(context.nodes, context.viewport, this.deps.promptProfile);
+      const composeOptions = { ...composeOptionsFor(perceptionResult.analysis), marks };
       const blackbox = this.deps.ablation === 'blackbox';
       try {
         context = await attachImage({
@@ -882,6 +1059,7 @@ export class Session {
           nodeRequiresVision: (node) => node.role === 'img',
           maskedFields: labelProtectedFieldsWithoutRedaction(pageNodes, context.nodes),
           frameAnalysis: perceptionResult.analysis,
+          marks,
           // Sent every step, so kept short: the system prompt already explains the markings.
           legend: composeOptions.clearDefault
             ? 'Page as seen. Black = redacted (placeholder/type label); grey = not checked locally; "<TYPE> field" = sensitive field, pixels withheld.'
@@ -976,10 +1154,10 @@ export class Session {
           this.deps.onEvent({ type: 'recovering', what: 'server', detail: 'the gateway flagged unsealed text: sealed it and re-sent' });
         } catch (retryErr) {
           if (this.isFinished()) return 'ok';
-          return this.serverFailure(retryErr);
+          return this.serverFailure(retryErr, stepId);
         }
       } else {
-        return this.serverFailure(err);
+        return this.serverFailure(err, stepId);
       }
     }
     this.controller.endServerCall();
@@ -1009,11 +1187,27 @@ export class Session {
     this.deps.onEvent({ type: 'plan', stepId, actions: validated.plan.actions.map((a) => this.describeAction(a)) });
 
     t = this.now();
+    this.pageSignatureBeforeAct = signature;
     const outcome = await this.actOnPlan(validated.plan, stepId);
     timings.act = this.now() - t;
 
-    // Which element each action targeted (an opaque node id): the model can tell what it already typed where.
-    if (outcome !== 'retry') this.history.push({ step_id: stepId, actions: validated.plan.actions.map((a) => ('node' in a && a.node ? { op: a.op, node: a.node } : { op: a.op })), outcome });
+    // What each action targeted, by id and by the element's name as this step sent it, and the
+    // page's title as sent: once the page changes the ids mean nothing, and without the names the
+    // model could not tell it had already pressed "Add to Cart" two pages ago.
+    if (outcome !== 'retry') {
+      const actions = validated.plan.actions.map((a) => {
+        const name = 'node' in a && a.node ? this.sentNames.get(a.node) : a.op === 'click_point' ? a.label : undefined;
+        return { op: a.op, ...('node' in a && a.node ? { node: a.node } : {}), ...(name ? { name: name.slice(0, 80) } : {}) };
+      });
+      const note = this.stepOutcomeNote;
+      this.stepOutcomeNote = null;
+      this.history.push({ step_id: stepId, page: guarded.page.title.slice(0, 120), actions, outcome: note ? `${outcome}; ${note}`.slice(0, 200) : outcome });
+    }
+    this.lastPlanKeys = [...this.lastPlanKeys.slice(-2), JSON.stringify(validated.plan.actions)];
+    if (this.lastPlanKeys.length === 3 && this.lastPlanKeys.every((k) => k === this.lastPlanKeys[0])) {
+      const last = this.history[this.history.length - 1];
+      if (last) last.outcome = `${last.outcome}; you sent this same plan 3 times in a row: it is not working, try a different approach`;
+    }
     this.deps.onEvent({
       type: 'step',
       step: { stepIndex, stepId, stageTimings: timings, actionsPlanned: validated.plan.actions.length, outcome: outcome === 'retry' ? 'acted' : outcome },
@@ -1027,7 +1221,9 @@ export class Session {
     if (outcome === 'stopped') return 'ok';
 
     await this.awaitSettle();
-    if (this.deps.browser && !this.isFinished()) await this.deps.browser.waitForPageReady();
+    // Only a navigation needs the tab-level wait; otherwise the page's own settle (content
+    // script) and the visual-ready check before the next observation already cover it.
+    if (this.deps.browser && this.navigationPending && !this.isFinished()) await this.deps.browser.waitForPageReady();
     if (this.isFinished()) return 'ok';
     this.controller.send({ type: 'acted' });
     this.controller.send({ type: 'settled' });
@@ -1098,11 +1294,18 @@ export class Session {
 
   /** A server call that failed even after its retries: a configuration problem or an exhausted
    * quota ends the task (retrying cannot fix it); anything else fails just this step. */
-  private serverFailure(err: unknown): 'ok' | 'failed' {
+  private serverFailure(err: unknown, stepId?: string): 'ok' | 'failed' {
     const detail = describeSendError(err);
-    if (classifySendFailure(err, Session.MAX_RETRY_WAIT_S).kind === 'fatal') {
+    const kind = classifySendFailure(err, Session.MAX_RETRY_WAIT_S).kind;
+    if (kind === 'fatal') {
       this.stop('SERVER_ERROR', detail);
       return 'ok';
+    }
+    if (kind === 'step' && stepId) {
+      // The next prompt says why this one failed, so the model's next answer differs.
+      this.history.push({ step_id: stepId, actions: [], outcome: `your reply was rejected (${detail.slice(0, 160)}); reply with valid JSON and only listed ids` });
+      this.deps.onEvent({ type: 'recovering', what: 'server', detail: `the model's answer could not be used (${detail}); asking again from a fresh look at the page` });
+      return 'failed';
     }
     this.deps.onEvent({ type: 'recovering', what: 'server', detail: `no plan (${detail}); trying the step again` });
     return 'failed';
@@ -1127,6 +1330,11 @@ export class Session {
       case 'navigate':
       case 'open_tab':
         return `${action.op} ${action.url.slice(0, 80)}`;
+      case 'find':
+        return `find "${action.text.slice(0, 60)}"`;
+      case 'switch_tab':
+      case 'close_tab':
+        return `${action.op} ${action.tab}`;
       case 'done':
         return `done${action.summary ? `: ${action.summary}` : ''}`;
       case 'stop':
@@ -1159,7 +1367,7 @@ export class Session {
             // Could not open one either: treated like an unreachable gateway below.
           }
         }
-        if (failure.kind === 'fatal' || (failure.kind === 'reopen' && reopened) || attempt >= Session.SEND_ATTEMPTS - 1) throw err;
+        if (failure.kind === 'fatal' || failure.kind === 'step' || (failure.kind === 'reopen' && reopened) || attempt >= Session.SEND_ATTEMPTS - 1) throw err;
         const waitS = failure.kind === 'retry' && failure.waitS !== undefined ? failure.waitS : Math.min(16, Session.DEFAULT_RETRY_WAIT_S * 2 ** attempt);
         this.deps.onEvent({ type: 'waiting', seconds: Math.ceil(waitS), reason: describeSendError(err) });
         await this.pause(waitS * 1000, signal);
@@ -1184,7 +1392,8 @@ export class Session {
       const preview = '•'.repeat(Math.max(0, description.len - 4)) + `#${description.len}`;
       const desc = `Type your ${description.entity} (${preview}) into "${targetNode.name}"?`;
       this.deps.onEvent({ type: 'confirmation_required', risk: 'high', description: desc });
-      confirmed = this.deps.confirm ? await this.deps.confirm('high', desc) : false;
+      confirmed = this.deps.confirm ? await this.untilCancelled(this.deps.confirm('high', desc), false) : false;
+      if (this.isFinished()) return { ok: false, code: 'CANCELLED' };
     }
 
     const result = resolveRehydration(this.vault, this.policy, req.ref, {
@@ -1240,14 +1449,16 @@ export class Session {
       const classified = classifyAction(action);
       if (classified.kind === 'host') {
         if (classified.op === 'report') this.deps.onEvent({ type: 'report', title: classified.title, content: classified.content });
-        if (classified.op === 'wait') await new Promise((resolve) => setTimeout(resolve, classified.ms));
+        // The model asked the page time (an animation, a slow result list): a real wait, ended by Stop.
+        if (classified.op === 'wait') await sleep(classified.ms, this.cancelled.signal);
+        if (classified.op === 'read_page') this.fullTextNext = true;
         if (this.isFinished()) return 'stopped';
         status(index, 'executed');
         if (classified.op === 'ask_user') {
           // The model needs something only the user knows: ask, and carry on with the answer
           // (it joins the task text, which is sanitized like any other). No answer ends the task.
           this.deps.onEvent({ type: 'ask_user', question: classified.question });
-          const answer = this.deps.askUser ? await this.deps.askUser(classified.question) : null;
+          const answer = this.deps.askUser ? await this.untilCancelled(this.deps.askUser(classified.question), null) : null;
           if (this.isFinished()) return 'stopped';
           if (!answer || !answer.trim()) {
             skipRest(index + 1, 'waiting for your answer');
@@ -1275,13 +1486,30 @@ export class Session {
       if (classified.kind === 'browser') {
         const browser = this.deps.browser;
         if (!browser) return failed(index, classified.op, 'FAILED_UNSUPPORTED');
+        // The task's own tabs, by the number the step's TABS list gave them.
+        if (classified.op === 'close_tab') {
+          const closed = browser.closeTab ? await browser.closeTab(classified.tab) : false;
+          if (!closed) return failed(index, classified.op, 'FAILED_NO_SUCH_TAB');
+          status(index, 'executed');
+          continue;
+        }
+        if (classified.op === 'switch_tab') {
+          const next = browser.switchTab ? await browser.switchTab(classified.tab) : null;
+          if (this.isFinished()) return 'stopped';
+          if (!next) return failed(index, classified.op, 'FAILED_NO_SUCH_TAB');
+          this.attach(next, 'switched tab');
+          status(index, 'executed');
+          skipRest(index + 1, 'switched to another tab');
+          return 'acted';
+        }
         const url = 'url' in classified ? parseWebUrl(classified.url) : null;
         if ('url' in classified && !url) return failed(index, classified.op, 'FAILED_URL_REJECTED');
         // design.md §9.2: an action that goes to another origin is confirmed by the user.
         if (url && url.origin !== this.originKey) {
           const description = `${classified.op === 'open_tab' ? 'open in a new tab' : 'go to'} ${url.origin}`;
           this.deps.onEvent({ type: 'confirmation_required', risk: 'medium', description });
-          const approved = this.deps.confirm ? await this.deps.confirm('medium', description) : true;
+          const approved = this.deps.confirm ? await this.untilCancelled(this.deps.confirm('medium', description), false) : true;
+          if (this.isFinished()) return 'stopped';
           if (!approved) {
             status(index, 'declined', 'you pressed Deny');
             skipRest(index + 1, 'you pressed Deny');
@@ -1310,12 +1538,31 @@ export class Session {
       const targetId = 'node' in classified.action ? classified.action.node : undefined;
       const target = targetId ? this.allSeenNodes.get(targetId) : undefined;
       const clicks = classified.action.op === 'click' || classified.action.op === 'double_click' || (classified.action.op === 'press_key' && classified.action.key === 'Enter');
-      const signals: RiskSignals = { highRiskVerbInName: clicks && !!target && hasHighRiskVerb(target.name) };
+      // Links are not exempt: an "Unsubscribe" or "Delete" link can act through its URL or a click
+      // handler. A click_point carries the model's own label for its target.
+      const pointLabel = classified.action.op === 'click_point' ? (classified.action.label ?? '') : '';
+      // find searches the page's text locally and answers found / not found: a search for something
+      // shaped like personal data (an email, a long number) could probe for a value the model was
+      // never shown, so it is refused.
+      if (classified.action.op === 'find' && SENSITIVE_PROBE.test(classified.action.text)) {
+        return failed(index, 'find', 'FAILED_FIND_REFUSED');
+      }
+      const oneTimeName = clicks && target && isOneTimeAction(target.name) ? target.name : pointLabel && isOneTimeAction(pointLabel) ? pointLabel : '';
+      const oneTimeKey = oneTimeName ? `${this.pageTitle}\u0000${oneTimeName.trim().toLowerCase().replace(/\s+/g, ' ')}` : '';
+      const doneAt = oneTimeKey ? this.doneOnce.get(oneTimeKey) : undefined;
+      if (doneAt) {
+        status(index, 'skipped', `already done at ${doneAt}`);
+        skipRest(index + 1, 'an earlier action was skipped');
+        this.stepOutcomeNote = `NOT repeated: "${oneTimeName.slice(0, 40)}" was already pressed on this page at ${doneAt}, so it is done; move on to what is left`;
+        return 'acted';
+      }
+      const signals: RiskSignals = { highRiskVerbInName: (clicks && !!target && hasHighRiskVerb(target.name)) || (pointLabel !== '' && hasHighRiskVerb(pointLabel)) };
       const level = classifyRisk(classified.action, signals);
       if (requiresConfirmation(level)) {
         const description = target ? `${classified.action.op} "${target.name.slice(0, 60)}"` : `${classified.action.op} on the page`;
         this.deps.onEvent({ type: 'confirmation_required', risk: level, description });
-        const approved = this.deps.confirm ? await this.deps.confirm(level, description) : true;
+        const approved = this.deps.confirm ? await this.untilCancelled(this.deps.confirm(level, description), false) : true;
+        if (this.isFinished()) return 'stopped';
         if (!approved) {
           status(index, 'declined', 'you pressed Deny');
           skipRest(index + 1, 'you pressed Deny');
@@ -1325,10 +1572,11 @@ export class Session {
       }
 
       const actionId = `a-${Math.random().toString(36).slice(2)}`;
-      let result: { ok: boolean; reason?: string };
+      let result: { ok: boolean; reason?: string; openUrl?: string };
       try {
         result = await this.dispatchAndAwait(actionId, classified.action);
       } catch (err) {
+        if (err instanceof CancelledError || this.isFinished()) return 'stopped';
         // The previous action loaded a new page: the rest of this plan targeted the old one.
         if (err instanceof PageDisconnectedError && this.navigationPending) {
           skipRest(index, 'the page navigated');
@@ -1337,6 +1585,33 @@ export class Session {
         throw err;
       }
       if (!result.ok) return failed(index, classified.action.op, `FAILED_${result.reason ?? 'UNKNOWN'}`);
+      if (oneTimeKey) this.doneOnce.set(oneTimeKey, stepId);
+      // A link that opens a new tab: a synthetic click cannot (the popup blocker refuses it without
+      // a real user gesture), so the page hands the link back and the tab is opened here.
+      if (result.openUrl) {
+        const url = parseWebUrl(result.openUrl);
+        if (!url || !this.deps.browser) return failed(index, classified.action.op, 'FAILED_URL_REJECTED');
+        if (url.origin !== this.originKey) {
+          const description = `open in a new tab ${url.origin}`;
+          this.deps.onEvent({ type: 'confirmation_required', risk: 'medium', description });
+          const approved = this.deps.confirm ? await this.untilCancelled(this.deps.confirm('medium', description), false) : true;
+          if (this.isFinished()) return 'stopped';
+          if (!approved) {
+            status(index, 'declined', 'you pressed Deny');
+            skipRest(index + 1, 'you pressed Deny');
+            this.stop('USER_DECLINED');
+            return 'stopped';
+          }
+        }
+        try {
+          await this.deps.browser.openTab(url.href);
+        } catch {
+          return failed(index, classified.action.op, 'FAILED_NAVIGATION');
+        }
+        status(index, 'executed');
+        skipRest(index + 1, 'the page changed');
+        return 'acted';
+      }
       status(index, 'executed');
       if (this.navigationPending) {
         skipRest(index + 1, 'the page navigated');

@@ -131,6 +131,30 @@ function geometryBoxesOf(nodes: readonly WireScreenNode[]): { id: string; box: r
   return nodes.map((n) => ({ id: n.id, box: n.box }));
 }
 
+/** The nodes whose position decides whether redaction boxes drawn from the DOM still cover their
+ * text in the pixels: text-bearing, non-animated, non-picture nodes inside (or near) the viewport.
+ * Pictures are screened from the pixels themselves (faces, image class, OCR over the whole frame),
+ * so a carousel slide or a lazy image arriving during the capture no longer voids it; a node that
+ * only exists before or only after the capture carried no box into this frame's redactions. */
+function digestRelevant(nodes: readonly WireScreenNode[], viewport: { w: number; h: number }): WireScreenNode[] {
+  return nodes.filter((n) => {
+    if (n.role === 'img' || n.state.volatile) return false;
+    if (!n.field && n.name.trim().length === 0) return false;
+    const [x, y, w, h] = n.box;
+    return x < viewport.w && y < viewport.h * 2 && x + w > 0 && y + h > -viewport.h;
+  });
+}
+
+/** Digests of the relevant nodes present both before and after the capture (by id). */
+export async function stableGeometryDigests(before: readonly WireScreenNode[], after: readonly WireScreenNode[], viewport: { w: number; h: number }): Promise<{ before: string; after: string }> {
+  const afterById = new Map(digestRelevant(after, viewport).map((n) => [n.id, n]));
+  const common = digestRelevant(before, viewport).filter((n) => afterById.has(n.id));
+  return {
+    before: await computeGeometryDigest(geometryBoxesOf(common)),
+    after: await computeGeometryDigest(geometryBoxesOf(common.map((n) => afterById.get(n.id)!))),
+  };
+}
+
 export async function runPerceptionStep(nodes: readonly WireScreenNode[], deps: PerceptionStepDeps): Promise<PerceptionStepResult> {
   const pixelOnly = deps.ablation === 'pixel_only';
   const visionNodes = pixelOnly ? [] : nodes.filter(isVisionNode);
@@ -151,7 +175,6 @@ export async function runPerceptionStep(nodes: readonly WireScreenNode[], deps: 
     status: { ...status, regionsRequested },
   });
 
-  const beforeDigest = await computeGeometryDigest(geometryBoxesOf(nodes));
   const captureResult = await deps.capture();
   if (!captureResult.ok) {
     return noVision({ capture: captureResult.reason, ...(captureResult.detail ? { captureDetail: captureResult.detail } : {}), worker: 'not-called', level: 'L0' });
@@ -173,8 +196,8 @@ export async function runPerceptionStep(nodes: readonly WireScreenNode[], deps: 
 
   const freshNodes = await deps.reobserveGeometry();
   if (!deps.pixelVerified) {
-    const afterDigest = await computeGeometryDigest(geometryBoxesOf(freshNodes));
-    const digestVerdict = deps.digestGuard.check(beforeDigest, afterDigest);
+    const digests = await stableGeometryDigests(nodes, freshNodes, deps.viewport);
+    const digestVerdict = deps.digestGuard.check(digests.before, digests.after);
     if (digestVerdict !== 'ok') {
       bitmap.close();
       return noVision({ capture: 'geometry-changed', worker: 'not-called', level: 'L0' }, digestVerdict === 'degrade');

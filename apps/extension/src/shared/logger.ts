@@ -38,16 +38,16 @@ export interface LogEvent {
 // answered the host, so a `type` into a live editor hung the task — found on Gmail, 2026-09-29.)
 const PREFLIGHT_REASONS: Record<PreflightFailureReason, true> = {
   NODE_UNRESOLVED: true, FACET_ROLE: true, FACET_NAME: true, HIT_TEST_FAILED: true, DISABLED: true,
-  CONTAINER_MISMATCH: true, LEASE_EXPIRED: true, NODE_VOLATILE: true, INTERNAL_ERROR: true,
+  CONTAINER_MISMATCH: true, LEASE_EXPIRED: true, NODE_VOLATILE: true, INTERNAL_ERROR: true, NOT_FOUND: true,
 };
 
 const ALLOWED_STRING_DETAILS = new Set<string>([
   ...Object.keys(PREFLIGHT_REASONS),
   // controller states (design.md §10.1)
-  'IDLE', 'PREPARING', 'OBSERVING', 'PERCEIVING', 'SANITIZING', 'GUARDING', 'BLOCK', 'SENDING',
+  'IDLE', 'PREPARING', 'OBSERVING', 'PERCEIVING', 'SANITIZING', 'GUARDING', 'SENDING',
   'AWAITING_SERVER', 'VALIDATING', 'RECONCILING', 'ACTING', 'SETTLING', 'DONE', 'ERROR', 'CANCELLED', 'STOPPED',
   // budget reason codes
-  'STEPS_EXCEEDED', 'SERVER_CALLS_EXCEEDED', 'REPAIRS_EXCEEDED', 'CAPTURES_EXCEEDED', 'SETTLE_TIMEOUT', 'SERVER_TIMEOUT', 'WALL_CLOCK_EXCEEDED', 'BUDGET_EXHAUSTED',
+  'STEPS_EXCEEDED', 'SERVER_CALLS_EXCEEDED', 'SETTLE_TIMEOUT', 'SERVER_TIMEOUT', 'WALL_CLOCK_EXCEEDED', 'BUDGET_EXHAUSTED',
 ]);
 
 function assertClosedVocabulary(detail: LogEvent['detail']): void {

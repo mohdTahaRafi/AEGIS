@@ -20,9 +20,9 @@ describe('classifyRisk (design.md §9.2, OQ-10)', () => {
     expect(requiresConfirmation(level)).toBe(true);
   });
 
-  it('click_point always requires confirmation, even with no other signal', () => {
-    const level = classifyRisk({ op: 'click_point', x: 10, y: 10, label: 'x' }, {});
-    expect(requiresConfirmation(level)).toBe(true);
+  it('click_point is not risky by itself; an irreversible label makes it so', () => {
+    expect(requiresConfirmation(classifyRisk({ op: 'click_point', x: 10, y: 10, label: 'x' }, {}))).toBe(false);
+    expect(requiresConfirmation(classifyRisk({ op: 'click_point', x: 10, y: 10, label: 'Pay now' }, { highRiskVerbInName: true }))).toBe(true);
   });
 
   it('predicted cross-origin navigation and download links require confirmation', () => {

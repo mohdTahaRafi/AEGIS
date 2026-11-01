@@ -40,18 +40,30 @@ export function classifyRisk(action: WireAction, signals: RiskSignals, modelHint
   if (signals.highRiskVerbInName) level = max(level, 'medium');
   if (signals.predictedCrossOriginNavigation) level = max(level, 'medium');
   if (signals.isDownloadLink) level = max(level, 'medium');
-  if (action.op === 'click_point') level = max(level, 'medium');
+  // click_point is not risky in itself (with ids drawn on the screenshot it is rare, and asking on
+  // every one stalled tasks); its label is checked like a button's name by the caller.
 
   if (modelHint) level = max(level, modelHint); // raises only — max() can never move `level` down
   return level;
 }
 
-const HIGH_RISK_VERB = /\b(?:send|delete|remove|pay|purchase|buy|transfer)\b/i;
+const HIGH_RISK_VERB = /\b(?:send|delete|remove|pay|purchase|buy now|place order|checkout|transfer|unsubscribe|submit application)\b/i;
 
 /** design.md §9.2: a control named for an irreversible act (Gmail's "Send (Ctrl-Enter)", a
  * "Delete" button, "Pay now") is confirmed by the user, whatever the model thought of it. */
 export function hasHighRiskVerb(name: string): boolean {
   return HIGH_RISK_VERB.test(name);
+}
+
+// A click that takes effect once and would take effect again if repeated: a second "Add to Cart"
+// puts a second copy in the cart. Not a risk level (most are harmless); the session does each of
+// these at most once per page and task (session.ts `doneOnce`).
+// Not "submit"/"send": re-submitting a form after fixing a field is legitimate (and "send"/"pay"
+// are confirmed by the user anyway).
+const ONE_TIME_VERB = /\b(?:add(?:ed)? to (?:cart|basket|bag|trolley|wishlist|wish list)|buy now|place (?:your )?order|subscribe|book now|reserve|follow|vote|rsvp)\b/i;
+
+export function isOneTimeAction(name: string): boolean {
+  return ONE_TIME_VERB.test(name);
 }
 
 export function requiresConfirmation(level: RiskLevel): boolean {
