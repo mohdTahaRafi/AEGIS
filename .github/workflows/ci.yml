@@ -151,15 +151,3 @@ jobs:
 
       - name: Fail if generated output is out of date with the committed schema
         run: git diff --exit-code -- packages/protocol/src/generated server/gateway/src/aegis_gateway/protocol
-
-  canary:
-    name: Privacy regression — canary leak check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Placeholder — becomes a hard gate in Phase 5 (T-5.8)
-        run: |
-          echo "No fixture corpus and no egress guard exist yet (Phase 3/Phase 5)."
-          echo "This step is wired now so the workflow shape doesn't change later;"
-          echo "from Phase 5 onward, any canary string escaping into a captured"
-          echo "payload — JSON bytes or OCR of a sanitized image — fails this job."
