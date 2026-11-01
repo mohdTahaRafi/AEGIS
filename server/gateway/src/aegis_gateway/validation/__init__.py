@@ -1,1 +1,1 @@
-"""Phase 2 scaffold — see docs/TASKS.md."""
+"""Server-side checks on incoming steps and outgoing plans."""

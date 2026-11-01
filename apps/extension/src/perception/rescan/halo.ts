@@ -1,8 +1,6 @@
 // design.md §7.6 step 5 / phase_4_vision.md §8 — "OCR in a 24px halo around every redaction box.
 // If dilation was insufficient and readable characters of the value remain at the edge, this
-// finds them." Real as of T-6.3/T-6.4 (Phase 6): the face re-check (`face-recheck.ts`) carried
-// this step's whole load through Phase 4-5 while no OCR model existed; this now runs the real
-// bundled PP-OCRv5 detector+recognizer over each halo crop of the COMPOSED (already-redacted)
+// finds them." Runs the bundled PP-OCRv5 detector+recognizer over each halo crop of the COMPOSED (already-redacted)
 // image. A "hit" here means detection found a text-shaped region AND recognition decoded
 // non-trivial text from it — detection alone would flag DB's own thresholded-noise false
 // positives too often to be a useful safety net; requiring an actual decoded character is what

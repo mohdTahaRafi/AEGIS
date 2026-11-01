@@ -4,13 +4,10 @@
 // explicit table than against control flow scattered across async functions.
 //
 // [A] The design diagram doesn't enumerate every state by name in one place; this file names them
-// from the diagram's boxes and arrows (phase_2_spine.md §4.1). `BLOCK`, `DONE`, `ERROR`, `STOPPED`
-// and `CANCELLED` are treated as terminal (no outgoing transitions) — `BLOCK` because Phase 2's
-// guard stub always passes so it is unreached in practice, and because the diagram shows no arrow
-// leaving it. That leaves 12 non-terminal states `CANCELLED` must be reachable from; the task
-// table's "10" is likely counting a slightly different grouping of the same diagram and is not
-// treated as a hard constraint here — what matters is that every actually-reachable non-terminal
-// state can cancel, which the test suite checks exhaustively.
+// from the diagram's boxes and arrows (phase_2_spine.md §4.1). `DONE`, `ERROR`, `STOPPED` and
+// `CANCELLED` are terminal (no outgoing transitions). The diagram's `BLOCK` state is not modelled:
+// a guard block fails only the step, so the session sends `recover` from `GUARDING` instead.
+// Every non-terminal state can cancel, which the test suite checks exhaustively.
 
 export type ControllerState =
   | 'IDLE'
@@ -19,7 +16,6 @@ export type ControllerState =
   | 'PERCEIVING'
   | 'SANITIZING'
   | 'GUARDING'
-  | 'BLOCK'
   | 'SENDING'
   | 'AWAITING_SERVER'
   | 'VALIDATING'
@@ -39,12 +35,10 @@ export type ControllerEvent =
   | { type: 'perceived' }
   | { type: 'sanitized' }
   | { type: 'guard_pass' }
-  | { type: 'guard_block' }
   | { type: 'sent' }
   | { type: 'plan_received' }
   | { type: 'validated' }
   | { type: 'validation_rejected' }
-  | { type: 'reconciled_locally' }
   | { type: 'reconcile_reobserve' }
   | { type: 'acted' }
   | { type: 'task_done' }
@@ -65,12 +59,10 @@ const TABLE: Partial<Record<`${ControllerState}:${ControllerEvent['type']}`, Con
   'PERCEIVING:perceived': 'SANITIZING',
   'SANITIZING:sanitized': 'GUARDING',
   'GUARDING:guard_pass': 'SENDING',
-  'GUARDING:guard_block': 'BLOCK',
   'SENDING:sent': 'AWAITING_SERVER',
   'AWAITING_SERVER:plan_received': 'VALIDATING',
   'VALIDATING:validated': 'ACTING',
   'VALIDATING:validation_rejected': 'RECONCILING',
-  'RECONCILING:reconciled_locally': 'ACTING',
   'RECONCILING:reconcile_reobserve': 'OBSERVING',
   'ACTING:acted': 'SETTLING',
   'ACTING:task_done': 'DONE',
@@ -78,7 +70,7 @@ const TABLE: Partial<Record<`${ControllerState}:${ControllerEvent['type']}`, Con
   'SETTLING:settled': 'OBSERVING',
 };
 
-export const TERMINAL_STATES: ReadonlySet<ControllerState> = new Set(['DONE', 'ERROR', 'CANCELLED', 'STOPPED', 'BLOCK']);
+export const TERMINAL_STATES: ReadonlySet<ControllerState> = new Set(['DONE', 'ERROR', 'CANCELLED', 'STOPPED']);
 
 export class InvalidTransitionError extends Error {
   constructor(state: ControllerState, event: ControllerEvent) {

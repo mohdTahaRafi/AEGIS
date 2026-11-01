@@ -6,7 +6,7 @@
 
 import type { SanitizedContext } from '@aegis/protocol';
 import { ALL_RECOGNIZERS, findAll, normalizeForMatching, type EntityType } from '@aegis/recognizers';
-import type { Policy, Sensitivity } from '@aegis/policy';
+import type { Policy } from '@aegis/policy';
 import { entityClass, threshold } from '@aegis/policy';
 import type { Vault } from '../vault';
 import { normalizedContains } from './normalize-contains';
@@ -15,8 +15,6 @@ export interface GuardBlock {
   rule: 'VAULT_LEAK' | 'PATTERN' | 'SCHEMA' | 'ID_SHAPE';
   entity?: EntityType;
 }
-
-const CLASS_ORDER: Sensitivity[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
 
 /** Sealed values this short are matched as whole tokens inside page-derived strings rather than
  * as raw substrings of the JSON bytes: a field classified by its label can seal "123" or "abc",
@@ -90,10 +88,6 @@ export function patternResweep(policy: Policy, bytes: string, textLeaves?: reado
     }
   }
   return null;
-}
-
-export function classAtLeast(a: Sensitivity, b: Sensitivity): boolean {
-  return CLASS_ORDER.indexOf(a) >= CLASS_ORDER.indexOf(b);
 }
 
 const OCR_WINDOW = 5;

@@ -1,1 +1,1 @@
-"""Phase 2 scaffold — see docs/TASKS.md."""
+"""Record/replay store for offline runs."""

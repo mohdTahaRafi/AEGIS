@@ -1,1 +1,1 @@
-"""Phase 2 scaffold — see docs/TASKS.md."""
+"""Client for the OpenAI-compatible vision model API."""

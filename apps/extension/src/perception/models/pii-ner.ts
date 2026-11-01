@@ -34,18 +34,6 @@ export function chunkForNer(text: string, maxTokens = 256, overlap = 32): string
   return chunks;
 }
 
-/** design.md §6.3's "output mapped to the entity enum via a per-profile mapping table." Profile S
- * never has real output to map (see this file's top comment), but the table is kept so the call
- * shape matches design.md's description exactly. */
-export const PROFILE_S_LABEL_MAP: Readonly<Record<string, EntityType>> = {
-  PER: 'PERSON_NAME',
-  LOC: 'ADDRESS',
-  EMAIL: 'EMAIL',
-  PHONE: 'PHONE',
-  ORG: 'BANK_ACCOUNT',
-  DATE: 'DOB',
-};
-
 /** `openai/privacy-filter`'s real `id2label` tags (confirmed via its published `config.json`,
  * 2026-09-26), mapped onto this project's closed entity enum. `private_url` has no honest mapping
  * in the enum (a URL alone isn't one of design.md §3.3's sensitive categories) and is dropped —

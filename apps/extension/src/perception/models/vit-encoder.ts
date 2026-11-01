@@ -49,13 +49,9 @@ export const PROMPT_VOCABULARY = [
 
 export type PromptLabel = (typeof PROMPT_VOCABULARY)[number];
 
-/** design.md §6.4: "Sensitive top class above threshold (0.35 for ID/card, 0.45 otherwise)." Per
- * label; the region decision itself uses the pooled `entityThreshold`/`acceptedEntity` below. */
+/** design.md §6.4's sensitive top classes. The region decision uses the pooled
+ * `entityThreshold`/`acceptedEntity` below. */
 const SENSITIVE_LABELS = new Set<PromptLabel>(['identity card', 'Aadhaar card', 'PAN card', 'passport page', 'credit or debit card', 'handwritten signature', 'QR code', 'barcode']);
-
-export function thresholdFor(label: PromptLabel): number {
-  return SENSITIVE_LABELS.has(label) && label !== 'handwritten signature' && label !== 'QR code' && label !== 'barcode' ? 0.35 : 0.45;
-}
 
 export function isSensitiveLabel(label: PromptLabel): boolean {
   return SENSITIVE_LABELS.has(label);

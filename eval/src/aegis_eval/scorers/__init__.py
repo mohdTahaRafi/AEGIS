@@ -1,1 +1,1 @@
-"""Phase 1/5 scaffold — see docs/TASKS.md."""
+"""Metric scorers (design.md §18): one module per official metric, the leak count, and box matching."""

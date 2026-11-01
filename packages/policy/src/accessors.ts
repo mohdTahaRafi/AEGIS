@@ -25,18 +25,6 @@ export function isPresenceOnly(policy: Policy, entity: EntityType): boolean {
   return policy.presenceOnly.includes(entity);
 }
 
-export function allowsPartialDisclosure(policy: Policy, entity: EntityType, field: string): boolean {
-  return policy.partialDisclosure[entity]?.[field] === true;
-}
-
 export function requiresRiskConfirmation(policy: Policy, riskTag: string): boolean {
   return policy.riskRules.confirm.includes(riskTag);
-}
-
-export function entitiesAtOrAbove(policy: Policy, minimum: Sensitivity): EntityType[] {
-  const order: Sensitivity[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
-  const minIndex = order.indexOf(minimum);
-  return (Object.keys(policy.entityClass) as EntityType[]).filter(
-    (e) => order.indexOf(policy.entityClass[e]!) >= minIndex,
-  );
 }

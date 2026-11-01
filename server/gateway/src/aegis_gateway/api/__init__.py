@@ -1,1 +1,1 @@
-"""Phase 2 scaffold — see docs/TASKS.md."""
+"""HTTP routes: health, sessions, steps."""

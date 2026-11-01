@@ -6,7 +6,6 @@ export const PAN_LEXICON = ['pan', 'permanent account number'];
 export const PASSPORT_LEXICON = ['passport'];
 export const DOB_LEXICON = ['dob', 'date of birth', 'birthdate', 'birth date'];
 export const ADDRESS_LEXICON = ['address', 'street', 'pincode', 'pin code', 'postal code', 'zip'];
-export const BANK_ACCOUNT_LEXICON = ['account number', 'acct', 'bank account', 'ifsc'];
 export const KYC_PAYMENT_LEXICON = [
   ...AADHAAR_LEXICON,
   ...PAN_LEXICON,

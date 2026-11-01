@@ -1,1 +1,1 @@
-"""AEGIS evaluation harness. Scaffold only — built starting Phase 1 (docs/TASKS.md T-1.12...T-1.17)."""
+"""AEGIS evaluation harness: fixture corpus, Playwright runner, metric scorers and an independent auditor."""

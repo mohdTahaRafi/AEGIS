@@ -4,7 +4,7 @@ Playwright Route/Request objects (no real browser needed for this pure routing d
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from aegis_eval.runner.gateway_mock import MockGateway
 

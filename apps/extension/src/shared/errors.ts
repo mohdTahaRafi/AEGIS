@@ -4,8 +4,6 @@
 export type BudgetReasonCode =
   | 'STEPS_EXCEEDED'
   | 'SERVER_CALLS_EXCEEDED'
-  | 'REPAIRS_EXCEEDED'
-  | 'CAPTURES_EXCEEDED'
   | 'SETTLE_TIMEOUT'
   | 'SERVER_TIMEOUT'
   | 'WALL_CLOCK_EXCEEDED'
@@ -19,14 +17,6 @@ export type BudgetReasonCode =
   | 'CAPTCHA_DETECTED';
 
 export type HardDenialReasonCode = 'PROTECTED_FIELD_READ' | 'CAPTCHA_SOLVE' | 'EXTENSION_UI_TARGET';
-
-/**
- * A hallucinated op is a schema failure (`SCHEMA_INVALID`), not its own code — design.md: "A
- * hallucinated action is a parse error, not a click." NFR-12 ("server output is never code") has
- * no code here either: it's enforced by never writing a code path that evals/builds a
- * regex/selector from plan text, not by a runtime check (see validator.ts's doc comment).
- */
-export type ValidatorReasonCode = 'SCHEMA_INVALID' | 'LEASE_EXPIRED' | HardDenialReasonCode;
 
 export class AegisError extends Error {
   readonly code: string;

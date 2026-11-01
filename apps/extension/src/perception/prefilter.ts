@@ -25,9 +25,3 @@ export function shouldRunNer(text: string, insideFormOrProfileContainer = false)
   if (matchesGazetteer(text)) return true;
   return false;
 }
-
-export function prefilterRejectionRate(samples: readonly { text: string; insideFormOrProfileContainer?: boolean }[]): number {
-  if (samples.length === 0) return 0;
-  const rejected = samples.filter((s) => !shouldRunNer(s.text, s.insideFormOrProfileContainer)).length;
-  return rejected / samples.length;
-}

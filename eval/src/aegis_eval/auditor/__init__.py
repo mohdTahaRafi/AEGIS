@@ -1,1 +1,1 @@
-"""Phase 1/5 scaffold — see docs/TASKS.md."""
+"""Independent auditor: re-implemented recognizers that re-scan every captured payload for leaks."""
