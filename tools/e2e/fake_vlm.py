@@ -87,7 +87,7 @@ def plan_for(user_text: str) -> dict:
     textbox = next((i for i, role, name in elements if role == "textbox" and name == "Username"), None)
     button = next((i for i, role, name in elements if role == "button" and name == "Sign in"), None)
     ref = USERNAME_REF.search(user_text)
-    if "type ->" in user_text and button:  # already typed in an earlier step
+    if re.search(r"^HISTORY:.*\btype( e\d+)? ->", user_text, re.M) and button:  # already typed in an earlier step
         if SCENARIO == "click_point":
             return {"actions": [point_on(user_text, button, "Sign in"), {"op": "done", "summary": "Signed in."}]}
         return {"actions": [{"op": "click", "node": button}, {"op": "done", "summary": "Signed in."}]}

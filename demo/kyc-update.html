@@ -1,0 +1,52 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sunrise Bank – KYC Update</title>
+<style>
+body{font-family:system-ui,sans-serif;background:#f3f5f9;margin:0;color:#1b2333}
+header{background:#0b3d91;color:#fff;padding:14px 28px;font-size:20px}
+main{display:grid;grid-template-columns:340px 1fr;gap:20px;padding:20px 28px;max-width:1100px;margin:auto}
+.card{background:#fff;border-radius:10px;padding:18px;box-shadow:0 1px 4px #0002}
+dt{font-size:12px;color:#667;margin-top:10px}dd{margin:2px 0;font-weight:600}
+label{display:block;font-size:13px;margin-top:12px}
+input,textarea{width:100%;padding:8px;border:1px solid #99a;border-radius:6px;box-sizing:border-box}
+button{margin-top:16px;padding:10px 20px;background:#0b3d91;color:#fff;border:0;border-radius:6px;font-size:15px}
+.note{background:#fff7e0;border:1px solid #e6c65c;padding:8px 12px;border-radius:6px;font-size:13px}
+#done{display:none;background:#e6f6ea;border:1px solid #4caf50}
+</style></head><body>
+<header>Sunrise Bank · Pune Camp Branch — KYC Update</header>
+<main>
+ <section class="card" aria-label="Your profile">
+  <h2>Your profile</h2>
+  <img src="profile-photo.jpg" alt="Profile photo" width="96" height="120">
+  <dl>
+   <dt>Name</dt><dd>Rohan Mehta</dd>
+   <dt>Date of Birth</dt><dd>12/08/1996</dd>
+   <dt>Mobile</dt><dd>+91 98765 43210</dd>
+   <dt>Email</dt><dd>rohan.mehta96@example.in</dd>
+   <dt>Aadhaar</dt><dd>4987 1234 5679</dd>
+   <dt>PAN</dt><dd>ABCPK1234F</dd>
+   <dt>Address</dt><dd>Flat 402, Sunrise Apartments, MG Road, Pune</dd>
+   <dt>PIN Code</dt><dd>411001</dd>
+  </dl>
+ </section>
+ <section class="card" aria-label="KYC update form">
+  <h2>KYC update request</h2>
+  <p class="note">Application ID <b>KYC-2026-004417</b> · Account type: Savings · Last date to submit: <b>31 Oct 2026</b></p>
+  <form id="f">
+   <label for="n">Full Name</label><input id="n" autocomplete="name">
+   <label for="d">Date of Birth</label><input id="d">
+   <label for="m">Mobile Number</label><input id="m" type="tel" autocomplete="tel">
+   <label for="e">Email ID</label><input id="e" type="email" autocomplete="email">
+   <label for="a">Aadhaar Number</label><input id="a">
+   <label for="p">PAN Number</label><input id="p">
+   <label for="ad">Residential Address</label><textarea id="ad" rows="2"></textarea>
+   <label for="pc">PIN Code</label><input id="pc">
+   <button type="submit">Submit KYC update</button>
+  </form>
+  <div id="done" class="note" style="margin-top:14px"></div>
+ </section>
+</main>
+<script>
+document.getElementById('f').addEventListener('submit',e=>{e.preventDefault();
+ const v=id=>document.getElementById(id).value.trim(), ids=['n','d','m','e','a','p','ad','pc'];
+ const ok=ids.every(i=>v(i)); const box=document.getElementById('done'); box.style.display='block';
+ box.innerHTML=ok?'✅ KYC update KYC-2026-004417 received for <b>'+v('n')+'</b> · '+v('m')+' · '+v('e')+' · Aadhaar '+v('a')+' · PAN '+v('p')+' · '+v('ad')+' – '+v('pc'):'❌ Some fields are empty.';});
+</script></body></html>

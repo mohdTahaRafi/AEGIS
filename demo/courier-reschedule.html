@@ -1,0 +1,49 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>SwiftPost – Delivery Update</title>
+<style>
+body{font-family:system-ui,sans-serif;background:#f4f6f8;margin:0;color:#1b2333}
+header{background:#d6291f;color:#fff;padding:14px 28px;font-size:20px;font-weight:700}
+main{display:grid;grid-template-columns:380px 1fr;gap:20px;padding:20px 28px;max-width:1100px;margin:auto}
+.card{background:#fff;border-radius:10px;padding:18px;box-shadow:0 1px 4px #0002}
+dt{font-size:12px;color:#667;margin-top:10px}dd{margin:2px 0;font-weight:600}
+.alert{background:#fdecea;border:1px solid #e57368;padding:8px 12px;border-radius:6px;font-size:14px}
+.otp{background:#fff7e0;border:1px dashed #c9a227;padding:8px 12px;border-radius:6px;font-size:13px;margin-top:12px}
+label{display:block;font-size:13px;margin-top:12px}
+input,select{width:100%;padding:8px;border:1px solid #99a;border-radius:6px;box-sizing:border-box;font-size:14px}
+button{margin-top:16px;padding:10px 20px;background:#d6291f;color:#fff;border:0;border-radius:6px;font-size:15px}
+#done{display:none;background:#e6f6ea;border:1px solid #4caf50;padding:8px 12px;border-radius:6px;margin-top:14px}
+</style></head><body>
+<header>SwiftPost Courier · Delivery Update</header>
+<main>
+ <section class="card" aria-label="Delivery notice">
+  <h2>Delivery notice</h2>
+  <p class="alert">⚠ Delivery attempt failed on 30 Sep — recipient unavailable. Redelivery fee: ₹0</p>
+  <img src="profile-photo.jpg" alt="Recipient photo for ID check" width="80" height="100">
+  <dl>
+   <dt>Name</dt><dd>Rohan Mehta</dd>
+   <dt>Mobile</dt><dd>+91 98765 43210</dd>
+   <dt>Email</dt><dd>rohan.mehta96@example.in</dd>
+   <dt>Address</dt><dd>Flat 402, Sunrise Apartments, MG Road, Pune</dd>
+   <dt>AWB number</dt><dd>4587210365</dd>
+   <dt>Package</dt><dd>1 parcel · 2.4 kg · Electronics</dd>
+  </dl>
+  <div class="otp">Delivery OTP: <b>583214</b> — share only with the delivery agent</div>
+ </section>
+ <section class="card" aria-label="Reschedule delivery">
+  <h2>Reschedule delivery</h2>
+  <form id="f">
+   <fieldset style="border:0;padding:0;margin:12px 0 0"><legend style="font-size:13px">New delivery date</legend>
+   <label style="display:inline-block;margin-right:16px"><input type="radio" name="dt" value="Thursday" style="width:auto"> Thursday</label>
+   <label style="display:inline-block;margin-right:16px"><input type="radio" name="dt" value="Friday" style="width:auto"> Friday</label>
+   <label style="display:inline-block"><input type="radio" name="dt" value="Monday" style="width:auto"> Monday</label></fieldset>
+   <label for="m">Mobile Number (courier will call this number)</label><input id="m" type="tel" autocomplete="tel">
+   <label for="e">Email ID (for delivery updates)</label><input id="e" type="email" autocomplete="email">
+   <button type="submit">Confirm reschedule</button>
+  </form>
+  <div id="done"></div>
+ </section>
+</main>
+<script>
+document.getElementById('f').addEventListener('submit',e=>{e.preventDefault();
+ const r=document.querySelector('input[name=dt]:checked'), v=id=>id==='dt'?(r?r.value:''):document.getElementById(id).value.trim(), box=document.getElementById('done'); box.style.display='block';
+ box.innerHTML=(v('dt')&&v('m')&&v('e'))?'✅ Delivery rescheduled to <b>'+v('dt')+'</b>. Courier will call <b>'+v('m')+'</b>; updates to <b>'+v('e')+'</b>.':'❌ Please fill every field.';});
+</script></body></html>
