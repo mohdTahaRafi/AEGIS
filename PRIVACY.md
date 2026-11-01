@@ -16,8 +16,11 @@ The models are part of the extension package. Nothing is downloaded after instal
 
 ## What is sent, and where
 
-For each step of a task, the extension sends one request to **api.groq.com** (Groq, an inference
-provider), authenticated with **your own Groq API key**. The request contains:
+For each step of a task, the extension sends one request to the model provider you chose —
+**generativelanguage.googleapis.com** (Google Gemini, the default), **api.groq.com** (Groq),
+**api.mistral.ai** (Mistral) or **openrouter.ai** (OpenRouter) —
+authenticated with **your own API key** for that provider. Every provider offered serves an
+vision model. The request contains:
 
 - your task text, after sensitive values in it have been replaced by typed placeholders such as
   `⟪AADHAAR#2⟫`;
@@ -29,14 +32,16 @@ It never contains a real sensitive value: values are replaced before the request
 request is checked again immediately before it leaves. If a check fails, nothing is sent. Real values
 are put back into the page only inside your browser, and only for actions you have confirmed.
 
-Groq's own handling of the data it receives is governed by Groq's terms and your account settings
-(for example its Zero Data Retention control). Because the key is yours, requests are attributed to
-your Groq account.
+The provider's own handling of the data it receives is governed by its terms and your account
+settings. On their **free tiers, Mistral, Google (Gemini) and OpenRouter's free models may use requests to
+improve their models**; what they receive is the redacted request described above, never a real sensitive value.
+Check each provider's terms for its retention and training rules. Because the key is yours, requests are attributed to your
+account with that provider.
 
 ## Your API key
 
 You enter it in the extension. It is stored in the extension's local storage in your browser, sent only
-to `api.groq.com` as a bearer token, never logged, and never sent to us or anywhere else. Remove it any
+to its own provider's API as a bearer token, never logged, and never sent to us or anywhere else. Remove it any
 time in Settings, or by uninstalling the extension.
 
 ## What we collect
@@ -46,6 +51,10 @@ tasks, pages, screenshots or key.
 
 ## Permissions
 
-`activeTab`, `scripting`, `tabs` (read and act on the page you invoke AEGIS on, and tabs it opens),
-`storage` (settings and key), `sidePanel` (the panel), the host permission `https://api.groq.com/*`
-(send the redacted step), and optional per-site access that you grant when you run a task.
+`activeTab`, `scripting`, `tabs` (read and act on the task's page and the tabs it opens), `storage`
+(settings and key), `sidePanel` (the panel), the host permissions for the four model APIs (send the
+redacted step), and site access on all sites. Site access lets a task read and screenshot pages on any
+site it moves to without stopping to ask; Chrome does not allow screenshots with optional site access.
+AEGIS reads a page only while a task you started is running on it, and nothing leaves your device
+unredacted. You can restrict site access in Chrome's extension settings; AEGIS then asks you to click
+its icon on each new site.

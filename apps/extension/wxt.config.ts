@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { defineConfig } from 'wxt';
+import { MODEL_API_ORIGINS } from './src/host/egress/providers';
 
 // `wxt.config.ts` is loaded as ESM (this file uses `import`) — CommonJS's `__dirname` global
 // does not exist here. `srcDir: '.'` below is WXT's own proof that this file's paths are meant
@@ -23,9 +24,10 @@ function shippedModelFiles(): Set<string> {
   return new Set(['models.manifest.json', ...manifest.models.map((m) => m.file)]);
 }
 
-// Where a release's extension pages may connect: the extension itself and the model API the user's
-// key is for. Nothing else — a page script or a bug cannot send data anywhere else.
-const MODEL_API_ORIGIN = 'https://api.groq.com';
+// Where a release's extension pages may connect: the extension itself and the model APIs a user's
+// own key can be for (src/host/egress/providers.ts). Nothing else — a page script or a bug cannot
+// send data anywhere else.
+const MODEL_API_CONNECT = MODEL_API_ORIGINS.join(' ');
 
 export default defineConfig({
   srcDir: '.',
@@ -36,39 +38,27 @@ export default defineConfig({
   manifest: ({ browser, mode }) => ({
     name: 'AEGIS',
     description: 'Privacy-preserving browser agent with on-device visual perception',
-    // `activeTab`: `tabs.captureVisibleTab` rejects a per-origin host grant and even a
-    // runtime-granted optional `<all_urls>` ("Either the '<all_urls>' or 'activeTab' permission is
-    // required", reproduced in Chromium 153). The toolbar click grants it for that tab only via
-    // `action.onClicked` (entrypoints/background.ts) — never via `openPanelOnActionClick`.
+    // Site access is REQUIRED (`<all_urls>` in host_permissions), in every build. Measured
+    // 2026-10-10 in Chromium 153 on the release build: `tabs.captureVisibleTab` succeeds with a
+    // required `<all_urls>`, and fails ("Either the '<all_urls>' or 'activeTab' permission is
+    // required") with the same pattern as an optional permission even after the user switches it
+    // to "On all sites" — so with optional access, every new site a task moved to needed a click
+    // on the toolbar icon, and an autonomous multi-site task was impossible. The agent still sends
+    // nothing that is not redacted and guarded; site access only lets it read and screenshot the
+    // task's own tab. A user who restricts it in Chrome ("On click") gets the activeTab path:
+    // `activeTab` + the toolbar click (`action.onClicked`, entrypoints/background.ts).
     permissions: ['scripting', 'tabs', 'storage', 'activeTab'],
-    optional_host_permissions: ['<all_urls>'],
     // Declared explicitly: without an `action` key Chrome still draws an implicit toolbar icon, but
     // `browser.action` (and so `action.onClicked`, the one path that grants `activeTab`) does not
     // exist.
     action: { default_title: 'AEGIS' },
-    // T-6.10: the eval harness's fixture server (eval/src/aegis_eval/runner/fixture_server.py)
-    // serves real corpus pages over http://127.0.0.1 so `captureVisibleTab` has a grantable
-    // origin at all (`file://` pages can never get it — see that module's own doc comment).
-    // `ensureHostPermission`'s normal path is `permissions.request()`, a UI prompt with no way
-    // for headless Playwright automation to click "Allow" — confirmed by reproduction, not
-    // assumed: it hangs forever waiting on a gesture that never comes. Declaring a host permission
-    // as REQUIRED (not optional) makes Chrome auto-grant it at unpacked-extension load time with
-    // no prompt, so `permissions.contains` short-circuits before `.request()` is ever reached —
-    // but `captureVisibleTab` itself additionally requires `<all_urls>` or `activeTab`
-    // specifically (a narrower `http://127.0.0.1/*` origin match satisfies `permissions.contains`
-    // but still throws "Either the '<all_urls>' or 'activeTab' permission is required" from
-    // `captureVisibleTab` — confirmed by reproduction), so this reuses the SAME pattern already
-    // declared as optional above, just required for non-production builds. Scoped to
-    // non-production builds only, the same way T-6.9's ablation switch is — this never ships in
-    // the release manifest, which keeps `<all_urls>` strictly optional/user-granted.
-    // A release asks for one host only: the model API (the user's own key goes there). Site access
-    // stays optional and user-granted.
-    host_permissions: mode !== 'production' ? ['<all_urls>'] : [`${MODEL_API_ORIGIN}/*`],
+    // A release's other hosts are the model APIs a user's own key can be for.
+    host_permissions: mode !== 'production' ? ['<all_urls>'] : ['<all_urls>', ...MODEL_API_ORIGINS.map((o) => `${o}/*`)],
     content_security_policy: {
       extension_pages:
         "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; " +
         // Development builds may also talk to a local model stand-in or the legacy gateway.
-        (mode === 'production' ? `connect-src 'self' ${MODEL_API_ORIGIN}` : `connect-src 'self' ${MODEL_API_ORIGIN} http://localhost:* http://127.0.0.1:*`),
+        (mode === 'production' ? `connect-src 'self' ${MODEL_API_CONNECT}` : `connect-src 'self' ${MODEL_API_CONNECT} http://localhost:* http://127.0.0.1:*`),
     },
     // Side panel (114), `AbortSignal.any` (116).
     ...(browser === 'chrome' ? { minimum_chrome_version: '116' } : {}),

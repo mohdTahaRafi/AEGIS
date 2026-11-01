@@ -53,7 +53,7 @@ describe('model client: the request', () => {
     expect(url).toBe('https://api.groq.com/openai/v1/chat/completions');
     expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${KEY}`);
     const body = JSON.parse(init.body as string);
-    expect(body).toMatchObject({ model: 'qwen/qwen3.8-27b', response_format: { type: 'json_object' }, reasoning_effort: 'none', temperature: 0, max_tokens: 900 });
+    expect(body).toMatchObject({ model: 'qwen/qwen3.8-27b', response_format: { type: 'json_object' }, reasoning_effort: 'none', temperature: 0.2, max_tokens: 900 });
     expect(body.messages[1].content[1].image_url.url).toContain('data:image/webp');
   });
 
@@ -188,12 +188,139 @@ describe('model client: one budget per account', () => {
 describe('verifyApiKey ("Test key")', () => {
   const check = (response: Response | Error) => verifyApiKey(CONFIG, (async () => { if (response instanceof Error) throw response; return response; }) as unknown as typeof fetch);
   it('accepts a working key and reports whether the vision model is available to it', async () => {
-    expect(await check(new Response(JSON.stringify({ data: [{ id: 'qwen/qwen3.8-27b' }] })))).toEqual({ ok: true, visionModelListed: true });
+    expect(await check(new Response(JSON.stringify({ data: [{ id: 'qwen/qwen3.8-27b' }] })))).toEqual({ ok: true, visionModelListed: true, model: 'qwen/qwen3.8-27b' });
     expect(await check(new Response(JSON.stringify({ data: [{ id: 'llama' }] })))).toEqual({ ok: true, visionModelListed: false });
   });
   it('rejects a refused key, and distinguishes an unreachable API', async () => {
     expect(await check(new Response('{}', { status: 401 }))).toEqual({ ok: false, reason: 'invalid_key', status: 401 });
     expect(await check(new TypeError('Failed to fetch'))).toEqual({ ok: false, reason: 'unreachable' });
     expect(await check(new Response('{}', { status: 500 }))).toEqual({ ok: false, reason: 'http_error', status: 500 });
+  });
+});
+
+describe('model client: Gemini (per-model daily quotas)', () => {
+  const GEMINI = { apiKey: 'AIza' + 'x'.repeat(35), baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-3.5-flash-lite', provider: 'gemini' as const };
+  // Google's shape: an array around the error, the quota named in `details`.
+  const dailyQuota = (model: string) =>
+    new Response(
+      JSON.stringify([
+        {
+          error: {
+            code: 429,
+            message: `Quota exceeded for metric: generate_content_free_tier_requests, limit: 20, model: ${model}`,
+            status: 'RESOURCE_EXHAUSTED',
+            details: [
+              { '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{ quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier' }] },
+              { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '37s' },
+            ],
+          },
+        },
+      ]),
+      { status: 429 },
+    );
+
+  function gemini(responses: Response[], apiKey = GEMINI.apiKey) {
+    let clock = 0;
+    const switches: string[] = [];
+    const fetchImpl = vi.fn(async () => responses.shift()!);
+    const client = createModelClient(
+      { ...GEMINI, apiKey },
+      { fetchImpl: fetchImpl as unknown as typeof fetch, bucket: new TokenBucket(), now: () => clock, sleep: async (ms) => void (clock += ms / 1000), onModelSwitch: (from, to) => switches.push(`${from}->${to}`) },
+    );
+    const models = () => fetchImpl.mock.calls.map((c) => JSON.parse((c as unknown as [string, RequestInit])[1].body as string).model as string);
+    return { client, switches, models, fetchImpl };
+  }
+
+  it('uses temperature 1 and the least thinking each model accepts (Flash-Lite: minimal, Flash: low)', async () => {
+    const { client, fetchImpl } = gemini([completion('{"actions":[]}')], 'AIza' + 'a'.repeat(35));
+    await client.complete(MESSAGES);
+    const body = JSON.parse((fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(body).toMatchObject({ model: 'gemini-3.5-flash-lite', temperature: 1, reasoning_effort: 'minimal', max_tokens: 4000 });
+    const spy = vi.fn(async () => completion('{"actions":[]}'));
+    await createModelClient({ ...GEMINI, model: 'gemini-3.5-flash' }, { fetchImpl: spy as unknown as typeof fetch, bucket: new TokenBucket() }).complete(MESSAGES);
+    expect(JSON.parse((spy.mock.calls[0] as unknown as [string, RequestInit])[1].body as string).reasoning_effort).toBe('low');
+  });
+
+  it("moves on to the next model when one's daily quota is used up, and stays there", async () => {
+    const { client, switches, models } = gemini([dailyQuota('gemini-3.5-flash-lite'), completion('{"actions":[]}'), completion('{"actions":[]}')], 'AIza' + 'b'.repeat(35));
+    await client.complete(MESSAGES);
+    await client.complete(MESSAGES);
+    expect(models()).toEqual(['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.1-flash-lite']);
+    expect(switches).toEqual(['gemini-3.5-flash-lite->gemini-3.1-flash-lite']);
+  });
+
+  it('ends the task with a daily-limit error once every model is used up', async () => {
+    const { client } = gemini(['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.5-flash', 'gemini-3.6-flash'].map(dailyQuota), 'AIza' + 'c'.repeat(35));
+    const err = (await failure(client.complete(MESSAGES))) as StepFailedError;
+    expect(err.detail).toBe('MODEL_UNAVAILABLE upstream_quota_day');
+    expect(err.retryable).toBe(false);
+  });
+
+  it("a per-minute 429 waits the body's retryDelay instead of switching model", async () => {
+    const perMinute = new Response(JSON.stringify([{ error: { code: 429, status: 'RESOURCE_EXHAUSTED', details: [{ retryDelay: '7s' }] } }]), { status: 429 });
+    const { client, models } = gemini([perMinute, completion('{"actions":[]}')], 'AIza' + 'd'.repeat(35));
+    await client.complete(MESSAGES);
+    expect(models()).toEqual(['gemini-3.5-flash-lite', 'gemini-3.5-flash-lite']);
+  });
+
+  it("a bad key (Google's 400 API_KEY_INVALID) is reported as a refused key", async () => {
+    const bad = () => new Response(JSON.stringify([{ error: { code: 400, status: 'INVALID_ARGUMENT', details: [{ reason: 'API_KEY_INVALID' }] } }]), { status: 400 });
+    const { client } = gemini([bad()], 'AIza' + 'e'.repeat(35));
+    expect(((await failure(client.complete(MESSAGES))) as StepFailedError).detail).toMatch(/^MODEL_UNAVAILABLE upstream_auth/);
+    expect(await verifyApiKey(GEMINI, (async () => bad()) as unknown as typeof fetch)).toMatchObject({ ok: false, reason: 'invalid_key' });
+  });
+
+  it('a smart step goes to the smart models first and the client says which model answered', async () => {
+    const { client, models } = gemini([completion('{"actions":[]}'), completion('{"actions":[]}')], 'AIza' + 'f'.repeat(35));
+    await client.complete(MESSAGES, undefined, 'smart');
+    expect(client.lastModel()).toBe('gemini-3.6-flash');
+    await client.complete(MESSAGES);
+    expect(client.lastModel()).toBe('gemini-3.5-flash-lite');
+    expect(models()).toEqual(['gemini-3.6-flash', 'gemini-3.5-flash-lite']);
+  });
+
+  it('a smart model that is used up or missing makes the step routine, never an error', async () => {
+    const missing = () => new Response(JSON.stringify([{ error: { code: 404, status: 'NOT_FOUND' } }]), { status: 404 });
+    const { client, models } = gemini([dailyQuota('gemini-3.6-flash'), missing(), completion('{"actions":[]}')], 'AIza' + 'g'.repeat(35));
+    await client.complete(MESSAGES, undefined, 'smart');
+    expect(models()).toEqual(['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']);
+    expect(client.lastModel()).toBe('gemini-3.5-flash-lite');
+  });
+
+  it('an overloaded model (503 "high demand") hands the step to the next model at once', async () => {
+    const busy = () => new Response(JSON.stringify([{ error: { code: 503, status: 'UNAVAILABLE' } }]), { status: 503 });
+    const { client, models } = gemini([busy(), completion('{"actions":[]}'), completion('{"actions":[]}')], 'AIza' + 'h'.repeat(35));
+    await client.complete(MESSAGES, undefined, 'smart');
+    expect(models()).toEqual(['gemini-3.6-flash', 'gemini-3.5-flash']);
+    // Passed over for the next minute too, while another model can take the step.
+    await client.complete(MESSAGES, undefined, 'smart');
+    expect(models()).toEqual(['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash']);
+  });
+
+  it('a slow reply is raced against the next model, and the first good answer wins', async () => {
+    const aborted: string[] = [];
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      const model = JSON.parse(init.body as string).model as string;
+      const delay = model === 'gemini-3.5-flash-lite' ? 5000 : 5;
+      return new Promise<Response>((resolve, reject) => {
+        const timer = setTimeout(() => resolve(completion(`{"actions":[],"by":"${model}"}`)), delay);
+        init.signal?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          aborted.push(model);
+          reject(new DOMException('aborted', 'AbortError'));
+        });
+      });
+    });
+    const client = createModelClient({ ...GEMINI, apiKey: 'AIza' + 'i'.repeat(35) }, { fetchImpl: fetchImpl as unknown as typeof fetch, bucket: new TokenBucket(), hedgeAfterMs: 20 });
+    const answer = (await client.complete(MESSAGES)) as { by: string };
+    expect(answer.by).toBe('gemini-3.1-flash-lite');
+    expect(client.lastModel()).toBe('gemini-3.1-flash-lite');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(aborted).toEqual(['gemini-3.5-flash-lite']);
+  });
+
+  it('"Test key" reads Gemini\'s "models/…" ids', async () => {
+    const list = { data: [{ id: 'models/gemini-3.6-flash' }, { id: 'models/gemini-3.5-flash-lite' }] };
+    expect(await verifyApiKey(GEMINI, (async () => new Response(JSON.stringify(list))) as unknown as typeof fetch)).toEqual({ ok: true, visionModelListed: true, model: 'gemini-3.5-flash-lite' });
   });
 });

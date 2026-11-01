@@ -38,17 +38,28 @@ def is_step_request(url: str) -> bool:
     return url.endswith("/steps") or url.endswith("/chat/completions")
 
 
-def load_api_key() -> str:
+# --byok: the variable each provider's key is read from (environment first, then model.env). Groq
+# keeps the gateway's variable, which predates the other providers.
+KEY_VARS = {
+    "mistral": "AEGIS_MISTRAL_API_KEY",
+    "gemini": "AEGIS_GEMINI_API_KEY",
+    "groq": "AEGIS_MODEL_API_KEY",
+    "openrouter": "AEGIS_OPENROUTER_API_KEY",
+}
+
+
+def load_api_key(provider: str) -> str:
     """The key for --byok, from the environment or model.env. Never printed or logged."""
     import os
 
-    key = os.environ.get("AEGIS_MODEL_API_KEY", "")
+    var = KEY_VARS[provider]
+    key = os.environ.get(var, "")
     if not key and MODEL_ENV.exists():
         for line in MODEL_ENV.read_text().splitlines():
-            if line.startswith("AEGIS_MODEL_API_KEY="):
+            if line.startswith(f"{var}="):
                 key = line.split("=", 1)[1].split("#")[0].strip()
     if not key:
-        sys.exit("--byok needs AEGIS_MODEL_API_KEY (or server/deploy/model.env)")
+        sys.exit(f"--byok --provider {provider} needs {var} (environment or server/deploy/model.env)")
     return key
 
 TERMINAL = ("Done", "Error", "Blocked", "Idle")
@@ -71,8 +82,11 @@ def main() -> int:
     parser.add_argument("--fill", action="append", default=[], help="synthetic value typed into the next visible text-like input, in page order (repeatable); audited as must-not-leak")
     parser.add_argument("--expect", help="text that must be on the page after the task")
     parser.add_argument("--gateway", help="server URL the extension uses (default: its build-time URL, :8787)")
-    parser.add_argument("--byok", action="store_true", help="no gateway: save the API key in the extension's settings and let it call the model itself. Key: $AEGIS_MODEL_API_KEY, else server/deploy/model.env (never printed)")
-    parser.add_argument("--model-url", help="--byok: OpenAI-compatible endpoint the key is used with (default: Groq); e.g. http://127.0.0.1:8799/v1 for fake_vlm.py")
+    parser.add_argument("--byok", action="store_true", help="no gateway: save the API key in the extension's settings and let it call the model itself. Key: see --provider (never printed)")
+    parser.add_argument("--provider", choices=sorted(KEY_VARS), default="gemini", help="--byok: the model provider; its key is read from " + ", ".join(f"{p}: ${v}" for p, v in KEY_VARS.items()) + " (else server/deploy/model.env)")
+    parser.add_argument("--model", help="--byok: the provider's model id (default: the extension's choice for that provider)")
+    parser.add_argument("--model-url", help="--byok: OpenAI-compatible endpoint the key is used with (default: the provider's); e.g. http://127.0.0.1:8799/v1 for fake_vlm.py")
+    parser.add_argument("--locale", default="en-IN", help="browser language; the extension takes the user's country from it (default en-IN, the user's)")
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=800)
     args = parser.parse_args()
@@ -91,7 +105,7 @@ def main() -> int:
     ]
     with sync_playwright() as p:
         size = {"no_viewport": True} if args.watch else {"viewport": {"width": args.width, "height": args.height}}
-        context = p.chromium.launch_persistent_context(user_data_dir="", headless=False, args=launch_args, **size)
+        context = p.chromium.launch_persistent_context(user_data_dir="", headless=False, args=[*launch_args, f"--lang={args.locale}"], locale=args.locale, **size)
         context.on("request", lambda r: is_step_request(r.url) and sent.append({"body": r.post_data or ""}))
 
         def on_response(r) -> None:
@@ -138,7 +152,9 @@ def main() -> int:
         panel.goto(f"chrome-extension://{ext}/sidepanel.html")
         panel.wait_for_function("typeof window.__aegisRunTask === 'function'", timeout=15000)
         if args.byok:
-            settings = {"apiKey": load_api_key(), "serverUrl": ""}
+            settings = {"provider": args.provider, "apiKeys": {args.provider: load_api_key(args.provider)}, "serverUrl": ""}
+            if args.model:
+                settings["models"] = {args.provider: args.model}
             if args.model_url:
                 settings["modelUrl"] = args.model_url
             panel.evaluate("(s) => chrome.storage.local.set({ aegis_settings: s })", settings)

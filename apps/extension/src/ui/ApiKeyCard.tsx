@@ -6,12 +6,14 @@
 import { useState } from 'preact/hooks';
 import { cleanApiKey, looksLikeApiKey } from '../host/settings/store';
 import type { KeyCheck } from '../host/egress/model-client';
+import { PROVIDERS, PROVIDER_IDS, type ProviderId } from '../host/egress/providers';
 import { C, R, S, T } from './design';
 
-export const KEYS_URL = 'https://console.groq.com/keys';
-
 export interface ApiKeyCardProps {
-  /** The saved key, or '' when none. */
+  /** Which model API the key is for. */
+  provider: ProviderId;
+  onProviderChange(provider: ProviderId): void;
+  /** The saved key for `provider`, or '' when none. */
   savedKey: string;
   onSave(key: string): void;
   onRemove(): void;
@@ -27,7 +29,9 @@ function maskedKey(key: string): string {
   return key.length > 8 ? `${key.slice(0, 4)}…${key.slice(-4)}` : '••••';
 }
 
-export function ApiKeyCard({ savedKey, onSave, onRemove, onTest, heading = true }: ApiKeyCardProps) {
+export function ApiKeyCard({ provider, onProviderChange, savedKey, onSave, onRemove, onTest, heading = true }: ApiKeyCardProps) {
+  const preset = PROVIDERS[provider];
+  const name = preset.label.replace(/ \(.*\)$/, '');
   const [draft, setDraft] = useState('');
   const [reveal, setReveal] = useState(false);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
@@ -35,21 +39,21 @@ export function ApiKeyCard({ savedKey, onSave, onRemove, onTest, heading = true 
   async function save(): Promise<void> {
     const key = cleanApiKey(draft);
     if (!looksLikeApiKey(key)) {
-      setStatus({ kind: 'bad', text: 'That does not look like an API key. Copy the whole key from the Groq console (it starts with gsk_).' });
+      setStatus({ kind: 'bad', text: `That does not look like an API key. Copy the whole key from the ${name} console.` });
       return;
     }
     setStatus({ kind: 'testing' });
     const check = await onTest(key);
     if (!check.ok && check.reason === 'invalid_key') {
-      setStatus({ kind: 'bad', text: 'Groq rejected this key. Check that you copied all of it, or create a new one.' });
+      setStatus({ kind: 'bad', text: `${name} rejected this key. Check that you copied all of it, or create a new one.` });
       return;
     }
     onSave(key);
     setDraft('');
     setReveal(false);
-    if (!check.ok) setStatus({ kind: 'warn', text: 'Key saved, but Groq could not be reached to check it. It will be tried on your next task.' });
-    else if (!check.visionModelListed) setStatus({ kind: 'warn', text: 'Key saved, but it cannot see the vision model AEGIS uses. Tasks may fail until your Groq account has access to it.' });
-    else setStatus({ kind: 'ok' });
+    if (!check.ok) setStatus({ kind: 'warn', text: `Key saved, but ${name} could not be reached to check it. It will be tried on your next task.` });
+    else if (!check.visionModelListed) setStatus({ kind: 'warn', text: `Key saved, but none of the vision models AEGIS uses is available to it. Tasks may fail until your ${name} account has access.` });
+    else setStatus({ kind: 'ok', note: check.model ? `Model: ${preset.models.find((m) => m.id === check.model)?.label ?? check.model}` : undefined });
   }
 
   const inputStyle = {
@@ -69,12 +73,34 @@ export function ApiKeyCard({ savedKey, onSave, onRemove, onTest, heading = true 
   return (
     <div data-testid="api-key-card" style={{ background: C.surface, border: `1px solid ${savedKey ? C.border : C.infoBorder}`, borderRadius: R.md, padding: '12px 14px', marginBottom: 12 }}>
       {heading && (
-        <div style={{ fontSize: T.md, fontWeight: 700, color: C.strong, marginBottom: 4 }}>{savedKey ? 'Your Groq API key' : 'Add your Groq API key to start'}</div>
+        <div style={{ fontSize: T.md, fontWeight: 700, color: C.strong, marginBottom: 4 }}>{savedKey ? `Your ${name} API key` : 'Add a free API key to start'}</div>
       )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <label htmlFor="api-provider" style={{ fontSize: T.xs, color: C.body, fontWeight: 500 }}>
+          Model provider
+        </label>
+        <select
+          id="api-provider"
+          value={provider}
+          onChange={(e) => {
+            setDraft('');
+            setStatus({ kind: 'idle' });
+            onProviderChange((e.target as HTMLSelectElement).value as ProviderId);
+          }}
+          style={{ flex: 1, padding: '4px 8px', fontSize: T.sm, border: `1px solid ${C.borderMid}`, borderRadius: R.sm, background: C.white, color: C.strong }}
+        >
+          {PROVIDER_IDS.map((id) => (
+            <option key={id} value={id}>
+              {PROVIDERS[id].label}
+            </option>
+          ))}
+        </select>
+      </div>
       <div style={{ fontSize: T.xs, color: C.secondary, lineHeight: 1.5, marginBottom: 10 }}>
-        AEGIS plans each step with a model on Groq, using <strong>your own</strong> key, so usage is billed to (or limited by) your account, not ours. The key stays in this browser and is sent only to
-        api.groq.com. Only redacted pages ever leave your device.{' '}
-        <a href={KEYS_URL} target="_blank" rel="noreferrer" style={{ color: C.accent }}>
+        AEGIS plans each step with a vision model on {name}, using <strong>your own</strong> free key. The key stays in this browser and is sent only to{' '}
+        {new URL(preset.origin).host}. Only redacted pages ever leave your device. {preset.freeTier}.
+        {preset.freeTierMayTrain ? ' On the free tier the provider may use requests (already redacted) to improve its models.' : ''}{' '}
+        <a href={preset.keysUrl} target="_blank" rel="noreferrer" style={{ color: C.accent }}>
           Get a free key
         </a>
       </div>
@@ -94,8 +120,8 @@ export function ApiKeyCard({ savedKey, onSave, onRemove, onTest, heading = true 
           id="api-key-input"
           type={reveal ? 'text' : 'password'}
           value={draft}
-          placeholder={savedKey ? 'Paste a new key to replace it' : 'gsk_…'}
-          aria-label="Groq API key"
+          placeholder={savedKey ? 'Paste a new key to replace it' : preset.keyPlaceholder}
+          aria-label={`${name} API key`}
           autoComplete="off"
           spellcheck={false}
           onInput={(e) => {
@@ -120,7 +146,7 @@ export function ApiKeyCard({ savedKey, onSave, onRemove, onTest, heading = true 
 
       {(status.kind === 'ok' || status.kind === 'bad' || status.kind === 'warn') && (
         <div role="status" style={{ marginTop: 8, fontSize: T.xs, color, lineHeight: 1.4 }}>
-          {status.kind === 'ok' ? '✓ Key works. You can run a task now.' : status.text}
+          {status.kind === 'ok' ? `✓ Key works. You can run a task now.${status.note ? ` ${status.note}.` : ''}` : status.text}
         </div>
       )}
     </div>

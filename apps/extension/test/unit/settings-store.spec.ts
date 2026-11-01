@@ -8,6 +8,8 @@ import {
   cleanApiKey,
   looksLikeApiKey,
   resolveModelConfig,
+  activeApiKey,
+  withApiKey,
   type Settings,
   type SettingsStorageArea,
 } from '../../src/host/settings/store';
@@ -27,9 +29,11 @@ describe('defaultSettings (T-6.11, design.md §13.5)', () => {
   it('uses the build-time server URL/token and every documented default', () => {
     const d = defaultSettings('https://gw.example', 'tok-123');
     expect(d).toEqual({
-      apiKey: '',
-      modelUrl: 'https://api.groq.com/openai/v1',
-      modelName: 'qwen/qwen3.8-27b',
+      provider: 'gemini',
+      apiKeys: {},
+      models: {},
+      modelUrl: '',
+      modelName: '',
       serverUrl: 'https://gw.example',
       accessToken: 'tok-123',
       backend: 'auto',
@@ -113,15 +117,35 @@ describe('bring your own key', () => {
   it('starts with no key, and a saved key survives a reload of the settings', async () => {
     const storage = fakeStorage();
     const defaults = defaultSettings('', '');
-    expect((await loadSettings(storage, defaults)).apiKey).toBe('');
-    await saveSettings(storage, { ...defaults, apiKey: 'gsk_abcdefghijklmnopqrstuvwxyz' });
-    expect((await loadSettings(storage, defaults)).apiKey).toBe('gsk_abcdefghijklmnopqrstuvwxyz');
+    expect(activeApiKey(await loadSettings(storage, defaults))).toBe('');
+    await saveSettings(storage, withApiKey(defaults, 'gsk_abcdefghijklmnopqrstuvwxyz'));
+    const loaded = await loadSettings(storage, defaults);
+    expect(loaded.provider).toBe('gemini');
+    expect(activeApiKey(loaded)).toBe('gsk_abcdefghijklmnopqrstuvwxyz');
+  });
+
+  it('keeps one key per provider; switching provider switches the active key', async () => {
+    const settings = withApiKey({ ...withApiKey({ ...defaultSettings('', ''), provider: 'mistral' }, 'm_key_aaaaaaaaaaaaaaaaaaaa'), provider: 'groq' }, 'gsk_bbbbbbbbbbbbbbbbbbbbbbbb');
+    expect(activeApiKey(settings)).toBe('gsk_bbbbbbbbbbbbbbbbbbbbbbbb');
+    expect(activeApiKey({ ...settings, provider: 'mistral' })).toBe('m_key_aaaaaaaaaaaaaaaaaaaa');
+    expect(activeApiKey({ ...settings, provider: 'openrouter' })).toBe('');
+    expect(activeApiKey(withApiKey(settings, ''))).toBe('');
+  });
+
+  it('a Groq key saved by an older build stays the active key, and the old Groq "overrides" become defaults', async () => {
+    const storage = fakeStorage({ aegis_settings: { apiKey: 'gsk_legacy_key_1234567890', modelUrl: 'https://api.groq.com/openai/v1', modelName: 'qwen/qwen3.8-27b' } });
+    const loaded = await loadSettings(storage, defaultSettings('', ''));
+    expect(loaded.provider).toBe('groq');
+    expect(activeApiKey(loaded)).toBe('gsk_legacy_key_1234567890');
+    expect(loaded.modelUrl).toBe('');
+    expect(loaded.modelName).toBe('');
   });
 
   it('a settings blob saved before keys existed still loads, with no key', async () => {
     const storage = fakeStorage({ aegis_settings: { serverUrl: 'http://x', backend: 'wasm' } });
     const loaded = await loadSettings(storage, defaultSettings('', ''));
-    expect(loaded.apiKey).toBe('');
+    expect(activeApiKey(loaded)).toBe('');
+    expect(loaded.provider).toBe('gemini');
     expect(loaded.backend).toBe('wasm');
   });
 
@@ -132,13 +156,19 @@ describe('bring your own key', () => {
 
   it('checks the shape of a key only loosely (Test key is what proves it)', () => {
     expect(looksLikeApiKey('gsk_' + 'a'.repeat(48))).toBe(true);
+    expect(looksLikeApiKey('a'.repeat(32))).toBe(true);
     expect(looksLikeApiKey('short')).toBe(false);
     expect(looksLikeApiKey('has space in the key of some length')).toBe(false);
   });
 
-  it('a release build always talks to Groq, whatever endpoint is stored; a development build honours it', () => {
-    const settings: Settings = { ...defaultSettings('', ''), apiKey: 'gsk_k', modelUrl: 'http://evil.example/v1', modelName: 'other' };
-    expect(resolveModelConfig(settings, true)).toEqual({ apiKey: 'gsk_k', baseUrl: 'https://api.groq.com/openai/v1', model: 'qwen/qwen3.8-27b' });
-    expect(resolveModelConfig(settings, false)).toEqual({ apiKey: 'gsk_k', baseUrl: 'http://evil.example/v1', model: 'other' });
+  it('a release build always talks to the provider\'s own API, whatever endpoint is stored; a development build honours it', () => {
+    const settings: Settings = { ...withApiKey({ ...defaultSettings('', ''), provider: 'groq' }, 'gsk_k'), modelUrl: 'http://evil.example/v1', modelName: 'other' };
+    expect(resolveModelConfig(settings, true)).toEqual({ provider: 'groq', apiKey: 'gsk_k', baseUrl: 'https://api.groq.com/openai/v1', model: 'qwen/qwen3.8-27b' });
+    expect(resolveModelConfig(settings, false)).toEqual({ provider: 'groq', apiKey: 'gsk_k', baseUrl: 'http://evil.example/v1', model: 'other' });
+  });
+
+  it('uses the model "Test key" picked for the provider', () => {
+    const settings: Settings = { ...withApiKey({ ...defaultSettings('', ''), provider: 'mistral' }, 'mkey'), models: { mistral: 'mistral-medium-latest' } };
+    expect(resolveModelConfig(settings, true)).toEqual({ provider: 'mistral', apiKey: 'mkey', baseUrl: 'https://api.mistral.ai/v1', model: 'mistral-medium-latest' });
   });
 });

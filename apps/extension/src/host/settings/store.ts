@@ -6,7 +6,7 @@
 
 import type { EntityType } from '@aegis/recognizers';
 import type { Policy } from '@aegis/policy';
-import { DEFAULT_MODEL_NAME, DEFAULT_MODEL_URL } from '../egress/model-client';
+import { DEFAULT_PROVIDER, PROVIDERS, isProviderId, type ProviderId } from '../egress/providers';
 
 export type BackendPref = 'auto' | 'webgpu' | 'wasm';
 export type NerProfile = 'S' | 'L';
@@ -19,11 +19,15 @@ export type NerProfile = 'S' | 'L';
 export type AlwaysRedactMap = Partial<Record<EntityType, boolean>>;
 
 export interface Settings {
-  /** The user's own model API key (bring your own key). Kept only in this browser's extension
-   * storage; it goes to the model API and nowhere else, and is never logged. */
-  apiKey: string;
-  /** Development builds only: the OpenAI-compatible endpoint and model the key is used with. A
-   * release build always uses Groq's (`resolveModelConfig`). */
+  /** Which model API the user's key is for (egress/providers.ts). */
+  provider: ProviderId;
+  /** The user's own API key per provider (bring your own key). Kept only in this browser's
+   * extension storage; each goes to its own provider's API and nowhere else, and is never logged. */
+  apiKeys: Partial<Record<ProviderId, string>>;
+  /** The model chosen per provider (by "Test key", or by the user); absent = the preset's first. */
+  models: Partial<Record<ProviderId, string>>;
+  /** Development builds only: an OpenAI-compatible endpoint and model overriding the provider's.
+   * Empty = use the provider's. A release build ignores both (`resolveModelConfig`). */
   modelUrl: string;
   modelName: string;
   /** Development/eval builds only: the legacy server gateway, used when no `apiKey` is set. */
@@ -52,9 +56,11 @@ export interface SettingsStorageArea {
  * with no saved settings behaves exactly as it did before this module existed. */
 export function defaultSettings(buildTimeServerUrl: string, buildTimeAccessToken: string): Settings {
   return {
-    apiKey: '',
-    modelUrl: DEFAULT_MODEL_URL,
-    modelName: DEFAULT_MODEL_NAME,
+    provider: DEFAULT_PROVIDER,
+    apiKeys: {},
+    models: {},
+    modelUrl: '',
+    modelName: '',
     serverUrl: buildTimeServerUrl,
     accessToken: buildTimeAccessToken,
     backend: 'auto',
@@ -72,15 +78,30 @@ function isPartialSettings(value: unknown): value is Partial<Settings> {
 
 export async function loadSettings(storage: SettingsStorageArea, defaults: Settings): Promise<Settings> {
   const stored = await storage.get(STORAGE_KEY);
-  const raw = stored[STORAGE_KEY];
+  const raw = stored[STORAGE_KEY] as (Partial<Settings> & { apiKey?: unknown }) | undefined;
   if (!isPartialSettings(raw)) return defaults;
+  const apiKeys: Partial<Record<ProviderId, string>> = {};
+  if (isPartialSettings(raw.apiKeys)) {
+    for (const [id, key] of Object.entries(raw.apiKeys)) if (isProviderId(id) && typeof key === 'string' && key) apiKeys[id] = key;
+  }
+  // Builds before provider choice stored one Groq key as `apiKey`: it stays the active key.
+  const legacyKey = typeof raw.apiKey === 'string' && raw.apiKey ? raw.apiKey : undefined;
+  if (legacyKey && !apiKeys.groq) apiKeys.groq = legacyKey;
+  const provider = isProviderId(raw.provider) ? raw.provider : legacyKey ? 'groq' : defaults.provider;
+  const models: Partial<Record<ProviderId, string>> = {};
+  if (isPartialSettings(raw.models)) {
+    for (const [id, model] of Object.entries(raw.models)) if (isProviderId(id) && typeof model === 'string' && model) models[id] = model;
+  }
+  // Older builds stored Groq's endpoint and model as the "override": they were the defaults then.
+  const legacyDefault = (url: unknown) => url === PROVIDERS.groq.baseUrl || url === PROVIDERS.groq.models[0]!.id;
   // Shallow-merged over `defaults` field by field (not `{...defaults, ...raw}`) so a settings
-  // blob saved by an older build that's missing a newly-added field (e.g. `alwaysRedact`) still
-  // gets that field's default instead of `undefined`.
+  // blob saved by an older build that's missing a newly-added field still gets that field's default.
   return {
-    apiKey: typeof raw.apiKey === 'string' ? raw.apiKey : defaults.apiKey,
-    modelUrl: raw.modelUrl ?? defaults.modelUrl,
-    modelName: raw.modelName ?? defaults.modelName,
+    provider,
+    apiKeys,
+    models,
+    modelUrl: typeof raw.modelUrl === 'string' && !legacyDefault(raw.modelUrl) ? raw.modelUrl : defaults.modelUrl,
+    modelName: typeof raw.modelName === 'string' && !legacyDefault(raw.modelName) ? raw.modelName : defaults.modelName,
     serverUrl: raw.serverUrl ?? defaults.serverUrl,
     accessToken: raw.accessToken ?? defaults.accessToken,
     backend: raw.backend ?? defaults.backend,
@@ -90,6 +111,19 @@ export async function loadSettings(storage: SettingsStorageArea, defaults: Setti
     showRawPayload: raw.showRawPayload ?? defaults.showRawPayload,
     alwaysRedact: raw.alwaysRedact ?? defaults.alwaysRedact,
   };
+}
+
+/** The saved key for the chosen provider, or ''. */
+export function activeApiKey(settings: Settings): string {
+  return settings.apiKeys[settings.provider] ?? '';
+}
+
+/** `settings` with `key` saved (or removed, for '') as the chosen provider's key. */
+export function withApiKey(settings: Settings, key: string): Settings {
+  const apiKeys = { ...settings.apiKeys };
+  if (key) apiKeys[settings.provider] = key;
+  else delete apiKeys[settings.provider];
+  return { ...settings, apiKeys };
 }
 
 export async function saveSettings(storage: SettingsStorageArea, settings: Settings): Promise<void> {
@@ -112,18 +146,27 @@ export function cleanApiKey(input: string): string {
   return input.trim().replace(/^["']|["']$/g, '').replace(/^Bearer\s+/i, '').trim();
 }
 
-/** A shape check only (Groq keys are `gsk_` plus ~50 characters): "Test key" is what proves a key
- * works. */
+/** A shape check only: "Test key" is what proves a key works. */
 export function looksLikeApiKey(key: string): boolean {
-  return /^[A-Za-z0-9_-]{20,}$/.test(key);
+  return /^[A-Za-z0-9_.-]{20,}$/.test(key);
 }
 
-/** The endpoint, model and key a task talks to. A release build ignores any stored endpoint or
- * model: the key is only ever sent to Groq. */
-export function resolveModelConfig(settings: Settings, release: boolean): { apiKey: string; baseUrl: string; model: string } {
+export interface ResolvedModelConfig {
+  provider: ProviderId;
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+}
+
+/** The provider, endpoint, model and key a task talks to. A release build ignores any stored
+ * endpoint override: the key only ever goes to its own provider's API. */
+export function resolveModelConfig(settings: Settings, release: boolean, apiKey = activeApiKey(settings)): ResolvedModelConfig {
+  const preset = PROVIDERS[settings.provider];
+  const chosen = settings.models[settings.provider] || preset.models[0]!.id;
   return {
-    apiKey: settings.apiKey,
-    baseUrl: release ? DEFAULT_MODEL_URL : settings.modelUrl || DEFAULT_MODEL_URL,
-    model: release ? DEFAULT_MODEL_NAME : settings.modelName || DEFAULT_MODEL_NAME,
+    provider: preset.id,
+    apiKey,
+    baseUrl: release ? preset.baseUrl : settings.modelUrl || preset.baseUrl,
+    model: release ? chosen : settings.modelName || chosen,
   };
 }

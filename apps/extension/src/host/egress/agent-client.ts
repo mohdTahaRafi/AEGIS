@@ -6,13 +6,16 @@
 // fake (brand.ts). Session open/close carry no page data.
 
 import type { SessionCreated } from '@aegis/protocol';
-import { createAgentEngine } from '../agent/engine';
+import { createAgentEngine, type PlanCommentary } from '../agent/engine';
 import { isBranded } from './brand';
 import type { GatewayClient } from './gateway-client';
-import { createModelClient, type ModelClientDeps, type ModelConfig } from './model-client';
+import { createModelClient, presetFor, type ModelClientDeps, type ModelConfig } from './model-client';
 
-export function createAgentClient(config: ModelConfig, deps: ModelClientDeps = {}): GatewayClient {
-  const engine = createAgentEngine(createModelClient(config, deps), config.model);
+/** `onCommentary`: the model's reasoning line and notes after each valid plan (panel only).
+ * `region`: the user's country code (engine.ts `EngineOptions.region`). */
+export function createAgentClient(config: ModelConfig, deps: ModelClientDeps = {}, onCommentary?: (commentary: PlanCommentary) => void, region?: string): GatewayClient {
+  const preset = presetFor(config);
+  const engine = createAgentEngine(createModelClient(config, deps), config.model, { profile: preset.profile, grounding: preset.grounding, region }, onCommentary);
   return {
     async openSession(): Promise<SessionCreated> {
       return engine.openSession();

@@ -52,12 +52,11 @@ describe('built Chrome manifest — screenshot capture permission (production vi
   // `tabs.captureVisibleTab` rejects a per-origin host grant (reproduced in Chromium 153: "Either
   // the '<all_urls>' or 'activeTab' permission is required"). Without `activeTab` the production
   // build can never capture, and every step silently degrades to DOM-only.
-  it('declares activeTab, requires only the model API as a host, and keeps <all_urls> optional only', () => {
+  it('declares activeTab and requires site access plus the model APIs (optional site access cannot capture)', () => {
     const manifest = build('chrome');
     expect(manifest.permissions as string[]).toContain('activeTab');
-    // The one required host is the model API the user's own key is for (bring your own key).
-    expect(manifest.host_permissions).toEqual(['https://api.groq.com/*']);
-    expect(manifest.optional_host_permissions).toEqual(['<all_urls>']);
+    expect(manifest.host_permissions).toEqual(['<all_urls>', 'https://api.mistral.ai/*', 'https://generativelanguage.googleapis.com/*', 'https://api.groq.com/*', 'https://openrouter.ai/*']);
+    expect(manifest.optional_host_permissions).toBeUndefined();
   }, 30_000);
 
   // `activeTab` is granted only through `action.onClicked` (entrypoints/background.ts), which
@@ -101,7 +100,7 @@ describe('built manifests — platform shim parity (design.md §14, T-6.1/T-6.2)
 describe('built release manifest — bring your own key', () => {
   it('limits where extension pages may connect to the extension and the model API', () => {
     const csp = (build('chrome').content_security_policy as { extension_pages: string }).extension_pages;
-    expect(csp).toContain("connect-src 'self' https://api.groq.com");
+    expect(csp).toContain("connect-src 'self' https://api.mistral.ai https://generativelanguage.googleapis.com https://api.groq.com https://openrouter.ai");
     expect(csp).not.toMatch(/localhost|127\.0\.0\.1|\*/);
   }, 30_000);
 

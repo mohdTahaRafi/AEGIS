@@ -19,11 +19,11 @@ HOW IT WORKS
 • If any check fails, nothing is sent.
 
 BRING YOUR OWN KEY
-AEGIS uses your own Groq API key (free to create at console.groq.com/keys). The key stays in your browser and is sent only to api.groq.com. There is no AEGIS server, account, analytics or telemetry.
+AEGIS uses your own free API key for a vision model: Google Gemini (default, aistudio.google.com), Groq (console.groq.com), Mistral (console.mistral.ai) or OpenRouter's free models. The key stays in your browser and is sent only to that provider's API. There is no AEGIS server, account, analytics or telemetry.
 
 GOOD TO KNOW
-• Works on http(s) pages. You choose when AEGIS runs, by clicking its toolbar icon.
-• On Groq's free tier, steps are spaced about a minute apart; a paid Groq key removes the wait.
+• Works on http(s) pages. AEGIS acts only on a task you start, and can move across sites by itself.
+• Mistral's free tier allows fast steps; Groq's free tier spaces steps about 40 s apart.
 • AEGIS stops at CAPTCHAs and hands control back to you.
 
 ## Single purpose
@@ -35,12 +35,12 @@ Operate web pages on the user's behalf from a task they type, while redacting se
 - tabs: find the task's tab and follow tabs the task opens.
 - storage: keep the user's settings and their API key in this browser.
 - sidePanel: show the AEGIS panel.
-- Host permission https://api.groq.com/*: send the redacted step to the model with the user's own key.
-- Optional host permission (all sites): requested per site when the user runs a task there, to read and act on that page.
+- Host permissions https://api.mistral.ai/*, https://generativelanguage.googleapis.com/*, https://api.groq.com/*, https://openrouter.ai/*: send the redacted step to the model provider the user chose, with the user's own key.
+- Host permission (all sites): a task reads, screenshots and acts on the pages it moves to, on any site, without stopping to ask; Chrome refuses captureVisibleTab with optional site access. Pages are read only while a user-started task runs, and only redacted content is sent.
 - Content script on all pages: reads page structure for the task; contains no network code.
 
 ## Data usage disclosures (Privacy tab)
-- Collects: "Website content" and "Authentication information" are handled, redacted on device, and sent only to the user's own Groq account. Not sold, not used for unrelated purposes, not used for creditworthiness or lending.
+- Collects: "Website content" and "Authentication information" are handled, redacted on device, and sent only to the user's own account with the chosen model provider. Not sold, not used for unrelated purposes, not used for creditworthiness or lending.
 - Remote code: No. All code and models are in the package.
 
 ## Files

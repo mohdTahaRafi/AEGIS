@@ -48,12 +48,16 @@ export interface TaskPermissions {
  * Host access only lets AEGIS inject into and capture the tab a task runs in — the page is still
  * sanitized and guarded before anything leaves the device.
  */
-export async function ensureTaskPermissions(permissions: PermissionsApi, origin: string): Promise<TaskPermissions> {
+export async function ensureTaskPermissions(permissions: PermissionsApi, origin: string, askAllSites = true): Promise<TaskPermissions> {
   if (await permissions.contains({ origins: [ALL_SITES] })) return { state: 'granted', allSites: true };
-  try {
-    if (await permissions.request({ origins: [ALL_SITES] })) return { state: 'requested-and-granted', allSites: true };
-  } catch {
-    // No user gesture left, or the browser refused to prompt: fall through to this site only.
+  // `askAllSites` false: the user already declined "all sites" in this panel session, so they are
+  // not asked again on every Run — only for the site, and only if it is not granted yet.
+  if (askAllSites) {
+    try {
+      if (await permissions.request({ origins: [ALL_SITES] })) return { state: 'requested-and-granted', allSites: true };
+    } catch {
+      // No user gesture left, or the browser refused to prompt: fall through to this site only.
+    }
   }
   try {
     return { state: await ensureHostPermission(permissions, origin), allSites: false };

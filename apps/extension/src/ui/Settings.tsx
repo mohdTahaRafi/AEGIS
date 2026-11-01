@@ -2,27 +2,32 @@
 // Redesigned: clean, modern settings dialog with grouped sections, consistent spacing,
 // clear field descriptions, and full keyboard accessibility.
 
-import { useState } from 'preact/hooks';
+import { useRef, useState } from 'preact/hooks';
 import type { EntityType } from '@aegis/recognizers';
 import type { AlwaysRedactMap, BackendPref, NerProfile, Settings as SettingsValue } from '../host/settings/store';
 import type { KeyCheck } from '../host/egress/model-client';
+import { PROVIDERS, type ProviderId } from '../host/egress/providers';
 import { ApiKeyCard } from './ApiKeyCard';
-import { C, R, S, T } from './design';
+import { C, R, S, T, entityLabel } from './design';
 
 export interface SettingsProps {
   value: SettingsValue;
   entityTypes: readonly EntityType[];
   /** A release build: no developer endpoints, and only the NER profile whose model ships. */
   release: boolean;
-  /** The key is stored the moment it is saved, not with the rest of the form. */
-  onSaveKey(key: string): void;
-  onTestKey(key: string): Promise<KeyCheck>;
+  /** The key (and a provider switch) is stored the moment it is made, not with the rest of the form. */
+  onSaveKey(provider: ProviderId, key: string, model?: string): void;
+  onTestKey(provider: ProviderId, key: string): Promise<KeyCheck>;
+  onProviderChange(provider: ProviderId): void;
   onSave(next: SettingsValue): void;
   onClose(): void;
 }
 
-export function Settings({ value, entityTypes, release, onSaveKey, onTestKey, onSave, onClose }: SettingsProps) {
+export function Settings({ value, entityTypes, release, onSaveKey, onTestKey, onProviderChange, onSave, onClose }: SettingsProps) {
   const [draft, setDraft] = useState<SettingsValue>(value);
+  const preset = PROVIDERS[draft.provider];
+  // The model "Test key" picked for this key, saved with it.
+  const lastCheckedModel = useRef<string | undefined>(undefined);
 
   function set<K extends keyof SettingsValue>(key: K, v: SettingsValue[K]): void {
     setDraft((prev) => ({ ...prev, [key]: v }));
@@ -94,17 +99,51 @@ export function Settings({ value, entityTypes, release, onSaveKey, onTestKey, on
       {/* Model access: the user's own key */}
       <ApiKeyCard
         heading={false}
-        savedKey={draft.apiKey}
+        provider={draft.provider}
+        onProviderChange={(provider) => {
+          set('provider', provider);
+          onProviderChange(provider);
+        }}
+        savedKey={draft.apiKeys[draft.provider] ?? ''}
         onSave={(key) => {
-          set('apiKey', key);
-          onSaveKey(key);
+          const model = lastCheckedModel.current;
+          setDraft((prev) => ({ ...prev, apiKeys: { ...prev.apiKeys, [prev.provider]: key }, models: model ? { ...prev.models, [prev.provider]: model } : prev.models }));
+          onSaveKey(draft.provider, key, model);
         }}
         onRemove={() => {
-          set('apiKey', '');
-          onSaveKey('');
+          setDraft((prev) => {
+            const apiKeys = { ...prev.apiKeys };
+            delete apiKeys[prev.provider];
+            return { ...prev, apiKeys };
+          });
+          onSaveKey(draft.provider, '');
         }}
-        onTest={onTestKey}
+        onTest={async (key) => {
+          const check = await onTestKey(draft.provider, key);
+          lastCheckedModel.current = check.ok ? check.model : undefined;
+          return check;
+        }}
       />
+
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: R.md, padding: '12px 14px', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <label style={{ flex: '0 0 110px', color: C.body, fontWeight: 500 }} htmlFor="settings-model">
+            Model
+          </label>
+          <select
+            id="settings-model"
+            value={draft.models[draft.provider] ?? preset.models[0]!.id}
+            onChange={(e) => set('models', { ...draft.models, [draft.provider]: (e.target as HTMLSelectElement).value })}
+            style={{ ...selectStyle, flex: 1, minWidth: 0 }}
+          >
+            {preset.models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       {!release && (
         <div
@@ -132,7 +171,7 @@ export function Settings({ value, entityTypes, release, onSaveKey, onTestKey, on
                 <label style={{ flex: '0 0 110px', color: C.body, fontWeight: 500 }} htmlFor={id}>
                   {label}
                 </label>
-                <input id={id} type={type} value={draft[key]} onInput={(e) => set(key, (e.target as HTMLInputElement).value)} style={{ ...inputStyle, flex: 1 }} />
+                <input id={id} type={type} value={draft[key]} onInput={(e) => set(key, (e.target as HTMLInputElement).value)} style={{ ...inputStyle, flex: 1, minWidth: 0 }} />
               </div>
             ))}
             <div style={{ fontSize: T.xs, color: C.muted }}>Used only by development builds. With a key saved, tasks go straight to the model URL; without one they use the gateway.</div>
@@ -163,7 +202,7 @@ export function Settings({ value, entityTypes, release, onSaveKey, onTestKey, on
               id="settings-backend"
               value={draft.backend}
               onChange={(e) => set('backend', (e.target as HTMLSelectElement).value as BackendPref)}
-              style={{ ...selectStyle, flex: 1 }}
+              style={{ ...selectStyle, flex: 1, minWidth: 0 }}
             >
               <option value="auto">auto</option>
               <option value="webgpu">WebGPU</option>
@@ -180,7 +219,7 @@ export function Settings({ value, entityTypes, release, onSaveKey, onTestKey, on
                 id="settings-ner-profile"
                 value={draft.nerProfile}
                 onChange={(e) => set('nerProfile', (e.target as HTMLSelectElement).value as NerProfile)}
-                style={{ ...selectStyle, flex: 1 }}
+                style={{ ...selectStyle, flex: 1, minWidth: 0 }}
               >
                 <option value="S">S (fast / lightweight)</option>
                 <option value="L">L (extended / high recall)</option>
@@ -196,7 +235,7 @@ export function Settings({ value, entityTypes, release, onSaveKey, onTestKey, on
               id="settings-policy"
               value={draft.policyId}
               onChange={(e) => set('policyId', (e.target as HTMLSelectElement).value)}
-              style={{ ...selectStyle, flex: 1 }}
+              style={{ ...selectStyle, flex: 1, minWidth: 0 }}
             >
               <option value="default">default</option>
             </select>
@@ -295,7 +334,7 @@ export function Settings({ value, entityTypes, release, onSaveKey, onTestKey, on
                 style={{ width: 14, height: 14, accentColor: C.accent }}
               />
               <label htmlFor={`settings-always-redact-${entity}`} style={{ flex: 1, color: C.body, cursor: 'pointer' }}>
-                {entity}
+                {entityLabel(entity)}
               </label>
               <span style={{ color: draft.alwaysRedact[entity] ? C.error : C.muted, fontWeight: draft.alwaysRedact[entity] ? 500 : 400 }}>
                 {draft.alwaysRedact[entity] ? 'always redact' : 'follow policy'}

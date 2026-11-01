@@ -8,13 +8,17 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { MODEL_API_ORIGINS } from '../src/host/egress/providers';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const MODEL_API_HOST_PERMISSION = 'https://api.groq.com/*';
+
+// Site access on every page (the agent works across sites; see wxt.config.ts) plus the model APIs.
+const MODEL_API_HOST_PERMISSIONS = ['<all_urls>', ...MODEL_API_ORIGINS.map((o) => `${o}/*`)];
 const FORBIDDEN_PERMISSIONS = ['debugger', 'webRequest', 'history', 'cookies', 'clipboardRead', 'management', 'downloads', 'nativeMessaging'];
 // Strings that only exist for development: the legacy gateway, its token, an unpinned CDN, a hub.
 // A Groq key baked into a build would hand one user's quota to everyone who installs it.
-const API_KEY_SHAPE = /gsk_[A-Za-z0-9]{20,}/;
+// Groq (gsk_…), OpenRouter (sk-or-v1-…) and Google (AIza…, AQ.…) keys have a recognisable prefix; a Mistral key does not.
+const API_KEY_SHAPE = /gsk_[A-Za-z0-9]{20,}|sk-or-v1-[a-f0-9]{20,}|AIza[0-9A-Za-z_-]{35}|AQ\.[0-9A-Za-z_-]{40,}/;
 const DEV_ONLY_MARKERS = ['localhost:8787', 'dev-token', 'cdn.jsdelivr.net', 'unpkg.com', 'huggingface.co', 'aegis_debug_ablation_arm'];
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -34,15 +38,15 @@ export function verifyBuild(outDir: string): string[] {
 
   if (manifest.manifest_version !== 3) problems.push('manifest_version is not 3');
   const hostPermissions = (manifest.host_permissions as string[] | undefined) ?? [];
-  if (hostPermissions.length !== 1 || hostPermissions[0] !== MODEL_API_HOST_PERMISSION) {
-    problems.push(`host_permissions must be exactly [${MODEL_API_HOST_PERMISSION}], got ${JSON.stringify(hostPermissions)}`);
+  if (JSON.stringify([...hostPermissions].sort()) !== JSON.stringify([...MODEL_API_HOST_PERMISSIONS].sort())) {
+    problems.push(`host_permissions must be exactly site access plus the model APIs ${JSON.stringify(MODEL_API_HOST_PERMISSIONS)}, got ${JSON.stringify(hostPermissions)}`);
   }
   for (const perm of [...((manifest.permissions as string[] | undefined) ?? []), ...((manifest.optional_permissions as string[] | undefined) ?? [])]) {
     if (FORBIDDEN_PERMISSIONS.includes(perm)) problems.push(`forbidden permission: ${perm}`);
   }
   const csp = (manifest.content_security_policy as { extension_pages?: string } | undefined)?.extension_pages ?? '';
   const connect = /connect-src ([^;]*)/.exec(csp)?.[1]?.trim();
-  if (connect !== `'self' https://api.groq.com`) problems.push(`extension_pages CSP must limit connect-src to the extension and the model API, got: ${connect ?? 'none'}`);
+  if (connect !== `'self' ${MODEL_API_ORIGINS.join(' ')}`) problems.push(`extension_pages CSP must limit connect-src to the extension and the model API, got: ${connect ?? 'none'}`);
 
   const icons = Object.values((manifest.icons as Record<string, string> | undefined) ?? {});
   if (icons.length === 0) problems.push('manifest declares no icons');

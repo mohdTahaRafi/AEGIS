@@ -15,14 +15,13 @@ export default defineBackground(() => {
   });
 
   if (import.meta.env.BROWSER === 'chrome') {
-    // `openPanelOnActionClick: true` opens the panel but does NOT grant `activeTab` — measured in
-    // Chromium 153 by triggering the real toolbar action over CDP (`Extensions.triggerAction`):
-    // `captureVisibleTab` and `scripting.executeScript` both kept failing with "Either the
-    // '<all_urls>' or 'activeTab' permission is required" afterwards, while the same click routed
-    // through `action.onClicked` grants it and both calls succeed. A runtime-granted optional
-    // `<all_urls>` ("Site access: On all sites") does not satisfy `captureVisibleTab` either (also
-    // re-measured in Chrome 144.0.7559.96 on real HTTPS sites), so in a release build this click is
-    // the ONLY way vision capture can ever be permitted.
+    // Site access is a required permission (wxt.config.ts), which is what lets `captureVisibleTab`
+    // work on any site the task moves to. A user can still restrict it in Chrome ("On click"); then
+    // the toolbar click is what grants `activeTab` for that tab. `openPanelOnActionClick: true`
+    // opens the panel but does NOT grant `activeTab` (measured in Chromium 153 via
+    // `Extensions.triggerAction`), while the same click routed through `action.onClicked` does.
+    // An optional `<all_urls>`, even switched to "On all sites", never satisfies
+    // `captureVisibleTab` (re-measured 2026-10-10, Chromium 153).
     // `sidePanel.open` must run synchronously inside the listener to keep the user gesture, and it
     // never toggles the panel closed, so clicking the icon on a new tab while the panel is open just
     // grants that tab.

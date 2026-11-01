@@ -34,8 +34,8 @@ function fakeRelease(): string {
       description: 'd',
       icons: { 128: 'icons/128.png' },
       permissions: ['storage'],
-      host_permissions: ['https://api.groq.com/*'],
-      content_security_policy: { extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; connect-src 'self' https://api.groq.com" },
+      host_permissions: ['<all_urls>', 'https://api.mistral.ai/*', 'https://generativelanguage.googleapis.com/*', 'https://api.groq.com/*', 'https://openrouter.ai/*'],
+      content_security_policy: { extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; connect-src 'self' https://api.mistral.ai https://generativelanguage.googleapis.com https://api.groq.com https://openrouter.ai" },
     }),
   );
   return dir;
