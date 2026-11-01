@@ -45,7 +45,6 @@ server/deploy/model.env
 .DS_Store
 .idea/
 *.swp
-docs
 
 # Test artefacts
 test-results/

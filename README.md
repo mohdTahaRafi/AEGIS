@@ -36,10 +36,12 @@ It does this with two ideas working together:
 
 ## Install and use
 
-AEGIS is a single extension: **install it, paste your own [Groq API key](https://console.groq.com/keys),
-run a task.** Every on-device model is inside the package and there is no server to set up. The key
-stays in your browser and is sent only to `api.groq.com`; only redacted pages ever leave your device.
-See [DEPLOYMENT.md](DEPLOYMENT.md) (building and publishing a release) and [PRIVACY.md](PRIVACY.md).
+AEGIS is a single extension: **install it, paste your own free API key, run a task.** Google Gemini
+([key](https://aistudio.google.com/apikey)) is the default; Groq, Mistral and OpenRouter's free models
+also work. Every on-device model is inside the package and there is no server to set up. The key stays
+in your browser and is sent only to the provider you chose; only redacted pages ever leave your device.
+See [docs/guides/deployment.md](docs/guides/deployment.md) (building and publishing a release) and
+[PRIVACY.md](PRIVACY.md).
 
 ## Key features
 
@@ -97,8 +99,9 @@ page → screen graph (DOM + a11y + exact geometry) ┐
 5. **Guard** — an independent re-scan of the final, fully-assembled payload checks for any raw
    value that slipped through. Any survivor blocks the send outright — fail closed, not fail open.
 6. **Reason** — the sanitized context, and only the sanitized context, goes to the remote model
-   (an open-weights vision model on Groq, called directly from the extension with the user's own
-   API key), which returns a constrained action plan referencing page elements and placeholders.
+   (a vision model on the provider the user chose, called directly from the extension with the
+   user's own API key), which returns a constrained action plan referencing page elements and
+   placeholders.
    The extension builds the prompt and validates the plan itself; no server sits in between.
 7. **Act** — the client validates every planned action against the live page (does this element
    still exist, is it still visible, is it still the same origin) before dispatching it, and
@@ -126,9 +129,9 @@ These are enforced, not just documented:
 | Layer | Technology |
 |---|---|
 | Extension | TypeScript (strict), [WXT](https://wxt.dev/) + Vite, [Preact](https://preactjs.com/), Manifest V3 (Chrome & Firefox) |
-| On-device inference | [onnxruntime-web](https://onnxruntime.ai/) (WebGPU → WASM fallback), a bundled YuNet face detector and PP-OCRv5 detection/recognition models |
+| On-device inference | [onnxruntime-web](https://onnxruntime.ai/) (WebGPU → WASM fallback): bundled YuNet face detector, PP-OCRv5 detection/recognition (Latin, Devanagari), CLIP ViT-B/32 (int8) image screener |
 | Contract | JSON Schema (draft 2020-12) as the single source of truth — TypeScript types, Ajv validators and Pydantic v2 models are all generated from it |
-| Planning model | Groq (OpenAI-compatible API), open-weights `qwen/qwen3.8-27b`, bring-your-own-key, called from the extension |
+| Planning model | Bring-your-own-key vision model over an OpenAI-compatible API, called from the extension: Google Gemini (default), Groq, Mistral or OpenRouter (`apps/extension/src/host/egress/providers.ts`) |
 | Legacy gateway (dev / eval only) | Python 3.12, [FastAPI](https://fastapi.tiangolo.com/), Pydantic v2 — the pre-release server path, not part of a release |
 | Evaluation harness | Python, [Playwright](https://playwright.dev/) (real headless Chromium), an independently re-implemented recognizer set for auditing |
 | Tooling | pnpm workspaces (JS/TS), `uv` workspaces (Python), ESLint (custom dependency-boundary + no-network rules), Vitest (jsdom + real-browser projects), pytest |
@@ -140,7 +143,7 @@ apps/extension/        Browser extension (WXT + Preact), organised by JS runtime
   src/content/            page frames — DOM extraction, no pixels, no vault, no network
   src/host/               side panel — owns the vault, guard, egress, controller, UI
     agent/                  prompt building, plan validation, session state (no network code)
-    egress/                 the only network code: the Groq client, guarded-payload check
+    egress/                 the only network code: provider presets, model client, guarded-payload check
   src/perception/         dedicated Web Worker — the only place raw pixels live, no network
   src/shared/              types shared across contexts that cannot import each other
   src/ui/                  panel components (payload viewer, settings, confirmations)
@@ -153,13 +156,17 @@ server/
   deploy/                 Dockerfiles and compose topologies (live vLLM, offline replay)
 eval/                     Evaluation harness: fixture corpus, Playwright runner, metric scorers,
                           an independently-authored auditor
-docs/                     Requirements, architecture, design, per-phase execution plans, task
-                          board, build log, decision log, demo materials
+tools/                    e2e drivers (visible runs, release smoke test), model export, VLM smoke tests
+demo/                     Demo pages for the e2e drivers
+store-listing/            Store listing copy and screenshots
+docs/                     As-built architecture, audit, guides, requirements, design, phase plans,
+                          demo materials (see docs/README.md)
 ```
 
 ## Getting started
 
-**Prerequisites:** Node.js ≥ 22, [pnpm](https://pnpm.io/) 10+, Python 3.12, [`uv`](https://docs.astral.sh/uv/).
+**Prerequisites:** Node.js ≥ 22, [pnpm](https://pnpm.io/) (version pinned in `package.json`), Python 3.12, [`uv`](https://docs.astral.sh/uv/).
+The on-device models are not in git; fetch them first ([docs/guides/development.md](docs/guides/development.md#install)).
 
 ```bash
 # Install JS/TS dependencies
@@ -186,11 +193,11 @@ pnpm lint
 ```
 
 ```bash
-# Gateway server
+# Legacy gateway (dev / eval only)
 cd server/gateway
 uv sync
-uv run pytest -q          # 67 passing
-uv run uvicorn aegis_gateway.main:app --reload
+uv run pytest -q
+../deploy/run-gateway.sh   # http://127.0.0.1:8787
 
 # Evaluation harness
 cd eval
@@ -199,24 +206,24 @@ uv run pytest -q
 uv run aegis-eval run --split dev   # drives the real extension against the fixture corpus
 ```
 
-See [docs/CURRENT_BUILD.md](docs/CURRENT_BUILD.md) for the exact, currently-verified command set
-and what each one is known to do in this environment.
+More detail: [docs/guides/development.md](docs/guides/development.md) and
+[docs/guides/testing.md](docs/guides/testing.md).
 
 ## Status
 
-Phase 7 (demo & submission) of 7. Phases 1–5 are complete; Phase 6's non-Firefox scope is complete
-and verified; Firefox itself (AC-12) is genuinely blocked in the current build/CI environment — no
-way to launch a Playwright-driven Firefox here, confirmed by trying rather than assumed. The full
-privacy pipeline is real and running end to end: DOM extraction, on-device vision (face detection,
-OCR), dual-channel fusion, typed-placeholder substitution, the vault, the egress guard, and action
-dispatch back into the real page. See [docs/CURRENT_BUILD.md](docs/CURRENT_BUILD.md) for the
-detailed state and [docs/PLAN.md](docs/PLAN.md) for the roadmap.
+A bring-your-own-key release: the full privacy pipeline runs end to end inside the extension (DOM
+extraction, on-device vision, dual-channel fusion, typed placeholders, the vault, the egress guard,
+action dispatch) and the planning model is called directly with the user's key. Firefox (AC-12) has
+not been driven end to end in automation. What exists and how it fits together:
+[docs/architecture-as-built.md](docs/architecture-as-built.md); known defects and the fix pass:
+[docs/audit-2026-10-10.md](docs/audit-2026-10-10.md).
 
 ## Evaluation results
 
-All numbers below are cited from a specific report in `eval/reports/`, never rounded up or
-re-derived. Full detail, methodology and honest caveats in
-[docs/demo/judge-qa.md](docs/demo/judge-qa.md).
+All numbers below are cited from the 2026-09-18 reports in `eval/reports/` (held-out n=38, dev
+n=166; Linux x86_64, Chromium 153.0.8010.12, policy 2026.09.1), never rounded up or re-derived. They
+predate the bring-your-own-key release and the CLIP screener and have not been re-run since. Full
+detail, methodology and caveats in [docs/demo/judge-qa.md](docs/demo/judge-qa.md).
 
 | Metric | Held-out split (n=38, one-time authorised run) | Dev split (n=166, re-run freely) |
 |---|---|---|
@@ -228,16 +235,15 @@ re-derived. Full detail, methodology and honest caveats in
 | Task peak RSS / CPU p95 | not measured on this split | 1123.8 MB / 35.0% |
 | Task wall-clock p50 / p95 | not measured on this split | 1247.4 / 1658.6 ms |
 
-**Task success with a live model (Metric 1) has not been measured, on any split.** This
-build/CI environment has no GPU — `navigator.gpu.requestAdapter()` returns `null`, confirmed by
-direct probe — so the two live-model runs Metric 1 requires have never executed (tracked as OQ-13
-in [docs/DECISIONS.md](docs/DECISIONS.md)). Everything else above concerns the local
-detection/redaction/action pipeline, which is real, measured, and independent of that gap.
+**Task success with a live model (Metric 1) has not been measured by the harness, on any split**
+(OQ-13). Two visible live runs on real sites completed on 2026-10-10 (see
+[docs/architecture-as-built.md](docs/architecture-as-built.md)); that is evidence, not a success rate.
+Everything else above concerns the local detection/redaction/action pipeline, which is measured
+independently of that gap.
 
 The one disclosed leak (dev split, `PIN_CODE`, n=156) was found by an independently re-implemented
 auditor recognizer set, not the client's own code — see
-[docs/demo/judge-qa.md](docs/demo/judge-qa.md) §2 for the root cause and
-[docs/HISTORY.md](docs/HISTORY.md) for the fix history.
+[docs/demo/judge-qa.md](docs/demo/judge-qa.md) §2 for the root cause and the fix.
 
 ## Known limitations
 
@@ -248,17 +254,15 @@ auditor recognizer set, not the client's own code — see
 - **JavaScript offers no secure memory zeroing.** Vault values are ordinary strings kept in one
   module and reclaimed only through the browser process's normal memory lifecycle, not actively
   zeroed on eviction.
-- **Task success with a live model (Metric 1) has never been measured** — no GPU in the
-  build/CI environment (OQ-13). What's measured instead is the full local pipeline (detection
-  through action dispatch), independent of model quality.
+- **Task success with a live model (Metric 1) has not been measured by the harness** (OQ-13).
+  What's measured instead is the full local pipeline (detection through action dispatch),
+  independent of model quality.
 - **Firefox is currently untested (AC-12 open)** — genuinely blocked in this environment, not a
   design choice: Playwright's Firefox build isn't downloadable here and the system Firefox doesn't
   speak Playwright's automation protocol.
 - **Face-detection accuracy is unverified against a real photograph** — no licensable face photo is
   reachable in this environment. The detection pipeline runs end to end against the real bundled
   model; only accuracy on real faces is untested.
-- **No CLIP-family vision-language model exists in this build**, so zero-shot region screening and
-  the screen-state label are real call shapes with no model behind them yet.
 - **The visual PII category (face / ID document / signature / QR code) shows 0.000 recall** in
   every report produced so far — a disclosed corpus gap (no real example of any of these exists in
   either split), not a detector failure.
@@ -268,34 +272,15 @@ auditor recognizer set, not the client's own code — see
 
 ## Documentation
 
-**Quick references (start here):**
-- [DEVELOPMENT.md](DEVELOPMENT.md) — Setup, local dev workflow, common tasks
-- [TESTING.md](TESTING.md) — Running & writing tests
-- [API.md](API.md) — Legacy gateway API reference (dev / eval only)
-- [DEPLOYMENT.md](DEPLOYMENT.md) — Building, verifying and publishing a release; bring-your-own-key setup
-- [PRIVACY.md](PRIVACY.md) — What is sent, to whom, and what is never collected
-
-**Design & architecture:**
-- [docs/product-requirements.md](docs/product-requirements.md) — Features, requirements, acceptance criteria
-- [docs/architecture.md](docs/architecture.md) — System design, contexts, model stack, layout
-- [docs/design.md](docs/design.md) — Data models, algorithms, protocol, UI design
-- [docs/DECISIONS.md](docs/DECISIONS.md) — Resolved open questions
-
-**Planning & build log:**
-- [docs/PLAN.md](docs/PLAN.md) — 7 phases and exit gates
-- [docs/planning/](docs/planning/) — Phase-by-phase execution plans (implement from these)
-- [docs/TASKS.md](docs/TASKS.md) — Task board
-- [docs/HISTORY.md](docs/HISTORY.md) — Build log with measurements
-- [docs/FEATURES.md](docs/FEATURES.md) — 105+ features with traceability
-
-**Demo & metrics:**
-- [docs/demo/demo-script.md](docs/demo/demo-script.md) — Demo walkthrough
-- [docs/demo/judge-qa.md](docs/demo/judge-qa.md) — Honest limitations and measured numbers
-- [docs/CURRENT_BUILD.md](docs/CURRENT_BUILD.md) — What exists now, verified commands
-
-**Working in this repo:**
-- [CLAUDE.md](CLAUDE.md) — How Claude works here; privacy invariants
-- [AGENTS.md](AGENTS.md) — Agent guidelines
+- [docs/README.md](docs/README.md) — index of everything in `docs/`
+- [docs/architecture-as-built.md](docs/architecture-as-built.md) — what exists now and how it fits together
+- [docs/guides/development.md](docs/guides/development.md) — setup, running each part, where code goes
+- [docs/guides/testing.md](docs/guides/testing.md) — test suites and how to run them
+- [docs/guides/deployment.md](docs/guides/deployment.md) — building, verifying and publishing a release
+- [docs/guides/gateway-api.md](docs/guides/gateway-api.md) — legacy gateway API (dev / eval only)
+- [PRIVACY.md](PRIVACY.md) — what is sent, to whom, and what is never collected
+- [CONTRIBUTING.md](CONTRIBUTING.md) — branches, commit messages, checks before a push
+- [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md) — rules for AI agents working in this repo
 
 ## Scope
 

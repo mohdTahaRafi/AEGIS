@@ -6,7 +6,7 @@ Guidance for Claude Code working in this repository.
 
 AEGIS is a **privacy-preserving browser agent**: a browser extension that runs a vision model
 locally, detects and redacts sensitive data **before any network request**, sends only anonymized
-context to an open-weights server model, and executes the returned actions on the page — resolving
+context to a server model, and executes the returned actions on the page — resolving
 sensitive values back to real values **only inside the browser**.
 
 The differentiating idea: **typed sealed placeholders** (`⟪AADHAAR#2⟫`) that the server can
@@ -23,49 +23,51 @@ Mirrored in `docs/` per architecture §15.1. Read them before making design deci
 | Detailed Design | [design.md](docs/design.md) | Data models, JSON protocol, action DSL schema, algorithms (fusion, guard, compositor), UI, tests, harness |
 
 **Never invent product behaviour.** If the requirement docs are silent, mark it `[A]` (assumption)
-or `[OQ-n]` (open question) the way those docs do, and record it in [docs/HISTORY.md](docs/HISTORY.md).
+or `[OQ-n]` (open question) the way those docs do, and record it in the decision log of
+[docs/planning/bugs/tasks.md](docs/planning/bugs/tasks.md#decision-log).
 
 ## Working documents — in this repo
 
+Index: [docs/README.md](docs/README.md).
+
 | Document | Purpose |
 |---|---|
-| [docs/FEATURES.md](docs/FEATURES.md) | Every feature that must be built, with ID, phase, tier and traceability to FR/NFR |
-| [docs/PLAN.md](docs/PLAN.md) | Phased implementation plan, phase gates, cut order — the one-page view |
-| [docs/planning/](docs/planning/) | **One detailed execution document per phase.** Implement from these: exact schemas, algorithms, task tables with acceptance criteria, milestone definitions |
-| [docs/TASKS.md](docs/TASKS.md) | Actionable task board per phase, with checkboxes and status |
-| [docs/CURRENT_BUILD.md](docs/CURRENT_BUILD.md) | What exists right now: phase, components, how to run, known gaps |
-| [docs/HISTORY.md](docs/HISTORY.md) | Append-only log of every change, decision and measurement |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | Resolved open questions (OQ-n) with the decision and rationale |
+| [docs/architecture-as-built.md](docs/architecture-as-built.md) | What exists right now, from the code: builds, contexts, step loop, privacy pipeline, failure handling, built-but-unwired modules |
+| [docs/audit-2026-10-10.md](docs/audit-2026-10-10.md) | Defects found in the code, and the fix pass |
+| [docs/planning/bugs/tasks.md](docs/planning/bugs/tasks.md) | The task list (R-0…R-18, follow-ups) with checkboxes, and the decision log |
+| [docs/planning/bugs/](docs/planning/bugs/) | One implementation file per remediation step (`R-N-*.md`) |
+| [docs/guides/](docs/guides/) | Development, testing, deployment, legacy gateway API |
+| [docs/planning/](docs/planning/) | The original per-phase execution plans; background, not current status |
+
+`CURRENT_BUILD.md`, `PLAN.md`, `TASKS.md`, `FEATURES.md`, `HISTORY.md` and `DECISIONS.md` are retired;
+older documents still link to them.
 
 ## Rules of engagement
 
-### 1. Work phase by phase
-Work only on the **current phase** named in [docs/CURRENT_BUILD.md](docs/CURRENT_BUILD.md).
-Do not start Phase N+1 work until the Phase N exit gate in [docs/PLAN.md](docs/PLAN.md) passes.
-If a task seems to need a later-phase feature, stub it and note the dependency in TASKS.md.
-
-**Before implementing anything, read that phase's document in
-[docs/planning/](docs/planning/).** It carries the detail PLAN.md does not: what already exists
-(verified in source), the exact schemas and algorithms, the task table with acceptance criteria,
-and the "Forward Dependencies Declared Here" section that tells you what is deliberately left
-unfinished and which phase finishes it. When implementation reveals the document was wrong, record
-the deviation in its *Implementation Notes* section rather than letting doc and code drift apart.
+### 1. Work from the task list
+Pick work from [docs/planning/bugs/tasks.md](docs/planning/bugs/tasks.md). Before implementing, read
+its `R-N-*.md` file and the matching sections of [architecture-as-built.md](docs/architecture-as-built.md);
+for background on a component, its original phase document in [docs/planning/](docs/planning/).
+When implementation shows a document was wrong, fix the document rather than letting doc and code
+drift apart.
 
 ### 2. Maintain the docs every time
 After any unit of work, in the same turn:
-- tick the task in [docs/TASKS.md](docs/TASKS.md) and add any new tasks discovered;
-- update [docs/CURRENT_BUILD.md](docs/CURRENT_BUILD.md) if what exists or how to run it changed;
-- append an entry to [docs/HISTORY.md](docs/HISTORY.md) (date, what changed, why, files, follow-ups);
-- update [docs/FEATURES.md](docs/FEATURES.md) status if a feature moved state;
-- record any answered open question in [docs/DECISIONS.md](docs/DECISIONS.md).
+- tick the task in [docs/planning/bugs/tasks.md](docs/planning/bugs/tasks.md) and add any new tasks discovered;
+- update [docs/architecture-as-built.md](docs/architecture-as-built.md) if what exists or how it works changed;
+- update the guide in [docs/guides/](docs/guides/) if how to run, test or deploy it changed;
+- record any decision or answered open question in the tasks.md decision log (date, id, decision, why).
 
 Docs that disagree with the code are a defect. Fix them in the same change.
 
 ### 3. Privacy invariants — never violate, never "temporarily" bypass
 - Sanitization happens **before** any network request. No exceptions, no debug flags that skip it.
 - `fetch` / `XMLHttpRequest` / `WebSocket` exist **only** in `apps/extension/src/host/egress/`.
-- The release is self-contained and bring-your-own-key: models ship in the package, the user's Groq
-  key (extension storage) is what calls the model, and no server or team key is part of the product.
+- The release is self-contained and bring-your-own-key: models ship in the package, the user's own
+  key for one of the providers in `apps/extension/src/host/egress/providers.ts` (Gemini default,
+  Groq, Mistral, OpenRouter; all vision models on free tiers — closed-weights models such as Gemini are
+  allowed since 2026-10-10, when the product owner lifted the open-weights constraint C-2 for now) is what calls the model, and no server or
+  team key is part of the product.
   `server/` and `model.env` are dev/eval-only. `pnpm build` runs the release gates (`verify:models`,
   `verify:release`); never weaken them to make a build pass.
 - The content script contains **no** network code and **never** reads `.value` of
@@ -124,8 +126,8 @@ A fix to how the extension or the agent behaves is not done until it has been sh
 
 ## Commands
 
-See [docs/CURRENT_BUILD.md](docs/CURRENT_BUILD.md) for the commands that actually work today.
-Target commands once scaffolding exists:
+[docs/guides/development.md](docs/guides/development.md) and [docs/guides/testing.md](docs/guides/testing.md)
+have the commands that work today. The common ones:
 
 ```bash
 pnpm install                 # JS/TS workspace
@@ -133,11 +135,11 @@ uv sync                      # Python workspace (gateway + eval)
 pnpm gen:protocol            # JSON Schema → TS types + Pydantic models
 pnpm dev:chrome              # WXT dev build, Chrome
 pnpm dev:firefox             # WXT dev build, Firefox
-pnpm build                   # both browser targets
-pnpm test                    # Vitest unit tests
+pnpm build                   # both browser targets, with the release gates
+pnpm -r test                 # Vitest unit + browser tests
 pnpm lint                    # includes the no-network-outside-egress rule
-uv run pytest                # gateway tests
-uv run aegis-eval run --split dev    # evaluation harness
+uv run pytest                # gateway tests (in server/gateway)
+uv run aegis-eval run --split dev    # evaluation harness (in eval)
 ```
 
 ## Style
