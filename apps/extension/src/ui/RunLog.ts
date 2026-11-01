@@ -41,6 +41,16 @@ export interface RunLog {
 
 export const EMPTY_RUN_LOG: RunLog = { setup: [], steps: [] };
 
+export function planOf(step: StepLog) {
+  for (const e of step.activity) if (e.kind === 'plan') return e;
+  return undefined;
+}
+
+export function rejectionOf(step: StepLog) {
+  for (const e of step.activity) if (e.kind === 'rejected') return e;
+  return undefined;
+}
+
 const NEEDS_INPUT_TITLE = 'AEGIS needs your input';
 
 function upsert(log: RunLog, stepId: string, change: (step: StepLog) => StepLog): RunLog {
@@ -98,6 +108,14 @@ export function applyRunLogEvent(log: RunLog, event: RunLogEvent): RunLog {
     case 'report':
       if (event.title === NEEDS_INPUT_TITLE) return log; // the ask_user event already recorded it
       return current(log, (s) => ({ ...s, modelTexts: [...s.modelTexts, { label: event.title ? `Report: ${event.title}` : 'Report', text: event.content }] }));
+    case 'commentary': {
+      const texts: ModelText[] = [];
+      if (event.model) texts.push({ label: 'Answered by', text: `${event.model}${event.tier === 'smart' ? ' (smart model: planning or recovering)' : ''}` });
+      if (event.thought) texts.push({ label: 'Model reasoning', text: event.thought });
+      if (event.checklist) texts.push({ label: 'Checklist', text: event.checklist });
+      if (event.notes) texts.push({ label: 'Model notes', text: event.notes });
+      return texts.length === 0 ? log : upsert(log, event.stepId, (s) => ({ ...s, modelTexts: [...s.modelTexts, ...texts] }));
+    }
     case 'ask_user':
       return current(log, (s) => ({ ...s, modelTexts: [...s.modelTexts, { label: 'Question for you', text: event.question }] }));
     case 'done': {

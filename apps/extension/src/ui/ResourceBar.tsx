@@ -1,6 +1,7 @@
-// phase_4_vision.md T-4.22/T-4.23 — on-device perception backend and total model memory.
-// Redesigned: clean metadata row matching MetricsBar with subtle badge styling.
-import { C, T } from './design';
+// phase_4_vision.md T-4.22/T-4.23 — on-device perception backend and total model memory, as the
+// second line of the status strip under the header.
+import { C } from './design';
+import { statusLine, strongValue } from './MetricsBar';
 
 export interface ResourceBarProps {
   backend: 'webgpu' | 'wasm' | null;
@@ -9,32 +10,25 @@ export interface ResourceBarProps {
   detail?: string;
 }
 
+const BACKEND_LABEL = { webgpu: 'WebGPU', wasm: 'WASM' } as const;
+
 export function ResourceBar({ backend, modelsLoadedMB, detail }: ResourceBarProps) {
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        fontSize: T.xs,
-        color: C.secondary,
-        padding: '5px 0',
-        borderBottom: `1px solid ${C.border}`,
-      }}
-    >
-      <span>
-        vision: <span style={{ color: C.body, fontWeight: backend ? 500 : 400 }}>{backend ?? 'idle (models load when a task runs, unload after)'}</span>
+    <div style={statusLine}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: backend ? C.ok : C.muted, flexShrink: 0 }} />
+        <span>
+          On-device vision: <span style={strongValue}>{backend ? `ready · ${BACKEND_LABEL[backend]}` : 'not loaded yet'}</span>
+        </span>
       </span>
-
+      <span>
+        Models: <span style={strongValue}>{modelsLoadedMB.toFixed(1)} MB</span>
+      </span>
       {detail && (
-        <span data-testid="backend-detail" style={{ color: C.muted }}>
+        <span data-testid="backend-detail" style={{ color: C.muted, flexBasis: '100%' }}>
           {detail}
         </span>
       )}
-
-      <span style={{ marginLeft: 'auto' }}>
-        models: <span style={{ color: C.body, fontWeight: 500 }}>{modelsLoadedMB.toFixed(1)} MB</span>
-      </span>
     </div>
   );
 }

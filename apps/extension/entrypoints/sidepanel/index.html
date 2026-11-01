@@ -5,32 +5,49 @@
     <title>AEGIS</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
-      /* Minimal CSS reset for the Chrome side panel */
+      /* Reset and the few things inline styles cannot express (hover, focus, open state, motion). */
       *, *::before, *::after { box-sizing: border-box; }
       html, body, #root {
         margin: 0;
         padding: 0;
-        height: 100%;
-        background: #f8f9fa;
+        min-height: 100%;
+        background: #f6f7f9;
       }
       body {
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       }
-      /* Consistent scrollbar */
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
       ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
-      /* Native details/summary marker removal — we use custom chevrons */
+
       details > summary { list-style: none; }
       details > summary::-webkit-details-marker { display: none; }
-      /* Button focus */
-      button:focus-visible { outline: 2px solid #1e40af; outline-offset: 2px; }
-      input:focus-visible, select:focus-visible, textarea:focus-visible {
-        outline: 2px solid #1e40af;
-        outline-offset: 0;
-        border-color: #1e40af !important;
+      details > summary { cursor: pointer; user-select: none; }
+      .ag-chev { transition: transform 0.15s ease; flex-shrink: 0; }
+      details[open] > summary .ag-chev { transform: rotate(90deg); }
+      details[open] > summary.ag-sec { border-bottom: 1px solid #e4e7eb; }
+      summary.ag-sec:hover { background: #f1f3f5; }
+      summary.ag-sub:hover { color: #1e40af; }
+
+      button { font-family: inherit; transition: background-color 0.12s ease, border-color 0.12s ease, opacity 0.12s ease; }
+      button:not(:disabled):hover.ag-primary { background: #1e3a8a !important; }
+      button:not(:disabled):hover.ag-ghost { background: #f1f3f5 !important; }
+      button:not(:disabled):hover.ag-danger { background: #fee2e2 !important; }
+
+      button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px solid #1e40af; outline-offset: 2px; }
+      input:focus-visible, select:focus-visible { outline: 2px solid #1e40af; outline-offset: 0; border-color: #1e40af !important; }
+      .ag-taskbox:focus-within { border-color: #1e40af !important; box-shadow: 0 0 0 3px #dbeafe; }
+      .ag-taskbox textarea:focus-visible { outline: none; }
+
+      @keyframes ag-spin { to { transform: rotate(360deg); } }
+      .ag-spin { animation: ag-spin 0.8s linear infinite; }
+      @keyframes ag-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+      .ag-pulse { animation: ag-pulse 1.4s ease-in-out infinite; }
+      @media (prefers-reduced-motion: reduce) {
+        .ag-spin, .ag-pulse { animation: none; }
       }
     </style>
   </head>

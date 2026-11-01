@@ -3,6 +3,7 @@
 // / skipped. Descriptions use the sanitized names that were sent (session.ts `describeAction`).
 
 import type { ActionStatus, SessionEvent } from '../host/session';
+import { C } from './design';
 
 export type ActivityEntry =
   | { kind: 'note'; text: string }
@@ -28,11 +29,11 @@ export function applyActivityEvent(entries: ActivityEntry[], event: SessionEvent
 }
 
 export const STATUS_STYLE: Record<'validated' | ActionStatus, { mark: string; color: string; label: string }> = {
-  validated: { mark: '…', color: '#555', label: 'validated, running' },
-  executed: { mark: '✓', color: '#070', label: 'executed' },
-  failed: { mark: '✗', color: '#b00', label: 'failed' },
-  declined: { mark: '✗', color: '#b00', label: 'declined' },
-  skipped: { mark: '–', color: '#777', label: 'not run' },
+  validated: { mark: '…', color: C.secondary, label: 'validated, running' },
+  executed: { mark: '✓', color: C.ok, label: 'executed' },
+  failed: { mark: '✗', color: C.error, label: 'failed' },
+  declined: { mark: '✗', color: C.error, label: 'declined' },
+  skipped: { mark: '–', color: C.muted, label: 'not run' },
 };
 
 export function ActivityLog({ entries }: { entries: ActivityEntry[] }) {

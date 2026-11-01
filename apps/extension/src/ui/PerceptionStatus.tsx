@@ -9,6 +9,7 @@ import type { WorkerProblem } from '../host/perception-client/client';
 import type { ModelLoadFailure, PerceiveDiagnostics } from '../shared/worker-protocol';
 import type { ProtectedField, StepStageTimings } from '../host/session';
 import { PipelineTrace } from './PipelineTrace';
+import { C, T } from './design';
 
 export type SourceChannel = 'dom' | 'text' | 'ocr' | 'vision';
 
@@ -136,14 +137,14 @@ export function PerceptionStatus({ stepId, status, redactions, loadFailures, wor
   const summary = summarizePerception(status, redactions);
   const byChannel = redactionsByChannel(redactions);
   const d = status.diagnostics;
-  const muted = { color: '#555', margin: '2px 0' };
+  const muted = { color: C.secondary, margin: '2px 0' };
   return (
-    <div data-testid="perception-status" style={{ fontSize: 12, padding: '4px 0', borderBottom: '1px solid #eee' }}>
+    <div data-testid="perception-status" style={{ fontSize: T.xs, padding: '2px 0 6px', lineHeight: 1.5 }}>
       <div>
-        <strong>Perception ({stepId}):</strong> <span data-testid="perception-mode">{summary.mode}</span>
+        <strong style={{ color: C.strong }}>Perception ({stepId}):</strong> <span data-testid="perception-mode">{summary.mode}</span>
       </div>
       {summary.reason && (
-        <div data-testid="perception-reason" style={{ color: status.capture === 'not-needed' ? '#555' : '#b00', margin: '2px 0' }}>
+        <div data-testid="perception-reason" style={{ color: status.capture === 'not-needed' ? C.secondary : C.error, margin: '2px 0' }}>
           Vision not used: {summary.reason}
         </div>
       )}
@@ -165,10 +166,10 @@ export function PerceptionStatus({ stepId, status, redactions, loadFailures, wor
         redactions by source: DOM {byChannel.dom} · text {byChannel.text} · OCR {byChannel.ocr} · vision {byChannel.vision}
       </div>
       <PipelineTrace status={status} payload={payload} protectedFields={protectedFields} timings={timings} guardBlock={guardBlock} localOnly={localOnly} />
-      {d && d.modelErrors.length > 0 && <div style={{ color: '#b00' }}>model errors this step: {d.modelErrors.map((e) => `${e.role} ${e.code}`).join(', ')}</div>}
-      {loadFailures.length > 0 && <div style={{ color: '#b00' }}>models failed to load: {loadFailures.map((f) => `${f.role} (${f.code})`).join(', ')}</div>}
+      {d && d.modelErrors.length > 0 && <div style={{ color: C.error }}>model errors this step: {d.modelErrors.map((e) => `${e.role} ${e.code}`).join(', ')}</div>}
+      {loadFailures.length > 0 && <div style={{ color: C.error }}>models failed to load: {loadFailures.map((f) => `${f.role} (${f.code})`).join(', ')}</div>}
       {workerProblems.length > 0 && (
-        <div style={{ color: '#b00' }}>perception worker: {workerProblems.map((p) => describeWorkerProblem(p)).join(', ')}</div>
+        <div style={{ color: C.error }}>perception worker: {workerProblems.map((p) => describeWorkerProblem(p)).join(', ')}</div>
       )}
     </div>
   );

@@ -190,4 +190,30 @@ export const S = {
     fontSize: T.xs,
     color: C.muted,
   } as StyleObj,
+
+  // A top-level block of the main view
+  card: {
+    background: C.surface,
+    border: `1px solid ${C.border}`,
+    borderRadius: R.lg,
+    margin: '10px 0',
+  } as StyleObj,
+
+  // Small uppercase heading above a group
+  eyebrow: {
+    fontSize: 10.5,
+    fontWeight: 600,
+    color: C.secondary,
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+  } as StyleObj,
 } as const;
+
+/** "ID_DOCUMENT" → "ID document", "AADHAAR" → "Aadhaar": entity types as a person would say them. */
+export function entityLabel(entity: string): string {
+  const KEEP_UPPER = new Set(['ID', 'PAN', 'OTP', 'CVV', 'UPI', 'IFSC', 'QR', 'URL', 'IP', 'GSTIN', 'DOB']);
+  return entity
+    .split('_')
+    .map((w, i) => (KEEP_UPPER.has(w) ? w : i === 0 ? w.charAt(0) + w.slice(1).toLowerCase() : w.toLowerCase()))
+    .join(' ');
+}

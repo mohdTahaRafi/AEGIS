@@ -31,7 +31,7 @@ export function GuardBlockCard({ rule, entity, count, onRetry, onStop }: GuardBl
         </span>
       </div>
       <p style={{ margin: '0 0 10px', fontSize: T.xs, color: C.secondary }}>
-        Nothing was sent. The step stopped.
+        Nothing was sent for that step. AEGIS is already observing the page again and continues by itself.
       </p>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <button
@@ -42,7 +42,7 @@ export function GuardBlockCard({ rule, entity, count, onRetry, onStop }: GuardBl
             fontSize: T.sm,
           }}
         >
-          Retry
+          Dismiss
         </button>
         <button
           onClick={onStop}

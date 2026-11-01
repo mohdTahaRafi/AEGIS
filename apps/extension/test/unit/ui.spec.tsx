@@ -5,13 +5,16 @@ import { panelStateLabel, type PanelState } from '../../src/ui/PanelStates';
 import { TaskInput } from '../../src/ui/TaskInput';
 import { StepTimeline } from '../../src/ui/StepTimeline';
 import { MetricsBar } from '../../src/ui/MetricsBar';
-import { ReportView } from '../../src/ui/ReportView';
 import { ConfirmAction } from '../../src/ui/ConfirmAction';
 import { GuardBlockCard } from '../../src/ui/GuardBlockCard';
 import { GrantRequest } from '../../src/ui/GrantRequest';
 import { RedactionSummary } from '../../src/ui/RedactionSummary';
 import { PayloadViewer } from '../../src/ui/PayloadViewer';
 import { ResourceBar } from '../../src/ui/ResourceBar';
+import { describeError } from '../../src/ui/Notice';
+import { stepStages, taskStatus } from '../../src/ui/TaskProgress';
+import { privacyVerdict } from '../../src/ui/PrivacyCard';
+import { EMPTY_RUN_LOG, type StepLog } from '../../src/ui/RunLog';
 import type { StepRecord } from '../../src/host/session';
 import type { SanitizedContext } from '@aegis/protocol';
 
@@ -93,8 +96,8 @@ describe('RedactionSummary (T-3.33 AC)', () => {
         coverage={{ cleared: 0.8, redacted: 0.2, unanalysed: 0 }}
       />,
     );
-    expect(el.textContent).toContain('AADHAAR 1');
-    expect(el.textContent).toContain('PASSWORD 1');
+    expect(el.textContent).toContain('Aadhaar 1');
+    expect(el.textContent).toContain('Password 1');
     expect(el.textContent).toContain('80%');
   });
 });
@@ -103,7 +106,7 @@ describe('TaskInput (T-2.26 AC)', () => {
   it('shows a Run button when idle and calls onStart with the trimmed task text', async () => {
     const onStart = vi.fn();
     const el = mount(<TaskInput running={false} onStart={onStart} onStop={() => {}} />);
-    const input = el.querySelector('input')!;
+    const input = el.querySelector('textarea')!;
     input.value = '  log in and submit  ';
     input.dispatchEvent(new Event('input', { bubbles: true }));
     await Promise.resolve(); // flush Preact's microtask-scheduled re-render before reading the button's closure
@@ -118,7 +121,7 @@ describe('TaskInput (T-2.26 AC)', () => {
     const stopButton = Array.from(el.querySelectorAll('button')).find((b) => b.textContent === 'Stop')!;
     stopButton.click();
     expect(onStop).toHaveBeenCalled();
-    expect(el.querySelector('input')!.disabled).toBe(true);
+    expect(el.querySelector('textarea')!.disabled).toBe(true);
   });
 });
 
@@ -153,27 +156,19 @@ describe('StepTimeline (T-2.27 AC — per-stage timings sum to the step total)',
 describe('MetricsBar (T-2.28 AC — updates live)', () => {
   it('shows "—" for last step latency with no steps yet', () => {
     const el = mount(<MetricsBar backend="not connected" steps={[]} />);
-    expect(el.textContent).toContain('backend: not connected');
-    expect(el.textContent).toContain('last step: —');
+    expect(el.textContent).toContain('Model: not connected');
+    expect(el.textContent).toContain('Last step: —');
   });
 
   it('reflects the latest step once one lands', () => {
     const el = mount(<MetricsBar backend="live" steps={[step()]} />);
-    expect(el.textContent).toContain('backend: live');
-    expect(el.textContent).toContain('last step: 659 ms');
-  });
-});
-
-describe('ReportView (T-2.29 AC — FR-5)', () => {
-  it('renders a report action\'s content and optional title', () => {
-    const el = mount(<ReportView title="Summary" content="Logged in as Ramesh Kumar" />);
-    expect(el.textContent).toContain('Summary');
-    expect(el.textContent).toContain('Logged in as Ramesh Kumar');
+    expect(el.textContent).toContain('Model: connected');
+    expect(el.textContent).toContain('Last step: 659 ms');
   });
 
-  it('renders content with no title', () => {
-    const el = mount(<ReportView content="Done" />);
-    expect(el.textContent).toContain('Done');
+  it('before a task connects, says whether the chosen model has a key', () => {
+    expect(mount(<MetricsBar backend="not connected" steps={[]} model={{ name: 'Gemini Flash-Lite', keySaved: false }} />).textContent).toContain('Gemini Flash-Lite · no API key');
+    expect(mount(<MetricsBar backend="not connected" steps={[]} model={{ name: 'Gemini Flash-Lite', keySaved: true }} />).textContent).toContain('Gemini Flash-Lite · ready');
   });
 });
 
@@ -232,13 +227,13 @@ describe('PayloadViewer (T-3.32, FR-34, AC-9)', () => {
 describe('ResourceBar (T-4.22/T-4.23)', () => {
   it('shows the ML backend and total model MB', () => {
     const el = mount(<ResourceBar backend="webgpu" modelsLoadedMB={21.4} />);
-    expect(el.textContent).toContain('webgpu');
+    expect(el.textContent).toContain('WebGPU');
     expect(el.textContent).toContain('21.4');
   });
 
-  it('shows vision as idle before the worker has reported a backend', () => {
+  it('shows vision as not loaded before the worker has reported a backend', () => {
     const el = mount(<ResourceBar backend={null} modelsLoadedMB={0} />);
-    expect(el.textContent).toContain('idle');
+    expect(el.textContent).toContain('not loaded yet');
   });
 });
 
@@ -267,5 +262,72 @@ describe('GrantRequest — the step waits for a real toolbar invocation, never s
   it('offers no way to continue without screenshots', () => {
     const el = mount(<GrantRequest explanation={{ kind: 'never-invoked' }} onAllowAllSites={() => {}} onStop={() => {}} />);
     expect([...el.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Allow AEGIS on all sites', 'Stop']);
+  });
+});
+
+describe('describeError — error codes become plain titles, the code stays visible', () => {
+  it('splits "CODE - explanation"', () => {
+    expect(describeError('API_KEY_REJECTED - Groq refused your API key.')).toEqual({ title: 'Your API key was rejected', code: 'API_KEY_REJECTED', body: 'Groq refused your API key.' });
+  });
+
+  it('keeps an HTTP status with the code, and handles "CODE: detail" stops', () => {
+    expect(describeError('GATEWAY_SESSION_FAILED (HTTP 502)').code).toBe('GATEWAY_SESSION_FAILED (HTTP 502)');
+    expect(describeError('SERVER_ERROR: upstream_429 - wait').body).toBe('Upstream_429 - wait');
+  });
+
+  it('a message with no code is shown as is', () => {
+    expect(describeError('something odd').body).toBe('something odd');
+  });
+});
+
+function stepLog(overrides: Partial<StepLog> = {}): StepLog {
+  return { stepId: 's-1', protectedFields: [], serverNotes: [], activity: [], modelTexts: [], pageNotes: [], ...overrides };
+}
+
+describe('TaskProgress stages — read from the run log, never assumed', () => {
+  it('a step still reading the page has only its first stage in progress', () => {
+    expect(stepStages(stepLog(), true, 'failed').map((s) => s.state)).toEqual(['active', 'pending', 'pending', 'pending']);
+  });
+
+  it('a sent step waits on the model; a planned step acts', () => {
+    const sent = stepLog({ payload: fakePayload() });
+    expect(stepStages(sent, true, 'failed').map((s) => s.state)).toEqual(['complete', 'active', 'pending', 'pending']);
+    const acting = stepLog({ payload: fakePayload(), activity: [{ kind: 'plan', stepId: 's-1', actions: [{ text: 'click Search', status: 'executed' }, { text: 'type "ssd"', status: 'validated' }] }] });
+    const stages = stepStages(acting, true, 'failed');
+    expect(stages.map((s) => s.state)).toEqual(['complete', 'complete', 'complete', 'active']);
+    expect(stages[3]!.detail).toBe('type "ssd"');
+  });
+
+  it('a guard block fails the scan and sends nothing', () => {
+    const stages = stepStages(stepLog({ guardBlock: { rule: 'VAULT_LEAK' } }), true, 'failed');
+    expect(stages.map((s) => s.state)).toEqual(['failed', 'skipped', 'skipped', 'skipped']);
+  });
+
+  it('a stage cut short by a stop is shown as cancelled or failed, not still running', () => {
+    expect(stepStages(stepLog({ payload: fakePayload() }), false, 'cancelled')[1]!.state).toBe('cancelled');
+  });
+
+  it('a cancelled task is not reported as failed', () => {
+    expect(taskStatus('idle', { ...EMPTY_RUN_LOG, result: { kind: 'stopped', text: 'CANCELLED' } })).toBe('cancelled');
+    expect(taskStatus('error', { ...EMPTY_RUN_LOG, result: { kind: 'stopped', text: 'SERVER_ERROR: x' } })).toBe('failed');
+  });
+});
+
+describe('privacyVerdict — never "protected" when the checks did not complete', () => {
+  it('a guard-blocked latest step says nothing was sent', () => {
+    const v = privacyVerdict(fakePayload(), stepLog({ stepId: 's-2', guardBlock: { rule: 'VAULT_LEAK' } }));
+    expect(v!.tone).toBe('error');
+    expect(v!.title).toContain('nothing was sent');
+  });
+
+  it('a payload sent without its screenshot (capture refused) is a warning, with the reason', () => {
+    const status = { capture: 'host-access', worker: 'skipped', regionsRequested: 0 } as never;
+    const v = privacyVerdict(fakePayload(), stepLog({ payload: fakePayload(), perception: status }));
+    expect(v!.tone).toBe('warn');
+    expect(v!.detail).toContain('No screenshot was sent');
+  });
+
+  it('nothing is claimed before a payload exists', () => {
+    expect(privacyVerdict(null, stepLog())).toBeNull();
   });
 });

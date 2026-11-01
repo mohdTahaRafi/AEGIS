@@ -9,6 +9,7 @@ import type { SanitizedContext } from '@aegis/protocol';
 import type { PerceptionStepStatus } from '../host/perception-client/run-step';
 import type { ProtectedField, StepStageTimings } from '../host/session';
 import { SENT_AS } from './RedactionSummary';
+import { C } from './design';
 
 type Redaction = SanitizedContext['redactions'][number];
 
@@ -214,24 +215,24 @@ export function buildPipelineTrace({ status, payload, protectedFields, timings, 
 }
 
 const MARK: Record<StageStatus, { mark: string; color: string }> = {
-  done: { mark: '✓', color: '#070' },
-  skipped: { mark: '–', color: '#777' },
-  pending: { mark: '…', color: '#777' },
-  blocked: { mark: '✗', color: '#b00' },
+  done: { mark: '✓', color: C.ok },
+  skipped: { mark: '–', color: C.muted },
+  pending: { mark: '…', color: C.muted },
+  blocked: { mark: '✗', color: C.error },
 };
 
 export function PipelineTrace(props: PipelineTraceInput) {
   const stages = buildPipelineTrace(props);
   return (
     <div data-testid="pipeline-trace" style={{ margin: '4px 0' }}>
-      <div style={{ color: '#555' }}>Run order this step (faces and text over the whole screenshot, then CLIP on each picture; times are totals):</div>
-      <ol style={{ margin: '2px 0', paddingLeft: 18 }}>
+      <div style={{ color: C.secondary, marginTop: 6 }}>Run order this step (faces and text over the whole screenshot, then CLIP on each picture; times are totals):</div>
+      <ol style={{ margin: '4px 0', paddingLeft: 18 }}>
         {stages.map((s, i) => (
-          <li key={i} data-status={s.status} style={{ margin: '3px 0' }}>
-            <span style={{ color: MARK[s.status].color }}>{MARK[s.status].mark}</span> <strong>{s.title}</strong>
-            {s.ms !== undefined && <span style={{ color: '#555' }}> · {Math.round(s.ms)} ms</span>}
+          <li key={i} data-status={s.status} style={{ margin: '4px 0' }}>
+            <span style={{ color: MARK[s.status].color }}>{MARK[s.status].mark}</span> <strong style={{ color: C.strong }}>{s.title}</strong>
+            {s.ms !== undefined && <span style={{ color: C.secondary }}> · {Math.round(s.ms)} ms</span>}
             {s.lines.map((line, j) => (
-              <div key={j} style={{ color: line.startsWith('redacted:') || line.includes('✓ redacted') ? '#700' : '#555', paddingLeft: 8, whiteSpace: 'pre-wrap' }}>
+              <div key={j} style={{ color: line.startsWith('redacted:') || line.includes('✓ redacted') ? C.warn : C.secondary, paddingLeft: 8, whiteSpace: 'pre-wrap' }}>
                 {line}
               </div>
             ))}
