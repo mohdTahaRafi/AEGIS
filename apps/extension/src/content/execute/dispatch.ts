@@ -104,7 +104,7 @@ function typeIntoEditable(el: HTMLElement, text: string, clearFirst: boolean): v
 export function dispatchType(
   el: Element,
   text: string,
-  options: { clearFirst?: boolean; willMoveFocusNext: boolean },
+  options: { clearFirst?: boolean; willMoveFocusNext: boolean; commit?: boolean },
 ): { ok: true } | { ok: false; reason: 'DISABLED' } {
   // `type` replaces what the field holds unless the plan asks to append (clear_first: false):
   // typing the same text twice then leaves one copy, not two.
@@ -129,10 +129,11 @@ export function dispatchType(
   setValue(base + text);
   el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
 
-  if (options.willMoveFocusNext) {
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-    el.blur();
-  }
+  // `commit`: fire `change` without moving focus — forms that validate or bind on `change`
+  // (plain HTML, jQuery, Angular's updateOn: 'change') never see the value from `input` alone,
+  // while blurring would close an open suggestion list.
+  if (options.willMoveFocusNext || options.commit) el.dispatchEvent(new Event('change', { bubbles: true }));
+  if (options.willMoveFocusNext) el.blur();
   return { ok: true };
 }
 
@@ -181,4 +182,35 @@ export function dispatchScroll(
     eventTarget.addEventListener('scrollend', finish);
     target.scrollBy({ left: dx, top: dy, behavior: 'instant' as ScrollBehavior });
   });
+}
+
+/** Text that can never be a find target: markup that is not page text, AEGIS's own UI, and content
+ * hidden from assistive technology. */
+const FIND_SKIP = 'script,style,noscript,template,[data-aegis-ignore],[aria-hidden="true"]';
+
+/** Scrolls the next occurrence of `text` (case- and whitespace-insensitive) into view: the first
+ * one below the top tenth of the viewport, else the first in the page. Only text nodes are read,
+ * never a form field's value. */
+export function dispatchFind(text: string): { ok: true } | { ok: false; reason: 'NOT_FOUND' } {
+  const norm = (value: string) => value.toLowerCase().replace(/\s+/g, ' ').trim();
+  const needle = norm(text);
+  if (!needle || !document.body) return { ok: false, reason: 'NOT_FOUND' };
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => (node.parentElement && !node.parentElement.closest(FIND_SKIP) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
+  });
+  let first: Element | null = null;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (!norm(node.textContent ?? '').includes(needle)) continue;
+    const el = node.parentElement!;
+    const box = el.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) continue;
+    if (box.top > window.innerHeight * 0.1) {
+      el.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
+      return { ok: true };
+    }
+    first ??= el;
+  }
+  if (!first) return { ok: false, reason: 'NOT_FOUND' };
+  first.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
+  return { ok: true };
 }

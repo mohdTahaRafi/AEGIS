@@ -31,7 +31,7 @@ describe('agent prompt', () => {
     expect(without).not.toContain('IMAGE:');
     const withImg = buildUserMessage(step, { withImage: true });
     expect(withImg).toContain('⟪AADHAAR#1⟫ | AADHAAR | CRITICAL | [10,20,30,40]');
-    expect(withImg).toContain('IMAGE: level=L1 region=[0,0,1280,720] scale=0.5 cleared=1.00 redacted=0.00 unanalysed=0.00');
+    expect(withImg).toContain('IMAGE: 640x360 px, region=[0,0,1280,720] scale=0.5 cleared=1.00 redacted=0.00 unanalysed=0.00');
     expect(withImg).toContain('LEGEND: black = redacted');
   });
 
@@ -64,7 +64,7 @@ describe('agent prompt', () => {
       ],
     });
     const text = buildUserMessage(step);
-    expect(text).toContain('TEXT: "Welcome back"');
+    expect(text).toContain('TEXT:\n"Welcome back"');
     expect(text).not.toContain('Way down');
   });
 

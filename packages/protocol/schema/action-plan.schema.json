@@ -217,6 +217,33 @@
           "required": ["op"],
           "additionalProperties": false,
           "properties": { "op": { "enum": ["go_back", "go_forward", "reload"] } }
+        },
+        {
+          "type": "object",
+          "required": ["op", "text"],
+          "additionalProperties": false,
+          "description": "Scrolls the next occurrence of `text` in the page's visible text into view (wrapping to the top). Matches page text only, never a form field's value.",
+          "properties": {
+            "op": { "const": "find" },
+            "text": { "type": "string", "minLength": 1, "maxLength": 200 }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op"],
+          "additionalProperties": false,
+          "description": "The next step carries the whole page's text (sanitized like any page text), not only one screen around the view.",
+          "properties": { "op": { "const": "read_page" } }
+        },
+        {
+          "type": "object",
+          "required": ["op", "tab"],
+          "additionalProperties": false,
+          "description": "Makes tab number `tab` of the step's TABS list the task's tab, or closes it.",
+          "properties": {
+            "op": { "enum": ["switch_tab", "close_tab"] },
+            "tab": { "type": "integer", "minimum": 1, "maximum": 20 }
+          }
         }
       ]
     }

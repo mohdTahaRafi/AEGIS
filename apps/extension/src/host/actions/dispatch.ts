@@ -20,11 +20,15 @@ export type HostHandledOp =
   | { kind: 'host'; op: 'done'; summary?: string }
   | { kind: 'host'; op: 'stop'; reason: string }
   | { kind: 'host'; op: 'wait'; ms: number }
-  | { kind: 'host'; op: 'request_observation'; level: 'L1' | 'L2' };
+  | { kind: 'host'; op: 'request_observation'; level: 'L1' | 'L2' }
+  | { kind: 'host'; op: 'read_page' };
 
 /** Moves the task's tab (or opens a new one): run by the host through the tabs API, never by the
  * content script, which has no navigation or network code. */
-export type BrowserNavigation = { kind: 'browser'; op: 'navigate' | 'open_tab'; url: string } | { kind: 'browser'; op: 'go_back' | 'go_forward' | 'reload' };
+export type BrowserNavigation =
+  | { kind: 'browser'; op: 'navigate' | 'open_tab'; url: string }
+  | { kind: 'browser'; op: 'go_back' | 'go_forward' | 'reload' }
+  | { kind: 'browser'; op: 'switch_tab' | 'close_tab'; tab: number };
 
 export type ContentDispatchable = { kind: 'content'; action: WireAction };
 
@@ -88,5 +92,12 @@ export function classifyAction(action: Action): HostHandledOp | ContentDispatcha
     case 'go_forward':
     case 'reload':
       return { kind: 'browser', op: action.op };
+    case 'switch_tab':
+    case 'close_tab':
+      return { kind: 'browser', op: action.op, tab: action.tab };
+    case 'find':
+      return { kind: 'content', action: { op: 'find', text: action.text } };
+    case 'read_page':
+      return { kind: 'host', op: 'read_page' };
   }
 }

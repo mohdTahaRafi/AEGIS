@@ -87,23 +87,43 @@
     },
     "history": {
       "type": "array",
-      "maxItems": 5,
+      "maxItems": 100,
       "items": {
         "type": "object",
         "required": ["step_id", "actions", "outcome"],
         "additionalProperties": false,
         "properties": {
           "step_id": { "$ref": "common.schema.json#/$defs/stepId" },
+          "page": { "type": "string", "maxLength": 120, "description": "Sanitized title of the page the step acted on, as sent in that step." },
           "actions": {
             "type": "array",
             "items": {
               "type": "object",
               "required": ["op"],
               "additionalProperties": true,
-              "properties": { "op": { "type": "string" } }
+              "properties": {
+                "op": { "type": "string" },
+                "name": { "type": "string", "maxLength": 80, "description": "Sanitized name of the targeted element, as sent in that step." }
+              }
             }
           },
           "outcome": { "type": "string", "maxLength": 200 }
+        }
+      }
+    },
+    "text_scope": { "enum": ["screen", "page"], "description": "\"page\": `text` covers the whole document (the model asked with read_page); absent or \"screen\": the view and one screen around it." },
+    "tabs": {
+      "type": "array",
+      "maxItems": 32,
+      "description": "The tabs this task has used, numbered for switch_tab/close_tab. Titles sanitized like the page title.",
+      "items": {
+        "type": "object",
+        "required": ["index", "title", "current"],
+        "additionalProperties": false,
+        "properties": {
+          "index": { "type": "integer", "minimum": 1, "maximum": 20 },
+          "title": { "type": "string", "maxLength": 200 },
+          "current": { "type": "boolean" }
         }
       }
     },

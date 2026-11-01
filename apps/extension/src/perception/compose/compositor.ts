@@ -36,6 +36,10 @@ export interface ComposeInput {
    * it, grey stays the default and only `cleared` is copied in. */
   clearDefault?: boolean;
   grey?: readonly Box[];
+  /** Set-of-Marks: the id the model addresses each interactive element by (`e12`), drawn as a
+   * small tag at the element's top-left corner, after the redactions. Labels are opaque ids,
+   * never page text. */
+  marks?: readonly { box: Box; label: string }[];
 }
 
 export interface ComposeOutput {
@@ -79,7 +83,7 @@ export function measureCoverage(width: number, height: number, scale: number, cl
 }
 
 export function compose(input: ComposeInput): ComposeOutput {
-  const { bitmap, cleared, regions, scale, unlabelled = false, clearDefault = false, grey = [] } = input;
+  const { bitmap, cleared, regions, scale, unlabelled = false, clearDefault = false, grey = [], marks = [] } = input;
   const width = Math.round(bitmap.width * scale);
   const height = Math.round(bitmap.height * scale);
   const canvas = new OffscreenCanvas(width, height);
@@ -118,6 +122,8 @@ export function compose(input: ComposeInput): ComposeOutput {
     }
   }
 
+  drawMarks(ctx, marks, scale, width, height);
+
   return {
     canvas,
     coverage: measureCoverage(width, height, scale, mergedCleared, regions.flatMap((r) => r.boxes), clearDefault ? grey : []),
@@ -135,6 +141,41 @@ function drawFittedLabel(ctx: OffscreenCanvasRenderingContext2D, text: string, x
     ctx.font = `${fontSize}px sans-serif`;
   }
   ctx.fillText(text, x + w / 2, y + h / 2);
+}
+
+const MARK_FONT_PX = 10;
+const MARK_PAD_PX = 2;
+
+/** Tags drawn last so they stay readable over a redaction or grey area. A tag never covers more
+ * than its own few pixels, and the element outline is a thin translucent line. */
+function drawMarks(ctx: OffscreenCanvasRenderingContext2D, marks: readonly { box: Box; label: string }[], scale: number, width: number, height: number): void {
+  if (marks.length === 0) return;
+  ctx.font = `bold ${MARK_FONT_PX}px sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  // A tag that would land on one already drawn is left out (dense inline links): a pile of
+  // overlapping tags is unreadable and hides the text under it. Its element is still listed in the
+  // prompt by id and box.
+  const placed: [number, number, number, number][] = [];
+  for (const { box, label } of marks) {
+    const [x, y, w, h] = box;
+    const bx = x * scale;
+    const by = y * scale;
+    if (bx >= width || by >= height || bx + w * scale <= 0 || by + h * scale <= 0) continue;
+    const tw = ctx.measureText(label).width + MARK_PAD_PX * 2;
+    const th = MARK_FONT_PX + MARK_PAD_PX * 2;
+    const tx = Math.min(Math.max(0, bx), width - tw);
+    const ty = Math.min(Math.max(0, by - th < 0 ? by : by - th), height - th);
+    if (placed.some(([px, py, pw, ph]) => tx < px + pw && px < tx + tw && ty < py + ph && py < ty + th)) continue;
+    placed.push([tx, ty, tw, th]);
+    ctx.strokeStyle = 'rgba(230, 0, 160, 0.35)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bx + 0.5, by + 0.5, Math.max(1, w * scale - 1), Math.max(1, h * scale - 1));
+    ctx.fillStyle = '#FFD400';
+    ctx.fillRect(tx, ty, tw, th);
+    ctx.fillStyle = '#000000';
+    ctx.fillText(label, tx + MARK_PAD_PX, ty + MARK_PAD_PX);
+  }
 }
 
 export async function encodeWebp(canvas: OffscreenCanvas, quality = 0.8): Promise<ArrayBuffer> {

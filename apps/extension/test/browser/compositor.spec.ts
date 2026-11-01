@@ -42,6 +42,16 @@ function hasWhitePixelInRow(canvas: OffscreenCanvas, y: number, xStart: number, 
 }
 
 describe('compose (T-4.16, phase_4_vision.md §7)', () => {
+  it('draws Set-of-Marks tags (yellow, above the element) last, so a tag over a redaction stays readable', async () => {
+    const bitmap = await solidBitmap(200, 100, '#ffffff');
+    const output = compose({ bitmap, cleared: [[0, 0, 200, 100]], regions: [{ entity: 'EMAIL', boxes: [[40, 40, 100, 30]], placeholder: null }], scale: 1, marks: [{ box: [40, 40, 100, 30], label: 'e7' }] });
+    // The tag sits just above the element's top-left corner (11px font + 2px padding each side).
+    const [r, g, b] = pixelAt(output.canvas, 41, 27);
+    expect([r, g, b]).toEqual([255, 212, 0]);
+    // The redaction itself is still black inside the element.
+    expect(pixelAt(output.canvas, 120, 60).slice(0, 3)).toEqual([0, 0, 0]);
+  });
+
   it('a region with no positive clearance is grey by default', async () => {
     const bitmap = await solidBitmap(100, 100, '#ff0000');
     const output = compose({ bitmap, cleared: [], regions: [], scale: 1 });

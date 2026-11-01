@@ -350,6 +350,46 @@ class Action18(BaseModel):
     op: Op
 
 
+class Action19(BaseModel):
+    """
+    Scrolls the next occurrence of `text` in the page's visible text into view (wrapping to the top). Matches page text only, never a form field's value.
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    op: Literal['find']
+    text: constr(min_length=1, max_length=200)
+
+
+class Action20(BaseModel):
+    """
+    The next step carries the whole page's text (sanitized like any page text), not only one screen around the view.
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    op: Literal['read_page']
+
+
+class Op1(Enum):
+    switch_tab = 'switch_tab'
+    close_tab = 'close_tab'
+
+
+class Action21(BaseModel):
+    """
+    Makes tab number `tab` of the step's TABS list the task's tab, or closes it.
+    """
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    op: Op1
+    tab: conint(ge=1, le=20)
+
+
 class ActionPlan(BaseModel):
     """
     design.md §4.5/§4.6. Also used as the vLLM structured-decoding grammar (Phase 2, T-2.36) — a hallucinated action is a parse error, not a click.
@@ -379,6 +419,9 @@ class ActionPlan(BaseModel):
         | Action16
         | Action17
         | Action18
+        | Action19
+        | Action20
+        | Action21
     ] = Field(..., max_length=5, min_length=1)
     risk_hint: RiskHint | None = None
     stop_if: list[StopIfEnum] | None = None

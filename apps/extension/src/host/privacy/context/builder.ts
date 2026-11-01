@@ -37,7 +37,9 @@ type NodeValue = NonNullable<SanitizedNode['value']>;
 type HistoryEntry = NonNullable<SanitizedContext['history']>[number];
 type RedactionEntry = SanitizedContext['redactions'][number];
 
-const MAX_HISTORY_ENTRIES = 5;
+// The whole task: at most 50 steps (controller/budgets.ts), each one entry, plus the occasional
+// failure entry. The prompt shows every one (agent/prompt.ts `renderHistory`).
+const MAX_HISTORY_ENTRIES = 100;
 
 export interface BuildContextInput {
   stepId: string;
@@ -47,6 +49,10 @@ export interface BuildContextInput {
   viewport: { w: number; h: number; dpr: number; scrollY: number; docH: number };
   pageCategory: SanitizedContext['page']['category'];
   pageTitle: string;
+  /** The tabs this task has used (titles sanitized here like the page title), when more than one. */
+  tabs?: readonly { title: string; current: boolean }[];
+  /** `page`: `textRuns` cover the whole document (the model asked with read_page). */
+  textScope?: 'page';
   nodes: WireScreenNode[];
   removed: string[];
   textRuns: WireTextRun[];
@@ -401,7 +407,7 @@ function unexplainedReason(tagName: string | undefined): UnexplainedReason {
 }
 
 /** FR-12 (design.md §4.3's `unexplained[]`): every node whose content is opaque to the DOM
- * (`role === 'img'`, the same predicate `structural-coverage.ts`/`run-step.ts` use) is reported
+ * (`role === 'img'`, the same predicate `run-step.ts` uses) is reported
  * here regardless of whether vision found anything in it — `status` is what tells the server
  * whether that box is actually pixels-it-can-trust (`'analysed'`) or still just grey
  * (`'grey'`, either because this step never captured a frame, or because this node's own crop
@@ -623,6 +629,11 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
 
   const sanitizedTask = sanitizeFreeText('task', escapedTask);
   const sanitizedTitle = truncate(sanitizeFreeText('title', escapedTitle), 200);
+  const tabs = (input.tabs ?? []).slice(0, 20).map((tab, i) => ({
+    index: i + 1,
+    title: truncate(sanitizeFreeText(`tab-${i + 1}`, escapePlaceholderDelimiters(tab.title)), 200),
+    current: tab.current,
+  }));
 
   const tightened = tightenRedactionBoxes(redactions);
   redactions.length = 0;
@@ -655,6 +666,8 @@ export function buildSanitizedContext(input: BuildContextInput): SanitizedContex
     coverage: { cleared: 1 - redactedFraction, redacted: redactedFraction, unanalysed: 0 },
     image: null,
     history: windowHistory(input.history),
+    ...(tabs.length > 1 ? { tabs } : {}),
+    ...(input.textScope === 'page' ? { text_scope: 'page' as const } : {}),
     client_timing: input.clientTiming,
   };
 }

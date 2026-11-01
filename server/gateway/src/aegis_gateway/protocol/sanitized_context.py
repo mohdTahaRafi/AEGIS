@@ -79,6 +79,28 @@ class Action(BaseModel):
         extra='allow',
     )
     op: str
+    name: constr(max_length=80) | None = Field(
+        None,
+        description='Sanitized name of the targeted element, as sent in that step.',
+    )
+
+
+class TextScope(Enum):
+    """
+    "page": `text` covers the whole document (the model asked with read_page); absent or "screen": the view and one screen around it.
+    """
+
+    screen = 'screen'
+    page = 'page'
+
+
+class Tab(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    index: conint(ge=1, le=20)
+    title: constr(max_length=200)
+    current: bool
 
 
 class SessionId(
@@ -301,6 +323,10 @@ class HistoryItem(BaseModel):
         extra='forbid',
     )
     step_id: constr(pattern=r'^s-[0-9]+$')
+    page: constr(max_length=120) | None = Field(
+        None,
+        description='Sanitized title of the page the step acted on, as sent in that step.',
+    )
     actions: list[Action]
     outcome: constr(max_length=200)
 
@@ -334,5 +360,14 @@ class SanitizedContext(BaseModel):
     unexplained: list[UnexplainedItem]
     coverage: Coverage
     image: ImagePart | None = None
-    history: list[HistoryItem] = Field(..., max_length=5)
+    history: list[HistoryItem] = Field(..., max_length=100)
+    text_scope: TextScope | None = Field(
+        None,
+        description='"page": `text` covers the whole document (the model asked with read_page); absent or "screen": the view and one screen around it.',
+    )
+    tabs: list[Tab] | None = Field(
+        None,
+        description='The tabs this task has used, numbered for switch_tab/close_tab. Titles sanitized like the page title.',
+        max_length=32,
+    )
     client_timing: dict[str, confloat(ge=0.0)]

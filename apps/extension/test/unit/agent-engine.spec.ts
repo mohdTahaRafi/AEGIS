@@ -35,7 +35,7 @@ const rejected = async (promise: Promise<unknown>) => {
 describe('agent engine', () => {
   it('opens a session that reports the model and its limits', () => {
     const session = createAgentEngine({ complete: async () => ({}) }, 'm').openSession();
-    expect(session).toMatchObject({ model: 'm', mode: 'live', limits: { max_steps: 30 } });
+    expect(session).toMatchObject({ model: 'm', mode: 'live', limits: { max_steps: 50 } });
     expect(session.session_id).toMatch(/^[0-9a-f-]{36}$/);
   });
 
@@ -89,7 +89,7 @@ describe('agent engine', () => {
     const err = await rejected(engine.sendStep(sid, fakeStep()));
     expect([err.status, err.retryable]).toEqual([422, false]);
     expect(err.detail).toMatch(/^PLAN_INVALID \(.*actions/);
-    expect(calls[1]![1]!.content).toBe('TASK: sign in');
+    expect(calls[1]![1]!.content).toBe('TASK: sign in\nCHECKLIST: (none yet: write it now)\nNOTES: (none)');
   });
 
   it('rebuilds a too-large prompt smaller (at most twice) instead of failing the step', async () => {

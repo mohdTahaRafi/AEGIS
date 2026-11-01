@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AgentSession, PlanError, normalizePlan, validateCandidatePlan } from '../../src/host/agent/plan';
 import { fakeNode, fakeStep, withImage } from './agent-fixtures';
+import { buildUserMessage } from '../../src/host/agent/prompt';
 
 function sessionFor(step = fakeStep()): AgentSession {
   const s = new AgentSession('sid', 'm');
@@ -94,6 +95,14 @@ describe('validateCandidatePlan', () => {
     const plan = validateCandidatePlan({ actions: [{ op: 'click_point', x: 500, y: 250, label: 'logo' }] }, session, step);
     expect(plan.actions[0]).toMatchObject({ x: 640, y: 320 });
     expect(() => validateCandidatePlan({ actions: [{ op: 'click_point', x: 500, y: 900, label: 'off' }] }, session, step)).toThrow(/image region/);
+  });
+
+  it("converts Gemini's click_point (0-1000 of the width and of the height) into viewport pixels", () => {
+    const step = withImage(fakeStep()); // a 1280x720 region
+    const plan = validateCandidatePlan({ actions: [{ op: 'click_point', x: 500, y: 500, label: 'center' }] }, sessionFor(step), step, 'norm1000-axis');
+    // The long-side convention would put y at 640, below the image.
+    expect(plan.actions[0]).toMatchObject({ x: 640, y: 360 });
+    expect(buildUserMessage(step, { profile: 'rich', grounding: 'norm1000-axis', withImage: true })).toContain('x = 0-1000 of the image width');
   });
 
   it('forgets nodes a full snapshot no longer contains', () => {

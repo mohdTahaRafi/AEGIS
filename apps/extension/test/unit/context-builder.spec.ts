@@ -60,11 +60,11 @@ describe('buildSanitizedContext — schema round trip', () => {
     expect(result.valid).toBe(true);
   });
 
-  it('windows history to the most recent 5 entries', () => {
-    const history = Array.from({ length: 8 }, (_, i) => ({ step_id: `s-${i}`, actions: [{ op: 'click' }], outcome: 'ok' }));
-    const context = buildCtx({ stepId: 's-9', reason: 'after_action', history });
-    expect(context.history).toHaveLength(5);
-    expect(context.history![0]!.step_id).toBe('s-3');
+  it('keeps the whole task\'s history (a full 50-step task fits), with each step\'s page and target names', () => {
+    const history = Array.from({ length: 50 }, (_, i) => ({ step_id: `s-${i + 1}`, page: 'Deep Work - Amazon.in', actions: [{ op: 'click', node: 'n-1', name: 'Add to Cart' }], outcome: 'ok' }));
+    const context = buildCtx({ stepId: 's-51', reason: 'after_action', history });
+    expect(context.history).toHaveLength(50);
+    expect(context.history![0]!.step_id).toBe('s-1');
     expect(validators.sanitizedContext(context).valid).toBe(true);
   });
 

@@ -118,6 +118,11 @@ export function runPreflight(
     return { ok: true, element: topmost };
   }
 
+  if (action.op === 'find') {
+    // No node: the page's own text is searched (execute/dispatch.ts `dispatchFind`).
+    return { ok: true, element: document.documentElement };
+  }
+
   if (action.op === 'press_key') {
     // No node: the key goes to whatever has focus (the field just typed into, typically).
     if (!action.node) return { ok: true, element: document.activeElement ?? document.body };

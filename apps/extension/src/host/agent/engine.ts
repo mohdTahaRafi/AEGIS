@@ -5,13 +5,41 @@
 
 import type { SanitizedContext, SessionCreated } from '@aegis/protocol';
 import { ModelRequestTooLarge, planInvalid, sessionNotFound, stepOutOfOrder, unsanitizedContext } from './errors';
-import { AgentSession, PlanError, validateCandidatePlan, type RawPlan } from './plan';
-import { SYSTEM_PROMPT, buildMessages, buildUserMessage, type ChatMessage } from './prompt';
+import type { Grounding, PromptProfile } from '../egress/providers';
+import { AgentSession, PlanError, extractExtras, validateCandidatePlan, type ChecklistItem, type RawPlan } from './plan';
+import { SYSTEM_PROMPTS, buildMessages, buildUserMessage, renderChecklist, type ChatMessage } from './prompt';
 import { findUnsanitized } from './tripwire';
+
+/** Which model a step needs: `smart` for planning and recovering (fewer free requests, better
+ * judgement), `fast` for routine steps. A source without a smarter model treats both alike. */
+export type ModelTier = 'fast' | 'smart';
 
 /** The model-call surface the engine needs; `host/egress/model-client.ts` implements it. */
 export interface PlanSource {
-  complete(messages: readonly ChatMessage[], signal?: AbortSignal): Promise<unknown>;
+  complete(messages: readonly ChatMessage[], signal?: AbortSignal, tier?: ModelTier): Promise<unknown>;
+  /** The model that produced the last answer, for the panel. */
+  lastModel?(): string | undefined;
+}
+
+// The last step's outcome says the agent is off course: a failed or refused action, a page that did
+// not change, a repeated plan or a rejected reply. The next step is planned by the smart model.
+const OFF_COURSE = /FAILED_|failed|no visible change|rejected|same plan|NOT repeated|REHYDRATE_|refused|declined|blocked/i;
+
+/** The first step plans the whole task (it writes the checklist); a step after trouble re-plans.
+ * Everything else is routine. */
+function tierFor(step: SanitizedContext, session: AgentSession): ModelTier {
+  if (session.answered === 0) return 'smart';
+  const last = step.history?.at(-1)?.outcome ?? '';
+  return OFF_COURSE.test(last) ? 'smart' : 'fast';
+}
+
+/** `done` while the checklist still has todo items is refused: the model planned those sub-goals,
+ * and finishing without them (or without saying why they cannot be done) is how a "compare three
+ * shops" task ended after two. */
+function refuseUnfinishedDone(plan: RawPlan, open: readonly ChecklistItem[]): void {
+  if (open.length === 0 || !plan.actions.some((a) => a.op === 'done')) return;
+  const items = open.map((i) => `${i.id}. ${i.item}`).join('; ');
+  throw new PlanError(`done refused: checklist items still todo: ${items}. Do them now, or mark each one skipped with the reason in "checklist"`, true);
 }
 
 // A 413 "too many input tokens" costs no quota (the API refuses it before running the model), so
@@ -21,7 +49,7 @@ export interface PlanSource {
 const MAX_FIT_REBUILDS = 2;
 const FIT_MARGIN = 0.85;
 const MIN_FIT = 0.1;
-const MAX_STEPS = 30;
+const MAX_STEPS = 50;
 const MAX_IMAGE_PX = 1_600_000;
 
 function smallerFit(fit: number, error: ModelRequestTooLarge): number | null {
@@ -35,13 +63,36 @@ const stepNumber = (stepId: string): number => Number(stepId.split('-', 2)[1]);
  * (resending the image got HTTP 413 on the free tier). A shape error needs only the model's own
  * output and the error; a plan that named a wrong element or ref also gets the page as text (never
  * the image again). */
-function retryMessages(step: SanitizedContext, previous: unknown, error: PlanError, fit: number): ChatMessage[] {
+function retryMessages(step: SanitizedContext, previous: unknown, error: PlanError, fit: number, options: EngineOptions, notes: string, checklist: readonly ChecklistItem[]): ChatMessage[] {
   return [
-    { role: 'system', content: SYSTEM_PROMPT },
-    { role: 'user', content: error.needsPage ? buildUserMessage(step, { fit }) : `TASK: ${step.task}` },
+    { role: 'system', content: SYSTEM_PROMPTS[options.profile] },
+    {
+      role: 'user',
+      content: error.needsPage
+        ? buildUserMessage(step, { fit, profile: options.profile, notes, checklist, grounding: options.grounding, region: options.region })
+        : `TASK: ${step.task}\n${renderChecklist(checklist)}NOTES: ${notes || '(none)'}`,
+    },
     { role: 'assistant', content: JSON.stringify(previous ?? null).slice(0, 2000) },
     { role: 'user', content: `Your previous output was invalid: ${error.message}. Reply with only the corrected JSON object.` },
   ];
+}
+
+export interface EngineOptions {
+  profile: PromptProfile;
+  grounding: Grounding;
+  /** ISO 3166 alpha-2 country from the browser's language (prompt.ts `PromptOptions.region`). */
+  region?: string;
+}
+
+/** What the model wrote alongside a valid plan, for the panel (never sent anywhere). */
+export interface PlanCommentary {
+  thought?: string;
+  notes?: string;
+  /** The checklist after this answer, rendered. */
+  checklist?: string;
+  /** Which model answered, and whether the step was routed to the smart one. */
+  model?: string;
+  tier?: ModelTier;
 }
 
 export interface AgentEngine {
@@ -51,7 +102,7 @@ export interface AgentEngine {
   closeSession(sessionId: string): void;
 }
 
-export function createAgentEngine(source: PlanSource, modelName: string): AgentEngine {
+export function createAgentEngine(source: PlanSource, modelName: string, options: EngineOptions = { profile: 'compact', grounding: 'norm1000-long' }, onCommentary?: (commentary: PlanCommentary) => void): AgentEngine {
   const sessions = new Map<string, AgentSession>();
 
   return {
@@ -78,14 +129,22 @@ export function createAgentEngine(source: PlanSource, modelName: string): AgentE
       session.applyStep(step);
 
       let fit = 1;
-      let messages = buildMessages(step);
+      const promptFor = (f: number) => buildMessages(step, { fit: f, profile: options.profile, notes: session.notes, checklist: session.checklist, grounding: options.grounding, region: options.region });
+      let messages = promptFor(fit);
       let lastRaw: unknown;
+      let extras: ReturnType<typeof extractExtras> = {};
+      let tier = tierFor(step, session);
       const attempt = async (attemptMessages: readonly ChatMessage[]): Promise<RawPlan> => {
-        const raw = await source.complete(attemptMessages, signal);
+        const raw = await source.complete(attemptMessages, signal, tier);
         // Kept as the model wrote it: validation normalizes in place, and the corrective retry
         // quotes the original back.
         lastRaw = structuredClone(raw);
-        return validateCandidatePlan(raw, session, step);
+        extras = extractExtras(raw);
+        // Applied even when the plan is then refused: the statuses are the model's latest view.
+        session.applyChecklist(extras.checklist);
+        const plan = validateCandidatePlan(raw, session, step, options.grounding);
+        refuseUnfinishedDone(plan, session.unfinished());
+        return plan;
       };
       const firstAttempt = async (): Promise<RawPlan> => {
         for (let rebuild = 0; ; rebuild++) {
@@ -95,7 +154,7 @@ export function createAgentEngine(source: PlanSource, modelName: string): AgentE
             const smaller = err instanceof ModelRequestTooLarge && rebuild < MAX_FIT_REBUILDS ? smallerFit(fit, err) : null;
             if (smaller === null) throw err;
             fit = smaller;
-            messages = buildMessages(step, { fit });
+            messages = promptFor(fit);
           }
         }
       };
@@ -109,8 +168,10 @@ export function createAgentEngine(source: PlanSource, modelName: string): AgentE
           // A user turn, not a second system message: several hosted endpoints accept only one
           // system message, at the start. The model already saw this step's screenshot, so the
           // retry sends the page as text and the rejected output, never the image again.
+          // A correction is judgement work: the smart model makes it.
+          tier = 'smart';
           try {
-            plan = await attempt(retryMessages(step, lastRaw, firstError, fit));
+            plan = await attempt(retryMessages(step, lastRaw, firstError, fit, options, session.notes, session.checklist));
           } catch (secondError) {
             if (secondError instanceof PlanError) throw planInvalid(secondError.message);
             throw secondError;
@@ -122,6 +183,15 @@ export function createAgentEngine(source: PlanSource, modelName: string): AgentE
         throw err;
       }
       session.recordTyped(plan);
+      session.answered += 1;
+      if (extras.notes) session.notes = extras.notes;
+      onCommentary?.({
+        thought: extras.thought,
+        notes: extras.notes,
+        checklist: session.checklist.length > 0 ? renderChecklist(session.checklist).replace(/^CHECKLIST[^\n]*\n/, '').trim() : undefined,
+        model: source.lastModel?.(),
+        tier,
+      });
       return plan;
     },
   };

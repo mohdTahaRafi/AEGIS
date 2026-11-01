@@ -104,6 +104,17 @@ export type Action =
     }
   | {
       op: 'go_back' | 'go_forward' | 'reload';
+    }
+  | {
+      op: 'find';
+      text: string;
+    }
+  | {
+      op: 'read_page';
+    }
+  | {
+      op: 'switch_tab' | 'close_tab';
+      tab: number;
     };
 /**
  * [x, y, w, h] in CSS pixels, top-level viewport, origin top-left

@@ -142,140 +142,38 @@ export interface SanitizedContext {
   };
   image?: ImagePart | null;
   /**
-   * @maxItems 5
+   * @maxItems 100
    */
-  history:
-    | []
-    | [
-        {
-          step_id: string;
-          actions: {
-            op: string;
-            [k: string]: unknown;
-          }[];
-          outcome: string;
-        }
-      ]
-    | [
-        {
-          step_id: string;
-          actions: {
-            op: string;
-            [k: string]: unknown;
-          }[];
-          outcome: string;
-        },
-        {
-          step_id: string;
-          actions: {
-            op: string;
-            [k: string]: unknown;
-          }[];
-          outcome: string;
-        }
-      ]
-    | [
-        {
-          step_id: string;
-          actions: {
-            op: string;
-            [k: string]: unknown;
-          }[];
-          outcome: string;
-        },
-        {
-          step_id: string;
-          actions: {
-            op: string;
-            [k: string]: unknown;
-          }[];
-          outcome: string;
-        },
-        {
-          step_id: string;
-          actions: {
-            op: string;
-            [k: string]: unknown;
-          }[];
-          outcome: string;
-        }
-      ]
-    | [
-        {
-          step_id: string;
-          actions: {
-            op: string;
-            [k: string]: unknown;
-          }[];
-          outcome: string;
-        },
-        {
-          step_id: string;
-          actions: {
-            op: string;
-            [k: string]: unknown;
-          }[];
-          outcome: string;
-        },
-        {
-          step_id: string;
-          actions: {
-            op: string;
-            [k: string]: unknown;
-          }[];
-          outcome: string;
-        },
-        {
-          step_id: string;
-          actions: {
-            op: string;
-            [k: string]: unknown;
-          }[];
-          outcome: string;
-        }
-      ]
-    | [
-        {
-          step_id: string;
-          actions: {
-            op: string;
-            [k: string]: unknown;
-          }[];
-          outcome: string;
-        },
-        {
-          step_id: string;
-          actions: {
-            op: string;
-            [k: string]: unknown;
-          }[];
-          outcome: string;
-        },
-        {
-          step_id: string;
-          actions: {
-            op: string;
-            [k: string]: unknown;
-          }[];
-          outcome: string;
-        },
-        {
-          step_id: string;
-          actions: {
-            op: string;
-            [k: string]: unknown;
-          }[];
-          outcome: string;
-        },
-        {
-          step_id: string;
-          actions: {
-            op: string;
-            [k: string]: unknown;
-          }[];
-          outcome: string;
-        }
-      ];
+  history: {
+    step_id: string;
+    /**
+     * Sanitized title of the page the step acted on, as sent in that step.
+     */
+    page?: string;
+    actions: {
+      op: string;
+      /**
+       * Sanitized name of the targeted element, as sent in that step.
+       */
+      name?: string;
+      [k: string]: unknown;
+    }[];
+    outcome: string;
+  }[];
+  /**
+   * "page": `text` covers the whole document (the model asked with read_page); absent or "screen": the view and one screen around it.
+   */
+  text_scope?: 'screen' | 'page';
+  /**
+   * The tabs this task has used, numbered for switch_tab/close_tab. Titles sanitized like the page title.
+   *
+   * @maxItems 32
+   */
+  tabs?: {
+    index: number;
+    title: string;
+    current: boolean;
+  }[];
   client_timing: {
     [k: string]: number;
   };
