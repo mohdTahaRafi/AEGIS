@@ -44,7 +44,7 @@ Operate web pages on the user's behalf from a task they type, while redacting se
 - Remote code: No. All code and models are in the package.
 
 ## Files
-- Package: apps/extension/.output/aegis-0.1.0-chrome.zip
+- Package: apps/extension/.output/aegis-0.1.1-chrome.zip
 - Icon 128: apps/extension/public/icons/128.png
 - Screenshots (1280x800): store-listing/screenshot-*.png
 - Small promo tile (440x280): store-listing/promo-tile-small-440x280.png
