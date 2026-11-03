@@ -1058,6 +1058,27 @@ Justify every change with a before/after number (T-5.14).
   article was held back by the guard with `SCHEMA` (nothing sent; the next step went fine). Not caused
   by this change (non-resumed path); find which field fails the schema on that page.
 
+## Follow-ups from 2026-11-03 (situational prompt)
+
+- [x] **PROMPT-SIT-1** On Codeforces the agent submitted a wrong answer, then asked the user for
+  "the corrected C++ code" (`NEEDS_USER`). The prompt now adds per-step situation rules
+  (`src/host/agent/situations.ts`): `failed_result`, `stuck`, `produce`, `code`, `lasting`,
+  `compare`, `answer`; the last three moved out of the system prompt. `ask_user` is narrowed to
+  what only the user can supply. A failed result goes to the smart model. Tests:
+  `agent-situations.spec.ts`. Visible runs 2026-11-03 on codeforces.com/problemset/problem/2278/A,
+  "Write a C++ solution … give me the code in a report. Do not submit it." (`--watch --byok
+  --provider gemini`, Gemini fell back to 3.5 Flash-Lite after 429s on the stronger models, WASM):
+  both runs Done in ~20 s with the model writing the code itself (n=2). Run 1's code was wrong (it
+  sorted the letters and compared to "six"); after adding "trace every sample in notes", run 2's
+  logic was right but its includes read `#iostream` (as the model wrote them, not mangled by AEGIS).
+- [ ] **PROMPT-SIT-2** Not yet shown on a live submission: `failed_result` (read the verdict, fix,
+  resubmit) and the `code` editor rules. Needs the product owner's go-ahead to submit from their
+  Codeforces account (CLAUDE.md rule 8 allows read/search/navigate only).
+- [ ] **PROMPT-SIT-3** Correctness of written code is bounded by the model: on Gemini's free tier
+  the stronger models' daily quota runs out and Flash-Lite answers. Consider routing `produce` /
+  `code` steps to the smart tier, or telling the user when a weaker model is answering such a task.
+- [ ] **PROMPT-SIT-4** The Python gateway (dev only) still builds the old prompt without situations.
+
 ## Decision log
 
 Add one row per decision.
@@ -1116,5 +1137,6 @@ Add one row per decision.
 | 2026-11-03 | PERSIST-STORE | The saved task lives in `storage.session` (memory-only, extension pages only), one record per window, removed when the window closes or on Dismiss. It holds the task text as typed, the run log (sanitized payloads, redacted screenshots, model text) and HISTORY; never vault values or raw captures. Older steps' screenshots, then payloads, are dropped to keep a record under 4 MB. | Same lifetime as the session it describes; `storage.local` would put the task text on disk. 10 MB quota shared by the extension. |
 | 2026-11-03 | PERSIST-DRAFT | The task-box draft is kept like the saved task: `storage.session`, per window, dropped with the window; not cleared by Dismiss. | Same privacy reasoning as PERSIST-STORE (the user's own text, memory-only); Dismiss is about the interrupted run, not what the user is typing. |
 | 2026-11-03 | PERSIST-REFS | A resumed run starts a fresh vault; sealed refs in the earlier HISTORY (`⟪EMAIL#1⟫`) are reduced to their type (`⟪EMAIL⟫`). Budgets restart. | The new vault may mint the same ref for a different value; the model must not type an old ref expecting the old value. |
+| 2026-11-03 | PROMPT-SITUATIONS | The prompt is split: a fixed system message with the rules for every step, and per-step `SITUATION` rules chosen from the guarded step by code-defined triggers (`agent/situations.ts`), placed in the user message. Capped at 2 rules (compact) / 4 (rich). | Product owner: "the prompt should be dynamic according to the situation". Rules for every kind of task in one fixed message were read as optional; the Codeforces run asked the user for code. The system message stays a stable prefix for provider caching. |
 | — | R7-AC6 | *(fill in when R-7 lands)* "Forced detector miss blocks egress" is read as "the raw value never leaves the device". | |
 | — | R9-face-render | *(fill in)* Whether the sent image shows the mosaic or only the solid fill. | |

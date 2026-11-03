@@ -8,6 +8,7 @@ import { ModelRequestTooLarge, planInvalid, sessionNotFound, stepOutOfOrder, uns
 import type { Grounding, PromptProfile } from '../egress/providers';
 import { AgentSession, PlanError, extractExtras, validateCandidatePlan, type ChecklistItem, type RawPlan } from './plan';
 import { SYSTEM_PROMPTS, buildMessages, buildUserMessage, renderChecklist, type ChatMessage } from './prompt';
+import { detectSituations, type SituationId } from './situations';
 import { findUnsanitized } from './tripwire';
 
 /** Which model a step needs: `smart` for planning and recovering (fewer free requests, better
@@ -25,10 +26,11 @@ export interface PlanSource {
 // not change, a repeated plan or a rejected reply. The next step is planned by the smart model.
 const OFF_COURSE = /FAILED_|failed|no visible change|rejected|same plan|NOT repeated|REHYDRATE_|refused|declined|blocked/i;
 
-/** The first step plans the whole task (it writes the checklist); a step after trouble re-plans.
- * Everything else is routine. */
-function tierFor(step: SanitizedContext, session: AgentSession): ModelTier {
-  if (session.answered === 0) return 'smart';
+/** The first step plans the whole task (it writes the checklist); a step after trouble re-plans,
+ * and so does one whose page shows its work failed (a wrong answer to fix). Everything else is
+ * routine. */
+function tierFor(step: SanitizedContext, session: AgentSession, situations: readonly SituationId[]): ModelTier {
+  if (session.answered === 0 || situations.includes('failed_result')) return 'smart';
   const last = step.history?.at(-1)?.outcome ?? '';
   return OFF_COURSE.test(last) ? 'smart' : 'fast';
 }
@@ -93,6 +95,8 @@ export interface PlanCommentary {
   /** Which model answered, and whether the step was routed to the smart one. */
   model?: string;
   tier?: ModelTier;
+  /** The situation rules this step's prompt carried (situations.ts). */
+  situations?: SituationId[];
 }
 
 export interface AgentEngine {
@@ -133,7 +137,8 @@ export function createAgentEngine(source: PlanSource, modelName: string, options
       let messages = promptFor(fit);
       let lastRaw: unknown;
       let extras: ReturnType<typeof extractExtras> = {};
-      let tier = tierFor(step, session);
+      const situations = detectSituations(step, options.profile).map((s) => s.id);
+      let tier = tierFor(step, session, situations);
       const attempt = async (attemptMessages: readonly ChatMessage[]): Promise<RawPlan> => {
         const raw = await source.complete(attemptMessages, signal, tier);
         // Kept as the model wrote it: validation normalizes in place, and the corrective retry
@@ -191,6 +196,7 @@ export function createAgentEngine(source: PlanSource, modelName: string, options
         checklist: session.checklist.length > 0 ? renderChecklist(session.checklist).replace(/^CHECKLIST[^\n]*\n/, '').trim() : undefined,
         model: source.lastModel?.(),
         tier,
+        situations: situations.length > 0 ? situations : undefined,
       });
       return plan;
     },

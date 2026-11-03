@@ -111,6 +111,7 @@ export function applyRunLogEvent(log: RunLog, event: RunLogEvent): RunLog {
     case 'commentary': {
       const texts: ModelText[] = [];
       if (event.model) texts.push({ label: 'Answered by', text: `${event.model}${event.tier === 'smart' ? ' (smart model: planning or recovering)' : ''}` });
+      if (event.situations) texts.push({ label: 'Situation rules', text: event.situations.join(', ') });
       if (event.thought) texts.push({ label: 'Model reasoning', text: event.thought });
       if (event.checklist) texts.push({ label: 'Checklist', text: event.checklist });
       if (event.notes) texts.push({ label: 'Model notes', text: event.notes });

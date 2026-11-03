@@ -92,7 +92,7 @@ export type SessionEvent =
   | { type: 'page_ready'; waitedMs: number; pendingImages: number; timedOut: boolean }
   /** The model's own reasoning line and notes for this step's plan (written about the sanitized
    * page; shown in the panel, never sent anywhere). */
-  | { type: 'commentary'; stepId: string; thought?: string; notes?: string; checklist?: string; model?: string; tier?: 'fast' | 'smart' };
+  | { type: 'commentary'; stepId: string; thought?: string; notes?: string; checklist?: string; model?: string; tier?: 'fast' | 'smart'; situations?: string[] };
 
 /** One finished step as the model is shown it in HISTORY: sanitized names and titles only. */
 export type HistoryEntry = { step_id: string; page?: string; actions: { op: string; node?: string; name?: string }[]; outcome: string };

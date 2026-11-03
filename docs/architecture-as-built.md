@@ -156,7 +156,8 @@ tokens/minute free tier). The Python gateway (dev only) still builds the old com
 
 | Part | compact | rich |
 |---|---|---|
-| System message | fixed per profile: privacy rules, reply shape `{"thought","notes","actions"}`, batching, recovery, answer rules | same |
+| System message | fixed per profile (a stable prefix the provider can cache): privacy rules, reply shape `{"thought","notes","actions"}`, checklist, batching, navigation, done / stop / ask_user (never for what the model can work out or write) | same |
+| `SITUATION` | the rules for the situation this step is in, at most 2 | at most 4 |
 | `TASK`, `PAGE` (sanitized title), `NOTES` (the model's own memory from its last reply) | yes | yes (notes up to 1,500 chars) |
 | `HISTORY` | last 5 steps | last 8 steps |
 | `ELEMENTS` | 45, names ≤ 50 chars | 90, names ≤ 80 chars |
@@ -164,6 +165,15 @@ tokens/minute free tier). The Python gateway (dev only) still builds the old com
 | Report length | ≤ 150 words | ≤ 400 words |
 | `max_tokens` | 900 | 2,000 (Gemini 4,000: its thinking counts) |
 | click_point units | 0–1000 of the long side (qwen) | image pixels (Mistral, OpenRouter); 0–1000 of width / height (Gemini) |
+
+`SITUATION` comes from [agent/situations.ts](../apps/extension/src/host/agent/situations.ts), read
+from the guarded step only (sanitized task, title, element names, text, HISTORY), most pressing first:
+`failed_result` (a failure verdict on the page after AEGIS acted: fix your own work, retry, stop
+after 3; also routes the step to the smart model), `stuck` (the last two steps went nowhere),
+`produce` (the task asks for content: write it yourself, never ask_user for it), `code` (language,
+I/O format, trace the samples in notes, garbled editors, file-upload fields), `lasting` (add to
+cart and the like, from the task or a button on the page), `compare` (3 sites), `answer` (report
+then done). The ids that fired are shown in the run log as "Situation rules".
 
 Every step also carries the redacted WebP (long side ≤ 1,280 px) with `eN` id tags drawn on the
 listed elements. Not sent: the URL or origin (OQ-11), off-screen text beyond one screen, page
