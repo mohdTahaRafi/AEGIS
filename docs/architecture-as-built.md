@@ -61,13 +61,28 @@ Source: [wxt.config.ts](../apps/extension/wxt.config.ts), [main.tsx:40-52, 435-4
 
  background service worker (entrypoints/background.ts): opens the panel on toolbar click (this
  grants activeTab), records the grant in storage.session, relays permission removal (the panel stops
- the task if its site access is removed).
+ the task if its site access is removed), drops a closed window's saved task and task-box draft.
 ```
 
 One Session and one vault exist **per task**. The perception worker lives as long as the panel:
 it starts (and loads the ~110 MB of models) when the panel opens, and a `reset` message after each
 task drops that task's last capture and cached per-region findings. It is recreated only when the
 backend or NER setting changes ([main.tsx:489, 642, 707-713](../apps/extension/entrypoints/sidepanel/main.tsx#L489)).
+
+### Closing the panel
+
+Closing the panel ends its page, and with it the task (Session, vault, model session, worker). What
+survives is the panel's **view** of the task: [host/saved-task.ts](../apps/extension/src/host/saved-task.ts)
+saves the task text, tab, panel state, run log and sanitized HISTORY to `storage.session` (memory
+only), one record per window, at most every 400 ms and on `pagehide`. A reopened panel restores
+it; a record left in a running state shows as **Interrupted** with Resume and Dismiss. Resume calls
+`handleStart` with the record: same tab (or the active one if it closed), run log kept, and
+`Session` gets `resume: { history, stepsDone }`, so step ids continue and the model sees the earlier
+HISTORY with sealed refs reduced to their type (a fresh vault, fresh budgets). The background
+removes a window's record when the window closes. Records stay under 4 MB by dropping older
+screenshots, then older payloads. The text in the task box (run or not) is saved the same way, per
+window, on every change (`aegis.draft.<windowId>`), and put back when the panel reopens; Dismiss
+leaves it, closing the window drops it.
 
 ## 4. Task start (main.tsx `handleStart`)
 
@@ -189,6 +204,7 @@ is **grey-by-default**: only DOM boxes proven clean are copied from the capture.
 | User denies a confirmation / gives no answer | `USER_DECLINED` / `NEEDS_USER` |
 | CAPTCHA not solved in 5 min | `CAPTCHA_DETECTED` |
 | Tab closed, non-web page, no host permission after navigation | `PAGE_DISCONNECTED` |
+| Panel closed | Task ends with the page (no stop event); reopened, it shows **Interrupted** with Resume (§3) |
 
 ## 9. Contracts
 

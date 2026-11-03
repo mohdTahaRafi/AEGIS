@@ -87,6 +87,7 @@ def main() -> int:
     parser.add_argument("--model", help="--byok: the provider's model id (default: the extension's choice for that provider)")
     parser.add_argument("--model-url", help="--byok: OpenAI-compatible endpoint the key is used with (default: the provider's); e.g. http://127.0.0.1:8799/v1 for fake_vlm.py")
     parser.add_argument("--locale", default="en-IN", help="browser language; the extension takes the user's country from it (default en-IN, the user's)")
+    parser.add_argument("--close-panel-at-step", type=int, help="--watch: close the panel once step N has started, reopen it in the same window, then press Resume on its Interrupted card (what closing the side panel mid-task does)")
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=800)
     args = parser.parse_args()
@@ -182,6 +183,16 @@ def main() -> int:
                 }""",
                 page.url,
             )
+        # A spare tab keeps the panel's window open when the panel tab closes, as the browser window
+        # stays open when the side panel closes; the panel reopens in it. The saved task is per window.
+        spare = None
+        if args.close_panel_at_step:
+            if not args.watch:
+                sys.exit("--close-panel-at-step needs --watch")
+            with context.expect_page() as spare_info:
+                panel.evaluate("async () => { const w = await chrome.windows.getCurrent(); await chrome.tabs.create({ windowId: w.id, url: 'about:blank', active: false }); }")
+            spare = spare_info.value
+        resumed = None
         page.bring_to_front()
         t0 = time.monotonic()
         panel.evaluate("(a) => { window.__aegisRunTask(a[0], undefined, a[1] ?? undefined); }", [args.task, target_tab])
@@ -191,6 +202,25 @@ def main() -> int:
             state = panel.evaluate("(document.querySelector('header')?.innerText ?? '').trim().split('\\n').pop()")
             if any(state.startswith(w) for w in TERMINAL):
                 break
+            progress = panel.evaluate("document.querySelector('[data-testid=task-progress]')?.innerText ?? ''")
+            if spare is not None and f"Step {args.close_panel_at_step}" in progress:
+                panel.screenshot(path=str(out / "panel-before-close.png"), full_page=True)
+                panel.close()
+                print(f"panel closed at step {args.close_panel_at_step}", file=sys.stderr, flush=True)
+                time.sleep(4)
+                spare.goto(f"chrome-extension://{ext}/sidepanel.html")
+                panel, spare = spare, None
+                panel.on("console", lambda m: logs.append(f"[{m.type}] {m.text}"))
+                card = panel.locator("[data-testid=task-interrupted]")
+                card.wait_for(timeout=10000)
+                time.sleep(3)  # long enough to see the restored run log and the card
+                panel.screenshot(path=str(out / "panel-reopened.png"), full_page=True)
+                resumed = True
+                page.bring_to_front()
+                panel.get_by_role("button", name="Resume").click()
+                print("pressed Resume", file=sys.stderr, flush=True)
+                time.sleep(1.0)
+                continue
             allow = panel.locator("button", has_text="Allow once")
             if allow.count() > 0:
                 if args.watch:
@@ -273,7 +303,8 @@ def main() -> int:
         "load_s": round(load_s, 1),
         "task_s": round(elapsed, 1),
         "timed_out": timed_out,
-        "panel_state": next((l for l in lines if l in ("Done", "Error", "Blocked by guard", "Idle", "Running", "Loading")), ""),
+        "panel_state": next((l for l in lines if l in ("Done", "Error", "Blocked by guard", "Idle", "Running", "Loading", "Interrupted")), ""),
+        "panel_closed_and_resumed": resumed is not None,
         "panel_error": next((l for l in lines if l.startswith("Error:")), None),
         "panel_perception": [l for l in lines if l.startswith(("Perception", "ran:", "crops:", "redactions by source", "Redactions"))],
         "filled_values_leaked": leaks,

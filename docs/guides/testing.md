@@ -31,7 +31,10 @@ Browser tests that load models need the models in `apps/extension/public/models/
 
 Unit tests drive `Session` with synchronous fakes, and the harnesses run the dev build. A change to
 how the agent or the extension behaves is shown working in a **visible** run on a real site
-(`tools/e2e/probe_site.py --watch`, `CLAUDE.md` rule 8). For the release package as a user gets it:
+(`tools/e2e/probe_site.py --watch`, `CLAUDE.md` rule 8). `--close-panel-at-step N` closes the panel
+once step N has started, reopens it in the same window and presses Resume on its Interrupted card
+(the saved-task path, `src/host/saved-task.ts`); it writes `panel-before-close.png` and
+`panel-reopened.png` beside the usual screenshots. For the release package as a user gets it:
 
 ```bash
 python3 -m http.server 8080 --bind 127.0.0.1 --directory demo &

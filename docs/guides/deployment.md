@@ -69,7 +69,7 @@ Bump `version` in `apps/extension/package.json` before a store submission.
 |---|---|
 | `activeTab` | screenshot of the tab the user invoked AEGIS on when site access is restricted to "On click" (the toolbar click grants it) |
 | `scripting`, `tabs` | inject the page reader into the task's tab and follow tabs the task opens |
-| `storage` | the user's settings and API key, in this browser only |
+| `storage` | the user's settings and API key, in this browser only; the current task's text and run log in session memory, so closing the panel does not lose it |
 | `sidePanel` | the AEGIS panel |
 | host `<all_urls>` | read and screenshot the task's own tab, on whichever site the task moves to |
 | host `https://generativelanguage.googleapis.com/*`, `https://api.groq.com/*`, `https://api.mistral.ai/*`, `https://openrouter.ai/*` | send the redacted step to the provider the user chose, with the user's key |

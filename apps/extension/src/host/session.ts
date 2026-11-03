@@ -94,6 +94,25 @@ export type SessionEvent =
    * page; shown in the panel, never sent anywhere). */
   | { type: 'commentary'; stepId: string; thought?: string; notes?: string; checklist?: string; model?: string; tier?: 'fast' | 'smart' };
 
+/** One finished step as the model is shown it in HISTORY: sanitized names and titles only. */
+export type HistoryEntry = { step_id: string; page?: string; actions: { op: string; node?: string; name?: string }[]; outcome: string };
+
+/** A sealed reference from an earlier run (`⟪EMAIL#1⟫`) means nothing to this run's fresh vault,
+ * which may mint the same ref for a different value: the model is shown only its type. */
+function sealPriorRefs(text: string): string {
+  return text.replace(/⟪([A-Z_]+)#\d+⟫/g, '⟪$1⟫');
+}
+
+function sealPriorEntry(entry: HistoryEntry): HistoryEntry {
+  const sealed: HistoryEntry = {
+    step_id: entry.step_id,
+    actions: entry.actions.map((a) => (a.name === undefined ? { ...a } : { ...a, name: sealPriorRefs(a.name) })),
+    outcome: sealPriorRefs(entry.outcome),
+  };
+  if (entry.page !== undefined) sealed.page = sealPriorRefs(entry.page);
+  return sealed;
+}
+
 export type StopReason =
   | BudgetReasonCode
   | 'BLOCKED'
@@ -254,6 +273,9 @@ export interface SessionDeps {
   /** Longest wait for one graph from the content script before the page is treated as gone and
    * re-attached. */
   graphTimeoutMs?: number;
+  /** Continue a task whose panel was closed mid-run: its HISTORY so far and how many steps it ran,
+   * so step ids carry on from there. Budgets start afresh. */
+  resume?: { history: readonly HistoryEntry[]; stepsDone: number };
 }
 
 export interface BrowserControl {
@@ -414,7 +436,7 @@ export class Session {
   private allSeenNodes = new Map<string, WireScreenNode>();
   /** Node names exactly as sent in the last payload: the panel describes plans with these. */
   private sentNames = new Map<string, string>();
-  private history: { step_id: string; page?: string; actions: { op: string; node?: string; name?: string }[]; outcome: string }[] = [];
+  private history: HistoryEntry[] = [];
   /** One-time clicks already done this task ("Add to Cart"…), by page title and element name, with
    * the step that did them: a model that lost track and comes back is told, not obeyed. */
   private doneOnce = new Map<string, string>();
@@ -478,6 +500,7 @@ export class Session {
     this.now = deps.now ?? (() => Date.now());
     this.budgets = new BudgetTracker(deps.budgetLimits ?? DEFAULT_BUDGETS, this.now);
     this.policy = deps.policy ?? defaultPolicy;
+    if (deps.resume) this.history = deps.resume.history.map(sealPriorEntry);
     this.digestGuard = deps.perception?.digestGuard ?? new GeometryDigestGuard();
   }
 
@@ -502,6 +525,11 @@ export class Session {
         },
       );
     });
+  }
+
+  /** HISTORY so far, for continuing the task after the panel closes (sanitized only). */
+  getHistory(): HistoryEntry[] {
+    return this.history.map((entry) => ({ ...entry, actions: entry.actions.map((a) => ({ ...a })) }));
   }
 
   getLedger(): Ledger {
@@ -811,7 +839,7 @@ export class Session {
     this.controller.send({ type: 'prepared' });
     this.emitState();
     this.task = task;
-    let stepIndex = 0;
+    let stepIndex = this.deps.resume?.stepsDone ?? 0;
     let failures = 0;
     // Nothing that goes wrong inside one step ends the task: a crash, an unreachable page or
     // server, a refused payload all end THAT step, and the next one starts from a fresh look at

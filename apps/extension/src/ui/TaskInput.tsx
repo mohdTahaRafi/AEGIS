@@ -9,10 +9,18 @@ export interface TaskInputProps {
   disabled?: boolean;
   onStart: (task: string) => void;
   onStop: () => void;
+  /** The text, when the owner keeps it (the panel saves it so a closed panel does not lose it). */
+  value?: string;
+  onValueChange?: (text: string) => void;
 }
 
-export function TaskInput({ running, disabled, onStart, onStop }: TaskInputProps) {
-  const [task, setTask] = useState('');
+export function TaskInput({ running, disabled, onStart, onStop, value, onValueChange }: TaskInputProps) {
+  const [ownTask, setOwnTask] = useState('');
+  const task = value ?? ownTask;
+  const setTask = (text: string) => {
+    setOwnTask(text);
+    onValueChange?.(text);
+  };
 
   const canSubmit = !disabled && task.trim().length > 0;
 

@@ -1028,6 +1028,36 @@ Justify every change with a before/after number (T-5.14).
 
 ---
 
+## Follow-ups from 2026-11-03 (task survives closing the panel)
+
+- [x] **PERSIST-1** Closing the side panel lost the running task and its log. The panel now saves the
+  task, run log, state and sanitized HISTORY to `storage.session` per window
+  (`src/host/saved-task.ts`); reopened, it shows them again, and a task cut off mid-run gets an
+  "Interrupted" card with Resume (continues on its tab, next step id, earlier HISTORY given to the
+  model with sealed refs reduced to their type) and Dismiss. Unit tests: `saved-task.spec.ts`,
+  `session.spec.ts` ("resuming a task…"). Visible run 2026-11-03: `probe_site.py
+  https://en.wikipedia.org/wiki/Main_Page "Search Wikipedia for Alan Turing, open his article and tell
+  me the year he was born" --watch --byok --provider gemini --close-panel-at-step 2`: panel closed
+  during step 2, reopened showing step 1 and "Interrupted", Resume sent s-2 with s-1 in HISTORY,
+  Done ("born in 1912"). n=1, Chromium (Playwright), Gemini Flash-Lite fallback chain, WASM.
+- [x] **PERSIST-5** A prompt typed in the task box (not yet run) was lost when the panel closed. The
+  draft is now saved to `storage.session` per window on every change and restored on reopen
+  (`saveDraft` / `loadDraft` in `src/host/saved-task.ts`; `TaskInput` takes `value` /
+  `onValueChange`). Tests: `saved-task.spec.ts`, `ui.spec.tsx`. Visible check 2026-11-03 (Chromium
+  via Playwright, dev build, scratch script, no model call): typed "Find the population of India
+  and the year of the last census" into the panel beside en.wikipedia.org, closed the panel tab,
+  reopened it in the same window: the box showed the same text.
+- [ ] **PERSIST-2** The task still stops when the panel closes. Keeping it running needs the agent
+  out of the panel (Chrome offscreen document with tabs/capture/scripting proxied through the
+  service worker; Firefox background page) — see decision `PERSIST-RESUME`.
+- [ ] **PERSIST-3** Saves are throttled to one per 400 ms and the last one on `pagehide` may not land,
+  so the restored log can be one step behind (seen in the run above: closed in step 2, restored at
+  step 1). Resume is still correct (it re-observes); a resumed run's setup notes land under the last
+  restored step.
+- [ ] **PERSIST-4** Same visible run, original panel, before the close: step s-2 on the Alan Turing
+  article was held back by the guard with `SCHEMA` (nothing sent; the next step went fine). Not caused
+  by this change (non-resumed path); find which field fails the schema on that page.
+
 ## Decision log
 
 Add one row per decision.
@@ -1082,5 +1112,9 @@ Add one row per decision.
 | 2026-10-25 | UNWIRED-KEEP | Modules that are built and tested but have no production caller stay in the tree, listed in architecture-as-built.md §11. | Product owner's call: kept for later work rather than deleted. |
 | 2026-10-25 | MACHINE-NO-BLOCK | The controller no longer models a `BLOCK` state or the `guard_block` / `reconciled_locally` events. | No code sent them: a guard block fails only the step and the session sends `recover`. |
 | 2026-10-25 | HISTORY-FWD | Pushed git history is not rewritten. Commits from now on follow CONTRIBUTING.md. | Rewriting `main` would force-push over five authors' commits. |
+| 2026-11-03 | PERSIST-RESUME | Closing the panel still ends the task; the panel saves and restores its view and offers Resume. The agent is not moved out of the panel. | Product owner's choice between "restore + resume" and "keep running when closed". The second rewrites the runtime-context layout (§15.2) and every browser call in the panel wiring. |
+| 2026-11-03 | PERSIST-STORE | The saved task lives in `storage.session` (memory-only, extension pages only), one record per window, removed when the window closes or on Dismiss. It holds the task text as typed, the run log (sanitized payloads, redacted screenshots, model text) and HISTORY; never vault values or raw captures. Older steps' screenshots, then payloads, are dropped to keep a record under 4 MB. | Same lifetime as the session it describes; `storage.local` would put the task text on disk. 10 MB quota shared by the extension. |
+| 2026-11-03 | PERSIST-DRAFT | The task-box draft is kept like the saved task: `storage.session`, per window, dropped with the window; not cleared by Dismiss. | Same privacy reasoning as PERSIST-STORE (the user's own text, memory-only); Dismiss is about the interrupted run, not what the user is typing. |
+| 2026-11-03 | PERSIST-REFS | A resumed run starts a fresh vault; sealed refs in the earlier HISTORY (`⟪EMAIL#1⟫`) are reduced to their type (`⟪EMAIL⟫`). Budgets restart. | The new vault may mint the same ref for a different value; the model must not type an old ref expecting the old value. |
 | — | R7-AC6 | *(fill in when R-7 lands)* "Forced detector miss blocks egress" is read as "the raw value never leaves the device". | |
 | — | R9-face-render | *(fill in)* Whether the sent image shows the mosaic or only the solid fill. | |

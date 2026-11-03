@@ -8,7 +8,8 @@ import { createAgentClient } from '../../src/host/egress/agent-client';
 import { verifyApiKey } from '../../src/host/egress/model-client';
 import { PROVIDERS, type ProviderId } from '../../src/host/egress/providers';
 import { PERCEPTION_MODELS } from '../../src/host/perception-client/model-specs';
-import { Session, type SessionEvent, type StepRecord } from '../../src/host/session';
+import { Session, type HistoryEntry, type SessionEvent, type StepRecord } from '../../src/host/session';
+import { forgetTask, loadDraft, loadTask, saveDraft, saveTask, stepsStarted, wasCutOff, type SavedTask } from '../../src/host/saved-task';
 import { PerceptionClient, type WorkerProblem } from '../../src/host/perception-client/client';
 import type { CaptureResult } from '../../src/host/capture/classify';
 import { captureTargetTab, type CaptureTarget } from '../../src/host/capture/capture-tab';
@@ -180,6 +181,8 @@ const GATEWAY_OPEN_ATTEMPTS = 6;
 // Re-attaching to a page AEGIS's own action loaded: past this the page is reported unreachable.
 const ATTACH_DEADLINE_MS = 60_000;
 const WEB_PAGE = /^https?:\/\//;
+// The saved task (host/saved-task.ts) is written at most this often while a task runs.
+const SAVE_EVERY_MS = 400;
 
 type InjectableFiles = NonNullable<Parameters<typeof browser.scripting.executeScript>[0]['files']>;
 
@@ -312,6 +315,75 @@ function App() {
   questionRef.current = questionRequest;
   const grantRef = useRef(grantRequest);
   grantRef.current = grantRequest;
+  // The task is saved per window (host/saved-task.ts): set once the saved one has been looked for.
+  const savedTaskReadyRef = useRef(false);
+  // A task cut off by closing the panel, as saved: Resume continues it. Kept until a session starts.
+  const [resumable, setResumable] = useState<SavedTask | null>(null);
+  // A task has been started from this panel: a saved one is no longer restored over it.
+  const startedRef = useRef(false);
+  // The task's tab (it follows the task into tabs it opens) and the HISTORY to save until the
+  // task's Session exists, for the saved record.
+  const taskTargetRef = useRef<CaptureTarget | null>(null);
+  const priorHistoryRef = useRef<HistoryEntry[]>([]);
+  const pendingSaveRef = useRef<SavedTask | null>(null);
+  // The task box's text, saved on every change so closing the panel does not lose it.
+  const [draft, setDraft] = useState('');
+  const draftTouchedRef = useRef(false);
+
+  function changeDraft(text: string): void {
+    draftTouchedRef.current = true;
+    setDraft(text);
+    browser.windows
+      .getCurrent()
+      .then((win) => (win.id === undefined ? undefined : saveDraft(browser.storage.session, win.id, text)))
+      .catch((err: unknown) => console.error('[aegis] saving the draft', err));
+  }
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function flushSave(): void {
+    if (saveTimerRef.current !== null) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = null;
+    const pending = pendingSaveRef.current;
+    pendingSaveRef.current = null;
+    // The window is looked up on every save: a panel page moved to another window (the harness's
+    // visible runs do this) saves where it now is.
+    if (pending)
+      browser.windows
+        .getCurrent()
+        .then((win) => (win.id === undefined ? undefined : saveTask(browser.storage.session, win.id, pending)))
+        .catch((err: unknown) => console.error('[aegis] saving the task', err));
+  }
+
+  function restoreTask(saved: SavedTask): void {
+    const state = wasCutOff(saved.state) ? 'interrupted' : saved.state;
+    const latest = saved.log.steps.findLast((s) => s.payload !== undefined);
+    setCurrentTask({ text: saved.task, startedAt: saved.startedAt });
+    setRunLog(saved.log);
+    setSteps(saved.log.steps.flatMap((s) => (s.record ? [s.record] : [])));
+    setLastPayload(latest?.payload ?? null);
+    setProtectedFields(latest?.protectedFields ?? []);
+    setErrorMessage(saved.errorMessage);
+    setPanelState(state);
+    taskTargetRef.current = { tabId: saved.tabId, origin: '' };
+    priorHistoryRef.current = saved.history;
+    if (state === 'interrupted') setResumable({ ...saved, state });
+  }
+
+  // Every change to the task's view is saved, so a closed panel shows it again when reopened.
+  useEffect(() => {
+    if (!savedTaskReadyRef.current || !currentTask) return;
+    pendingSaveRef.current = {
+      version: 1,
+      task: currentTask.text,
+      startedAt: currentTask.startedAt,
+      tabId: taskTargetRef.current?.tabId ?? -1,
+      state: panelState,
+      errorMessage,
+      log: runLog,
+      history: sessionRef.current?.getHistory() ?? priorHistoryRef.current,
+    };
+    saveTimerRef.current ??= setTimeout(flushSave, SAVE_EVERY_MS);
+  }, [currentTask, runLog, panelState, errorMessage]);
 
   useEffect(() => {
     void loadSettings(browser.storage.local, defaultSettings(GATEWAY_URL, GATEWAY_TOKEN)).then((loaded) => {
@@ -319,7 +391,20 @@ function App() {
       setSettings(loaded);
       setSettingsLoaded(true);
     });
-    const onUnload = () => perceptionRef.current?.client.terminate();
+    void browser.windows
+      .getCurrent()
+      .then(async (win) => {
+        if (win.id === undefined || !browser.storage.session) return;
+        const [saved, savedDraft] = await Promise.all([loadTask(browser.storage.session, win.id), loadDraft(browser.storage.session, win.id)]);
+        savedTaskReadyRef.current = true;
+        if (savedDraft && !draftTouchedRef.current) setDraft(savedDraft);
+        if (saved && !startedRef.current) restoreTask(saved);
+      })
+      .catch((err: unknown) => console.error('[aegis] restoring the task', err));
+    const onUnload = () => {
+      flushSave();
+      perceptionRef.current?.client.terminate();
+    };
     window.addEventListener('pagehide', onUnload);
     return () => window.removeEventListener('pagehide', onUnload);
   }, []);
@@ -412,9 +497,10 @@ function App() {
     }
   }
 
-  /** `targetTabId`: harness only (`__aegisRunTask`) — the tab to run on when the panel is not in
-   * that tab's window (a visible run puts the panel in its own window beside the page). */
-  async function handleStart(task: string, canaries?: readonly string[], targetTabId?: number): Promise<void> {
+  /** `targetTabId`: the tab to run on when it is not the active one — a resumed task's own tab, or
+   * (harness, `__aegisRunTask`) a page beside a panel in its own window. `resume`: a task cut off
+   * by closing the panel, continued with its run log and HISTORY. */
+  async function handleStart(task: string, canaries?: readonly string[], targetTabId?: number, resume?: SavedTask): Promise<void> {
     setErrorMessage(null);
     const current = settingsRef.current;
     const apiKey = activeApiKey(current);
@@ -424,11 +510,19 @@ function App() {
       setErrorMessage(`API_KEY_MISSING - add your free ${providerName} API key in the box at the top of this panel, then Run again`);
       return;
     }
+    startedRef.current = true;
+    sessionRef.current = null;
+    setSession(null);
+    priorHistoryRef.current = resume?.history ?? [];
+    taskTargetRef.current = resume ? { tabId: resume.tabId, origin: '' } : null;
+    if (!resume) setResumable(null);
     setCurrentTask({ text: task, startedAt: Date.now() });
-    setRunLog(EMPTY_RUN_LOG);
-    setProtectedFields([]);
-    setSteps([]);
-    setLastPayload(null);
+    if (!resume) {
+      setRunLog(EMPTY_RUN_LOG);
+      setProtectedFields([]);
+      setSteps([]);
+      setLastPayload(null);
+    }
     setGuardBlock(null);
     setWorkerProblems([]);
     setPanelState('loading');
@@ -448,6 +542,7 @@ function App() {
       return;
     }
     const origin = new URL(tab.url).origin;
+    if (resume) note(`Resumed after the panel was closed: continuing after step ${stepsStarted(resume.log)}`);
     note(`AEGIS build ${import.meta.env.VITE_AEGIS_BUILD ?? 'unknown'} UTC`);
     note(`Task "${task}" on ${origin}`);
     const permissions = await ensureTaskPermissions(browser.permissions, origin, !allSitesDeclinedRef.current);
@@ -489,6 +584,7 @@ function App() {
     // The task's target: every capture is of this tab. Its origin follows the page when one of
     // AEGIS's own actions navigates (reconnect below).
     const target: CaptureTarget = { tabId: tab.id, origin };
+    taskTargetRef.current = target;
     // Every tab this task has worked in, in first-use order: the model sees them as TABS and can go
     // back to one (switch_tab) or close it. Tabs the user had open otherwise are never listed.
     const taskTabs: number[] = [tab.id];
@@ -784,6 +880,7 @@ function App() {
       browser: browserControl,
       ablation: ablationArm,
       policy: applyAlwaysRedact(defaultPolicy, current.alwaysRedact),
+      resume: resume ? { history: resume.history, stepsDone: stepsStarted(resume.log) } : undefined,
     });
 
     // Site access removed while the task runs (chrome://extensions, or the browser's own menu):
@@ -795,7 +892,9 @@ function App() {
       () => newSession.abort('PAGE_DISCONNECTED', 'site access was removed'),
     );
 
+    sessionRef.current = newSession;
     setSession(newSession);
+    setResumable(null);
     setPanelState('running');
     note('Task started');
     try {
@@ -830,6 +929,32 @@ function App() {
     setUserWait(null);
     taskAbortRef.current?.abort();
     sessionRef.current?.cancel();
+  }
+
+  /** Continues a cut-off task on its own tab, or on the active tab if that one was closed. */
+  async function handleResume(): Promise<void> {
+    const saved = resumable;
+    if (!saved) return;
+    const tabAlive = saved.tabId >= 0 && (await browser.tabs.get(saved.tabId).then(() => true, () => false));
+    await handleStart(saved.task, undefined, tabAlive ? saved.tabId : undefined, saved);
+  }
+
+  function handleDismissSaved(): void {
+    pendingSaveRef.current = null;
+    if (saveTimerRef.current !== null) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = null;
+    browser.windows
+      .getCurrent()
+      .then((win) => (win.id === undefined ? undefined : forgetTask(browser.storage.session, win.id)))
+      .catch(() => undefined);
+    setResumable(null);
+    setCurrentTask(null);
+    setRunLog(EMPTY_RUN_LOG);
+    setSteps([]);
+    setLastPayload(null);
+    setProtectedFields([]);
+    setErrorMessage(null);
+    setPanelState('idle');
   }
 
   function handleAnswer(answer: string | null): void {
@@ -910,7 +1035,7 @@ function App() {
   const statusDotColor =
     panelState === 'error' || panelState === 'no-permission' || panelState === 'blocked' ? C.error
     : panelState === 'done' ? C.ok
-    : panelState === 'awaiting-confirmation' || panelState === 'awaiting-grant' || panelState === 'awaiting-user' ? C.warn
+    : panelState === 'awaiting-confirmation' || panelState === 'awaiting-grant' || panelState === 'awaiting-user' || panelState === 'interrupted' ? C.warn
     : isRunning ? C.accent
     : C.muted;
 
@@ -1035,7 +1160,7 @@ function App() {
           </div>
         )}
 
-        <TaskInput running={isRunning} disabled={needsKey} onStart={handleStart} onStop={handleStop} />
+        <TaskInput running={isRunning} disabled={needsKey} onStart={handleStart} onStop={handleStop} value={draft} onValueChange={changeDraft} />
 
         {/* What AEGIS does, until the first task is run */}
         {!hasRun && !needsKey && panelState !== 'error' && (
@@ -1056,6 +1181,20 @@ function App() {
         {panelState === 'no-permission' && (
           <Notice tone="error" title="AEGIS needs access to this site">
             Allow site access when Chrome asks, then press Run again.
+          </Notice>
+        )}
+
+        {resumable && !isRunning && (
+          <Notice tone="warn" title="Task interrupted" testId="task-interrupted">
+            The AEGIS panel was closed while this task was running, which stopped it. Resume continues it on its tab from where it left off.
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button style={{ ...S.btnPrimary, fontSize: T.xs, padding: '5px 12px' }} onClick={() => void handleResume()} disabled={needsKey}>
+                Resume
+              </button>
+              <button style={{ ...S.btnSecondary, fontSize: T.xs, padding: '5px 12px' }} onClick={handleDismissSaved}>
+                Dismiss
+              </button>
+            </div>
           </Notice>
         )}
 

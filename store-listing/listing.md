@@ -33,7 +33,7 @@ Operate web pages on the user's behalf from a task they type, while redacting se
 - activeTab: capture a screenshot of the tab the user invoked AEGIS on (granted by the toolbar click).
 - scripting: inject the page reader into the task's tab.
 - tabs: find the task's tab and follow tabs the task opens.
-- storage: keep the user's settings and their API key in this browser.
+- storage: keep the user's settings and their API key in this browser, and the current task's text and run log in session memory (cleared when the browser closes) so closing the panel does not lose the task.
 - sidePanel: show the AEGIS panel.
 - Host permissions https://api.mistral.ai/*, https://generativelanguage.googleapis.com/*, https://api.groq.com/*, https://openrouter.ai/*: send the redacted step to the model provider the user chose, with the user's own key.
 - Host permission (all sites): a task reads, screenshots and acts on the pages it moves to, on any site, without stopping to ask; Chrome refuses captureVisibleTab with optional site access. Pages are read only while a user-started task runs, and only redacted content is sent.

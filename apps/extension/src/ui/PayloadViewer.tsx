@@ -29,7 +29,7 @@ export function PayloadViewer({ payload }: PayloadViewerProps) {
 
       {expanded && (
         <div style={{ display: 'flex', gap: 10, flexWrap: zoomed ? 'wrap' : 'nowrap', marginTop: 8 }}>
-          {image && (
+          {image && image.data !== '' && (
             <div style={{ flex: zoomed ? '1 1 100%' : '0 0 auto' }}>
               <img
                 src={`data:image/webp;base64,${image.data}`}

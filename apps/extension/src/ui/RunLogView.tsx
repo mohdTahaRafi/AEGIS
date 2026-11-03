@@ -193,7 +193,7 @@ function StepSection({ step, index, isLast, running, showRawPayload }: { step: S
             </div>
             {payload.image ? (
               <div>
-                Redacted screenshot: {Math.round(payload.image.region[2])}×{Math.round(payload.image.region[3])} CSS px at scale {payload.image.scale.toFixed(2)}, WebP {base64Kb(payload.image.data)} KB
+                Redacted screenshot: {Math.round(payload.image.region[2])}×{Math.round(payload.image.region[3])} CSS px at scale {payload.image.scale.toFixed(2)}, {payload.image.data === '' ? 'WebP not kept (dropped to fit the saved task when the panel was closed)' : `WebP ${base64Kb(payload.image.data)} KB`}
               </div>
             ) : (
               <div style={{ color: C.secondary }}>No screenshot this step (text only).</div>

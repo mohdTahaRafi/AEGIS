@@ -1,5 +1,6 @@
 import type { ActionInvokedMessage, PermissionRevokedMessage } from '../src/shared/messages';
 import { forgetTab, noteTabUrl, recordInvocation } from '../src/shared/invocation';
+import { forgetWindow } from '../src/host/saved-task';
 
 export default defineBackground(() => {
   // The background is deliberately trivial (architecture §5.6): it opens the panel and relays
@@ -12,6 +13,11 @@ export default defineBackground(() => {
       const message: PermissionRevokedMessage = { type: 'permission-revoked', origin };
       browser.runtime.sendMessage(message).catch(() => {});
     }
+  });
+
+  // A window's saved task and task-box draft (host/saved-task.ts) go with the window.
+  browser.windows.onRemoved.addListener((windowId) => {
+    if (browser.storage.session) forgetWindow(browser.storage.session, windowId).catch(() => {});
   });
 
   if (import.meta.env.BROWSER === 'chrome') {

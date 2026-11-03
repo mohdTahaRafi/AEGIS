@@ -737,3 +737,27 @@ describe('Session — vision on every step', () => {
     expect((sendToGateway.mock.calls[0]![0] as { image: unknown }).image).not.toBeNull();
   });
 });
+
+describe('Session — resuming a task cut off by closing the panel', () => {
+  it('continues step ids after the saved run and shows the model its HISTORY, earlier sealed refs reduced to their type', async () => {
+    const sendToGateway = vi.fn().mockResolvedValue({ step_id: 's-4', actions: [{ op: 'done' }] });
+    const history = [
+      { step_id: 's-2', page: 'Account of ⟪EMAIL#1⟫', actions: [{ op: 'type', node: 'n-3', name: 'Email ⟪EMAIL#1⟫' }], outcome: 'acted' },
+      { step_id: 's-3', actions: [{ op: 'click', node: 'n-1' }], outcome: 'acted' },
+    ];
+    const { session, events } = buildSession(sendToGateway, graphResponder, { resume: { history, stepsDone: 3 } });
+
+    await session.start('update my email');
+
+    expect(session.getState()).toBe('DONE');
+    const sent = sendToGateway.mock.calls[0]![0] as { step_id: string; history: typeof history };
+    expect(sent.step_id).toBe('s-4');
+    expect(sent.history.map((h) => h.step_id)).toEqual(['s-2', 's-3']);
+    expect(JSON.stringify(sent.history)).not.toContain('#1');
+    expect(sent.history[0]).toMatchObject({ page: 'Account of ⟪EMAIL⟫', actions: [{ name: 'Email ⟪EMAIL⟫' }] });
+    expect(events.find((e) => e.type === 'step')).toMatchObject({ step: { stepId: 's-4', stepIndex: 4 } });
+    // The caller's saved copy is not touched, and getHistory hands out the sealed copy.
+    expect(history[0]!.page).toBe('Account of ⟪EMAIL#1⟫');
+    expect(session.getHistory()[0]!.page).toBe('Account of ⟪EMAIL⟫');
+  });
+});

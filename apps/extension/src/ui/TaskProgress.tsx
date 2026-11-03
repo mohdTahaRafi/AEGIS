@@ -19,11 +19,12 @@ export interface ProgressStage {
   ms?: number;
 }
 
-export type TaskStatus = 'processing' | 'waiting' | 'completed' | 'failed' | 'cancelled';
+export type TaskStatus = 'processing' | 'waiting' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
 
 export function taskStatus(panelState: PanelState, log: RunLog): TaskStatus {
   if (panelState === 'awaiting-confirmation' || panelState === 'awaiting-grant' || panelState === 'awaiting-user') return 'waiting';
   if (panelState === 'running' || panelState === 'loading') return 'processing';
+  if (panelState === 'interrupted') return 'interrupted';
   if (log.result?.kind === 'done' || panelState === 'done') return 'completed';
   if (log.result?.kind === 'stopped' && log.result.text.startsWith('CANCELLED')) return 'cancelled';
   if (panelState === 'idle' && !log.result) return 'cancelled';
@@ -114,6 +115,7 @@ const STATUS_BADGE: Record<TaskStatus, { label: string; color: string; bg: strin
   completed: { label: 'Completed', color: C.ok, bg: C.okBg },
   failed: { label: 'Failed', color: C.error, bg: C.errorBg },
   cancelled: { label: 'Cancelled', color: C.secondary, bg: '#f1f3f5' },
+  interrupted: { label: 'Interrupted', color: C.warn, bg: C.warnBg },
 };
 
 function StageIcon({ state, index }: { state: StageState; index: number }) {
@@ -172,7 +174,7 @@ export function TaskProgress({ task, startedAt, panelState, log }: TaskProgressP
   const live = status === 'processing' || status === 'waiting';
   const elapsed = useElapsed(startedAt, live);
   const step = log.steps.at(-1);
-  const stages = stepStages(step, live, status === 'cancelled' ? 'cancelled' : 'failed');
+  const stages = stepStages(step, live, status === 'cancelled' || status === 'interrupted' ? 'cancelled' : 'failed');
   const badge = STATUS_BADGE[status];
   // A finished task's answer card says how it ended; the stages stay for one that did not finish.
   const showStages = status !== 'completed' && (live || log.steps.length > 0);

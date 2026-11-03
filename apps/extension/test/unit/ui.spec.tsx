@@ -41,6 +41,7 @@ const ALL_PANEL_STATES: PanelState[] = [
   'blocked',
   'error',
   'done',
+  'interrupted',
 ];
 
 describe('PanelStates (T-2.30 / T-3.31 / T-3.34 AC — eight states, visually distinct)', () => {
@@ -122,6 +123,16 @@ describe('TaskInput (T-2.26 AC)', () => {
     stopButton.click();
     expect(onStop).toHaveBeenCalled();
     expect(el.querySelector('textarea')!.disabled).toBe(true);
+  });
+
+  it('shows the text it is given and reports every change (the panel saves the draft)', async () => {
+    const onValueChange = vi.fn();
+    const el = mount(<TaskInput running={false} onStart={() => {}} onStop={() => {}} value="find the price" onValueChange={onValueChange} />);
+    const input = el.querySelector('textarea')!;
+    expect(input.value).toBe('find the price');
+    input.value = 'find the price of an SSD';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(onValueChange).toHaveBeenCalledWith('find the price of an SSD');
   });
 });
 
@@ -310,6 +321,7 @@ describe('TaskProgress stages — read from the run log, never assumed', () => {
   it('a cancelled task is not reported as failed', () => {
     expect(taskStatus('idle', { ...EMPTY_RUN_LOG, result: { kind: 'stopped', text: 'CANCELLED' } })).toBe('cancelled');
     expect(taskStatus('error', { ...EMPTY_RUN_LOG, result: { kind: 'stopped', text: 'SERVER_ERROR: x' } })).toBe('failed');
+    expect(taskStatus('interrupted', EMPTY_RUN_LOG)).toBe('interrupted');
   });
 });
 

@@ -10,6 +10,10 @@ Everything that reads your screen runs inside the extension, in your browser:
 - the page reader, the on-device vision models (face, text, image screening) and the detectors that
   find sensitive values (Aadhaar, PAN, card numbers, phone, email, passwords, faces, ID documents, …);
 - the vault that holds real values, in memory only and cleared when a task ends;
+- the panel's view of your current task, so closing the panel does not lose it: the task text you
+  typed, the run log (what was sent, which is already redacted, and the model's replies). It is kept in
+  the browser's session memory, never written to disk, holds no real sensitive values, and is cleared
+  when you close that browser window or the browser, or press Dismiss;
 - the check that re-scans everything just before it is sent.
 
 The models are part of the extension package. Nothing is downloaded after installation.
@@ -52,7 +56,7 @@ tasks, pages, screenshots or key.
 ## Permissions
 
 `activeTab`, `scripting`, `tabs` (read and act on the task's page and the tabs it opens), `storage`
-(settings and key), `sidePanel` (the panel), the host permissions for the four model APIs (send the
+(settings and key; the current task's view in session memory), `sidePanel` (the panel), the host permissions for the four model APIs (send the
 redacted step), and site access on all sites. Site access lets a task read and screenshot pages on any
 site it moves to without stopping to ask; Chrome does not allow screenshots with optional site access.
 AEGIS reads a page only while a task you started is running on it, and nothing leaves your device
