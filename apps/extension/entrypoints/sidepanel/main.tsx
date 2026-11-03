@@ -32,7 +32,7 @@ import type { ProtectedField } from '../../src/host/session';
 import { PrivacyCard } from '../../src/ui/PrivacyCard';
 import { TaskProgress } from '../../src/ui/TaskProgress';
 import { ErrorNotice, Notice } from '../../src/ui/Notice';
-import { IconGear, Logo } from '../../src/ui/icons';
+import { IconGear } from '../../src/ui/icons';
 import { Settings } from '../../src/ui/Settings';
 import type { SanitizedContext } from '@aegis/protocol';
 import type { EntityType } from '@aegis/recognizers';
@@ -1079,15 +1079,8 @@ function App() {
           zIndex: 10,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-          <Logo size={24} color={C.accent} />
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: C.strong, lineHeight: 1.15, letterSpacing: '0.02em' }}>AEGIS</div>
-            <div style={{ fontSize: T.xs, color: C.secondary, lineHeight: 1.2 }}>Private browser agent</div>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexDirection: 'row-reverse' }}>
+        {/* No name or logo: the browser's own side-panel bar above already shows them. */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexDirection: 'row-reverse', flex: 1 }}>
           {/* The state pill is the header's last line of text: the e2e harness reads it there. */}
           <button
             class="ag-ghost"

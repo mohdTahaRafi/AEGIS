@@ -1047,6 +1047,12 @@ Justify every change with a before/after number (T-5.14).
   via Playwright, dev build, scratch script, no model call): typed "Find the population of India
   and the year of the last census" into the panel beside en.wikipedia.org, closed the panel tab,
   reopened it in the same window: the box showed the same text.
+- [x] **UI-1** The panel showed "AEGIS" twice: Chrome's side-panel bar (not removable by an extension)
+  and the panel's own logo/name header. The panel header now has only the state pill and Settings.
+  Settings had `maxWidth: 480` and stayed narrow in a wide panel; it now fills the panel, and the
+  per-type redaction list is a grid that adds columns as the panel widens. Visible check 2026-11-03
+  (Chromium via Playwright, panel page in a window at 500 and 800 px): Settings 500/756 px wide,
+  redaction list 2/3 columns.
 - [ ] **PERSIST-2** The task still stops when the panel closes. Keeping it running needs the agent
   out of the panel (Chrome offscreen document with tabs/capture/scripting proxied through the
   service worker; Firefox background page) — see decision `PERSIST-RESUME`.

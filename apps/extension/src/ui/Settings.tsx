@@ -60,7 +60,6 @@ export function Settings({ value, entityTypes, release, onSaveKey, onTestKey, on
       style={{
         padding: '16px',
         fontSize: T.sm,
-        maxWidth: 480,
         background: C.bg,
         minHeight: '100vh',
         boxSizing: 'border-box',
@@ -305,9 +304,13 @@ export function Settings({ value, entityTypes, release, onSaveKey, onTestKey, on
           </span>
         </div>
 
+        {/* More columns as the panel widens, so a wide panel shows most types without scrolling. */}
         <div
           style={{
-            maxHeight: 180,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+            columnGap: 16,
+            maxHeight: 'min(360px, 45vh)',
             overflowY: 'auto',
             border: `1px solid ${C.border}`,
             borderRadius: R.sm,

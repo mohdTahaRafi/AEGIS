@@ -88,11 +88,3 @@ export const IconSpinner = ({ size = 14, color }: IconProps) => (
     <path d="M21 12a9 9 0 00-9-9" stroke={color ?? 'currentColor'} strokeWidth="3" strokeLinecap="round" />
   </svg>
 );
-
-/** The AEGIS mark: a filled shield with a check. */
-export const Logo = ({ size = 22, color }: { size?: number; color: string }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
-    <path d="M12 2L4 6v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V6l-8-4z" fill={color} />
-    <path d="M9 12l2 2 4-4" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
